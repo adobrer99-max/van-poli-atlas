@@ -106,11 +106,19 @@ committing a change under `src/` or `boundaries/`.
 
 `src/` holds the parts: `a-geo.js` (projections, point-in-polygon, spatial
 index), `b-text.js` (delimited text, XML, KML), `c-binary.js` (ZIP, DBF, SHP),
-`d-ingest.js` (format dispatch and reprojection), `e-analysis.js` (crosswalk and
-statistics), `f-results.js` (results joining), `f2-turnout.js` (turnout,
-apportionment, ranking), `g1`–`g4` and `g9` (the application, one shared
-scope), plus the shared stylesheet and two vendored libraries: d3 v7 for the
-charts and Leaflet 1.9.4 for the map. The Leaflet files are the unmodified
+`d-ingest.js` (format dispatch, reprojection, clipping big files to the study
+area), `e-analysis.js` (the lattice sample, crosswalks between any two layers,
+population weights, statistics), `f-results.js` (results joining),
+`f2-turnout.js` (turnout, apportionment, ranking), `f3-census.js` (Statistics
+Canada's Census Profile and Geographic Attribute File), `g1`–`g4` and `g9` (the
+application, one shared scope), plus the shared stylesheet and two vendored
+libraries: d3 v7 for the charts and Leaflet 1.9.4 for the map.
+
+`tools/` holds two standard-library Python scripts that run on your own
+machine: `shp.py` (shapefile and DBF reading, writing and clipping, also used
+by the fixture generators) and `filter_census.py`, which cuts Statistics
+Canada's national census downloads down to a study area and writes the small
+files the atlas reads (`python3 tools/filter_census.py --help`). The Leaflet files are the unmodified
 `dist/leaflet.js` and `dist/leaflet.css` from `npm pack leaflet@1.9.4`; to
 upgrade, repeat that and replace the two files.
 
@@ -123,23 +131,26 @@ npm run fixtures                     # writes fixtures/: real SHP/DBF/PRJ/KMZ + 
 npm test                             # the node suites, then the two browser suites
 ```
 
-`npm run test:node` runs only the node suites (no browser needed);
-`npm run test:browser` only the Playwright ones; any single suite runs as
-`node tests/test-geo.js` and so on. `tests/run.js` stops at the first failing
-suite. GitHub Actions (`.github/workflows/ci.yml`) runs exactly these steps on
+`npm run test:node` runs the node suites and the Python tool suites (no
+browser needed); `npm run test:browser` only the Playwright ones; any single
+suite runs as `node tests/test-geo.js` or `python3 tests/test-shp-tools.py`
+and so on. `tests/run.js` stops at the first failing suite. GitHub Actions (`.github/workflows/ci.yml`) runs exactly these steps on
 every pull request, plus a check that the committed
 `vancouver-boundary-atlas.html` matches a fresh build.
 
-330+ assertions. The browser suites drive the real page in Chromium through
+440+ assertions. The browser suites drive the real page in Chromium through
 Playwright: loading each boundary format, joining results, building the
 crosswalk, ranking turnout, exporting CSV, dark mode, phone-width layout, and
 the basemap with tile requests stubbed — including a run where every tile
 fails, to check the atlas carries on without them.
 
-The projection is checked against control points produced by an independent
-forward implementation in `tests/make-fixtures.py`, and separately by the
-equal-area property — planar area against geodesic area, computed by unrelated
-code paths, agreeing to better than 0.05%.
+The projections are checked against control points produced by independent
+forward implementations in `tests/make-fixtures.py` (BC Albers and Statistics
+Canada Lambert), and separately by their defining properties: equal area for
+Albers (planar against geodesic area, computed by unrelated code paths,
+agreeing to better than 0.05%) and unit scale on a standard parallel for
+Lambert. The sample-table crosswalk is checked cell for cell against a copy
+of the original two-layer lattice runner.
 
 ## Licence
 

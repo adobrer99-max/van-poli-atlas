@@ -14,10 +14,10 @@ const path = require('path');
 
 const root = path.join(__dirname, '..');
 const NODE_SUITES = ['test-geo', 'test-lcc', 'test-text', 'test-binary', 'test-ingest', 'test-analysis',
-  'test-sample', 'test-slivers', 'test-repair', 'test-results', 'test-turnout', 'test-perf'];
+  'test-sample', 'test-slivers', 'test-repair', 'test-results', 'test-turnout', 'test-census', 'test-perf'];
 const BROWSER_SUITES = ['test-browser', 'test-variants'];
 /* Python suites cover the local tools in tools/; they run with the node ones. */
-const PYTHON_SUITES = ['test-shp-tools'];
+const PYTHON_SUITES = ['test-shp-tools', 'test-filter-census'];
 
 const args = new Set(process.argv.slice(2));
 const suites = args.has('--all') ? NODE_SUITES.concat(BROWSER_SUITES)
