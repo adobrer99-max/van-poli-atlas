@@ -43,11 +43,16 @@ The map is drawn with [Leaflet](https://leafletjs.com). Street tiles come from
 CARTO's Positron (light) and Dark Matter basemaps, which follow the page's
 light or dark theme, or from OpenStreetMap's standard style; all are built on
 OpenStreetMap data. Tiles are requested from the provider while the page is
-open and are never bundled. A tile request tells the provider which part of
-the map you are looking at and nothing else; your boundary and results files
-never leave the machine. If the tiles do not load, the map says so and keeps
-working — choose **None** under Basemap to work fully offline. The attribution
-in the map's corner is required by the providers' terms; leave it in place.
+open and are never bundled. Each tile request is an ordinary web request to
+the provider's servers: like any web request it carries your IP address,
+browser identification and request headers, together with the coordinates of
+the tile, which reveal the area and zoom level on screen. That data is handled
+under the provider's privacy policy (CARTO, or the OpenStreetMap Foundation).
+Nothing else is sent: your boundary and results files never leave the machine.
+If the tiles do not load, the map says so and keeps working — choose **None**
+under Basemap to make no requests at all and work fully offline. The
+attribution in the map's corner is required by the providers' terms; leave it
+in place.
 
 ## Turnout
 
@@ -95,7 +100,9 @@ Three things the code handles that are easy to get wrong:
 python3 build.py                     # writes vancouver-boundary-atlas.html
 ```
 
-`boundaries/fed_polls.geojson` is the federal layer the build inlines.
+`boundaries/fed_polls.geojson` is the federal layer the build inlines. The
+built file is committed, and CI fails when it is out of date, so rebuild before
+committing a change under `src/` or `boundaries/`.
 
 `src/` holds the parts: `a-geo.js` (projections, point-in-polygon, spatial
 index), `b-text.js` (delimited text, XML, KML), `c-binary.js` (ZIP, DBF, SHP),
@@ -110,13 +117,18 @@ upgrade, repeat that and replace the two files.
 ## Tests
 
 ```sh
-python3 tests/make-fixtures.py       # builds real SHP/DBF/PRJ/KMZ fixtures
-python3 tests/make-e2e-fixtures.py
-node tests/test-geo.js               # and text, binary, ingest, analysis,
-                                     # slivers, repair, results, turnout
-node tests/test-browser.js           # needs playwright + chromium
-node tests/test-variants.js
+npm ci                               # Playwright, pinned in package-lock.json
+npx playwright install chromium      # once per machine; only the browser suites need it
+npm run fixtures                     # writes fixtures/: real SHP/DBF/PRJ/KMZ + e2e files
+npm test                             # the node suites, then the two browser suites
 ```
+
+`npm run test:node` runs only the node suites (no browser needed);
+`npm run test:browser` only the Playwright ones; any single suite runs as
+`node tests/test-geo.js` and so on. `tests/run.js` stops at the first failing
+suite. GitHub Actions (`.github/workflows/ci.yml`) runs exactly these steps on
+every pull request, plus a check that the committed
+`vancouver-boundary-atlas.html` matches a fresh build.
 
 330+ assertions. The browser suites drive the real page in Chromium through
 Playwright: loading each boundary format, joining results, building the

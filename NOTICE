@@ -97,6 +97,11 @@ fetches at runtime. This file records what applies to what.
      served subject to the OpenStreetMap Foundation tile usage policy
      (https://operations.osmfoundation.org/policies/tiles/).
 
+   Each tile request is an ordinary web request to the provider's servers. It
+   carries the viewer's IP address, browser identification and request headers
+   together with the tile coordinates (the area and zoom level on screen), and
+   is handled under the provider's privacy policy. Nothing else is sent.
+
    The atlas shows the required attribution in the map's corner. Selecting
    "None" under Basemap stops all tile requests; nothing else in the atlas
    uses the network.
