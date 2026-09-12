@@ -296,6 +296,109 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   const readoutT = await page.locator('#readout').innerText();
   ok('readout shows ballots, electors and turnout on both cards', (readoutT.match(/turnout \d/g) || []).length >= 2, readoutT.slice(0, 300));
   ok('Method tab covers the Elections BC vote-anywhere caveat', /vote-anywhere/.test(await page.evaluate(() => document.querySelector('#panel-method').textContent)));
+  console.log('\n== Census layers: dissemination areas, blocks, attribute file, profile ==');
+  // The Turnout section left the weight at 100% federal; the census checks use the default blend.
+  await page.locator('#tab-turnout').click();
+  await page.locator('#turnout-weight').fill('0.5');
+  await page.locator('#turnout-weight').dispatchEvent('change');
+  await page.waitForTimeout(300);
+  await page.locator('#tab-data').click();
+  await page.locator('#file-da-geo').setInputFiles('fixtures/e2e_da.zip');
+  await page.waitForFunction(() => /Loaded|Could not/.test(document.querySelector('#status-da-geo').innerText), null, { timeout: 20000 });
+  status = await page.locator('#status-da-geo').innerText();
+  ok(`dissemination areas loaded (${expected.census.dissemination_areas})`, new RegExp(`Loaded ${expected.census.dissemination_areas} dissemination areas`).test(status), status);
+  ok('Statistics Canada Lambert read from the Esri .prj', /Statistics Canada Lambert/.test(status), status);
+  ok('DAUID picked as the id field', /Id field: DAUID/.test(status), status);
+  await page.locator('#file-db-geo').setInputFiles('fixtures/e2e_db.zip');
+  await page.waitForFunction(() => /Loaded|Could not/.test(document.querySelector('#status-db-geo').innerText), null, { timeout: 20000 });
+  ok(`blocks loaded (${expected.census.blocks})`, new RegExp(`Loaded ${expected.census.blocks} dissemination blocks`).test(await page.locator('#status-db-geo').innerText()));
+  await page.locator('#file-geo-attr').setInputFiles('fixtures/e2e_geo_attr.csv');
+  await page.waitForTimeout(800);
+  status = await page.locator('#status-geo-attr').innerText();
+  ok('block populations read and summed', new RegExp(`${expected.census.blocks} blocks with a population \\(${expected.census.population.toLocaleString()} people\\)`).test(status), status);
+  await page.locator('#file-census').setInputFiles('fixtures/e2e_census_long.csv');
+  await page.waitForTimeout(1500);
+  status = await page.locator('#status-census').innerText();
+  ok('long profile read for the study area', new RegExp(`long layout: ${expected.census.dissemination_areas} geographies`).test(status), status);
+  ok('all 14 starter variables matched by name', /14 starter variables matched/.test(status), status);
+
+  await page.locator('#tab-map').click();
+  await page.waitForTimeout(600);
+  ok(`dissemination areas drawn (${await page.locator('.layer-da path').count()})`, (await page.locator('.layer-da path').count()) === expected.census.dissemination_areas);
+  ok('census controls appear', await page.locator('#da-controls').isVisible());
+
+  await page.locator('#tab-corr').click();
+  await page.locator('#build-crosswalk').click();
+  await page.waitForFunction(() => /Sampled/.test(document.querySelector('#status-crosswalk').innerText), null, { timeout: 90000 });
+  status = await page.locator('#status-crosswalk').innerText();
+  ok('one sample covers all four layers', /federal polls, voting areas, dissemination areas, dissemination blocks/.test(status), status);
+  ok('overlaps weighted by block population', /weighted by dissemination-block population/.test(status), status);
+  ok('federal-census overlaps reported', new RegExp(`federal–census overlaps across ${expected.census.dissemination_areas} dissemination areas`).test(status), status);
+
+  console.log('\n== Socioeconomic tab ==');
+  await page.locator('#tab-socio').click();
+  await page.waitForTimeout(800);
+  const socioStatus = await page.locator('#socio-status').innerText();
+  ok('dissemination areas carry the aggregate turnout', /dissemination areas carry aggregate turnout/.test(socioStatus), socioStatus);
+  const socioRows = page.locator('#socio-table tbody tr');
+  const nVars = await socioRows.count();
+  ok(`table lists the 14 starter variables (${nVars})`, nVars === 14);
+  // Rows as cells: [variable, n, r, electors-weighted r, rho, |r|, CI].
+  const socioCells = async () => socioRows.evaluateAll((trs) => trs.map((tr) => [...tr.children].map((td) => td.innerText.trim())));
+  let cells = await socioCells();
+  const rowFor = (re) => cells.find((c) => re.test(c[0]));
+  const renterRow = rowFor(/Renter/), incomeRow = rowFor(/household income/), ageRow = rowFor(/Median age/);
+  const rOf = (c) => parseFloat(c[2]);
+  ok(`the two planted variables sort to the top by |r| (${rOf(renterRow)}, ${rOf(incomeRow)})`,
+     [renterRow, incomeRow].includes(cells[0]) && [renterRow, incomeRow].includes(cells[1]) && rOf(renterRow) < -0.8,
+     cells.slice(0, 2).map((c) => c.join(' ')).join(' | '));
+  ok(`planted income correlates positively (${rOf(incomeRow)})`, rOf(incomeRow) > 0.8, incomeRow.join(' '));
+  ok(`noise variable stays near zero (${rOf(ageRow)})`, Math.abs(rOf(ageRow)) < 0.3, ageRow.join(' '));
+  const minAreas = Math.floor(expected.census.dissemination_areas * 0.8);
+  ok(`every starter has a finite r on at least ${minAreas} areas`,
+     cells.every((c) => parseInt(c[1], 10) >= minAreas && /^-?\d/.test(c[2]) && /^-?\d/.test(c[3])),
+     cells.map((c) => c.slice(0, 4).join(' ')).join(' | '));
+  const texts = cells.map((c) => c.join(' '));
+  const socioDots = await page.locator('#socio-scatter circle.dot').count();
+  ok(`scatter of the top variable drawn (${socioDots} dots) with a fit line`, socioDots >= minAreas && (await page.locator('#socio-scatter path.fit-line').count()) === 1);
+  const socioCaption = await page.locator('#socio-scatter-caption').innerText();
+  ok('caption names the variable and the outcome', /^(Renter households|Median household income).* against aggregate turnout, both elections across \d+ dissemination areas/.test(socioCaption), socioCaption);
+  await socioRows.nth(3).click();
+  await page.waitForTimeout(300);
+  ok('clicking a row plots it', (await page.locator('#socio-table tr.picked').count()) === 1 && (await page.locator('#socio-scatter-caption').innerText()) !== socioCaption);
+  await page.locator('#socio-outcome').selectOption({ label: /Liberal share, federal 2025/.test(await page.locator('#socio-outcome').innerText()) ? 'Liberal share, federal 2025' : 'Federal (2025) turnout' });
+  await page.waitForTimeout(800);
+  const texts2 = (await socioCells()).map((c) => c.join(' '));
+  ok('switching the outcome recomputes every row', texts2.length === 14 && texts2.join('|') !== texts.join('|'));
+  await page.locator('#socio-outcome').selectOption('turnout-agg');
+  await page.waitForTimeout(600);
+  await page.locator('#socio-search').fill('2 persons');
+  await page.waitForTimeout(300);
+  await page.locator('#socio-search-results button').first().click();
+  await page.waitForTimeout(800);
+  ok('a characteristic added by name joins the table', (await socioRows.count()) === 15 && /2 persons/.test((await socioCells()).map((c) => c[0]).join(' ')));
+  const sdl = page.waitForEvent('download', { timeout: 15000 });
+  await page.locator('#export-socio').click();
+  const scsv = require('fs').readFileSync(await (await sdl).path(), 'utf8').split(/\r?\n/).filter(Boolean);
+  ok(`DA table exported (${scsv.length - 1} rows) with turnout, party shares and variables`,
+     scsv.length - 1 >= minAreas && /turnout_agg/.test(scsv[0]) && /pct_renter/.test(scsv[0]) && /fed_share_/.test(scsv[0]) && /population_2021/.test(scsv[0]), scsv[0]);
+
+  console.log('\n== Census on the map ==');
+  await page.locator('#tab-map').click();
+  await page.waitForTimeout(600);
+  await page.locator('#shade-da-by').selectOption('variable');
+  await page.waitForTimeout(400);
+  const daOpacities = new Set(await page.$$eval('.layer-da path', (ps) => ps.map((p) => getComputedStyle(p).fillOpacity)));
+  ok(`shading by a census variable gives graded fills (${daOpacities.size} distinct)`, daOpacities.size > 10);
+  ok('legend names the census layer', /dissemination area/i.test(await page.locator('#map-legend').innerText()));
+  const box2 = await page.locator('.atlas-map').boundingBox();
+  await page.mouse.click(box2.x + box2.width * 0.5, box2.y + box2.height * 0.5);
+  await page.waitForTimeout(300);
+  readout = await page.locator('#readout').innerText();
+  ok('readout shows a census card with the area id and its variables', /Census \(2021\)/i.test(readout) && /DA 5915/.test(readout) && /Population, 2021/.test(readout) && /people/.test(readout), readout.slice(-400));
+  await page.locator('#shade-da-by').selectOption('none');
+  await page.waitForTimeout(300);
+
   // The export checks that follow click controls on the Correlation tab.
   await page.locator('#tab-corr').click();
   await page.waitForTimeout(300);

@@ -66,7 +66,7 @@ $('file-prov-geo').addEventListener('change', async (event) => {
 
 $('clear-prov-geo').addEventListener('click', () => {
   state.prov.all = []; state.prov.meta = null; state.prov.keyDef = null;
-  state.provResults = null; state.crosswalk = null; state.pairs = null; state.provOnFed = null;
+  state.provResults = null;
   $('file-prov-geo').value = '';
   $('clear-prov-geo').hidden = true;
   $('prov-key-row').hidden = true;
@@ -81,11 +81,211 @@ function onProvincialLayerChanged() {
   state.selection.prov = null;
   const has = state.prov.all.length > 0;
   $('find-va').disabled = !has;
-  $('build-crosswalk').disabled = !has;
-  refreshCrosswalkStatus();
+  $('build-crosswalk').disabled = !has && !state.da.all.length;
+  invalidateSample();
   draw();
   populateFinders();
   renderReadout();
+  refreshTurnout();
+  refreshSocio();
+}
+
+/* --- Census layers (Statistics Canada, 2021) --------------------------------- */
+
+/* The study area plus 2 km, in lon/lat, for clipping census files on load. */
+function clipBox() {
+  if (!$('clip-census').checked) return null;
+  const e = extentOf(state.fed.active);
+  if (!e) return null;
+  const dLat = 2000 / 110574;
+  const dLon = 2000 / (111320 * Math.cos(((e[1] + e[3]) / 2) * Math.PI / 180));
+  return [e[0] - dLon, e[1] - dLat, e[2] + dLon, e[3] + dLat];
+}
+
+const CENSUS_NAMES = { da: 'dissemination areas', db: 'dissemination blocks' };
+
+async function loadCensusLayer(kind, file) {
+  const statusId = `status-${kind}-geo`;
+  setStatus(statusId, 'busy', `Reading ${file.name}…`);
+  try {
+    /* The File itself goes in, so a national archive is read lazily and
+       clipped before its geometry is parsed. */
+    const loaded = await Ingest.loadBoundaries(file.name, file, { bbox: clipBox() });
+    loaded.features.forEach((f, i) => { f.__idx = i; f.__key = kind + i; });
+    const layer = state[kind];
+    layer.all = loaded.features;
+    layer.meta = loaded;
+    layer.keyProp = Census.suggestGeoKey(loaded.features);
+    if (kind === 'da') {
+      const props = [...new Set(loaded.features.slice(0, 200).flatMap((f) => Object.keys(f.properties || {})))];
+      fillSelect($('da-key'), props, layer.keyProp || props[0]);
+      $('da-key-row').hidden = props.length === 0;
+    }
+    const lines = [
+      `Loaded ${fmtInt(loaded.kept)} ${CENSUS_NAMES[kind]}`
+        + (loaded.filtered && loaded.records !== loaded.kept
+          ? ` of ${fmtInt(loaded.records)} in ${loaded.label}, clipped to the study area.` : ` from ${loaded.label}.`),
+      `Coordinate system: ${loaded.crsLabel}. Id field: ${layer.keyProp || '(none found)'}.`,
+    ];
+    for (const w of loaded.warnings) lines.push(el('p', 'text-warning', w));
+    setStatus(statusId, 'ok', lines);
+    $(`clear-${kind}-geo`).hidden = false;
+    onCensusChanged();
+  } catch (err) {
+    setStatus(statusId, 'error', [`Could not read ${file.name}.`, err.message]);
+  }
+}
+
+for (const kind of ['da', 'db']) {
+  $(`file-${kind}-geo`).addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) loadCensusLayer(kind, file);
+  });
+  $(`clear-${kind}-geo`).addEventListener('click', () => {
+    const layer = state[kind];
+    layer.all = []; layer.active = []; layer.index = null; layer.meta = null; layer.keyProp = null;
+    if (kind === 'da') { layer.variables = []; layer.pop = null; layer.shadeVar = null; state.selection.da = null; $('da-key-row').hidden = true; }
+    else layer.pop = null;
+    $(`file-${kind}-geo`).value = '';
+    $(`clear-${kind}-geo`).hidden = true;
+    setStatus(`status-${kind}-geo`, 'idle', []);
+    onCensusChanged();
+  });
+}
+$('da-key').addEventListener('change', () => {
+  state.da.keyProp = $('da-key').value || null;
+  onCensusChanged();
+});
+
+$('file-geo-attr').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  setStatus('status-geo-attr', 'busy', `Reading ${file.name}…`);
+  try {
+    const table = await Ingest.loadTable(file.name, await readFile(file));
+    const geo = Census.readGeoAttributes(table);
+    state.geoAttr = geo;
+    let people = 0; for (const v of geo.dbPop.values()) people += v;
+    setStatus('status-geo-attr', 'ok', [
+      `${fmtInt(geo.dbPop.size)} blocks with a population (${fmtInt(people)} people), summed into `
+        + `${fmtInt(geo.daPop.size)} dissemination areas, from ${table.name}.`,
+      `Columns: ${geo.columns.db}, ${geo.columns.pop}${geo.columns.da ? ', ' + geo.columns.da : ' (no DAUID column, so no area totals)'}.`,
+    ]);
+    $('clear-geo-attr').hidden = false;
+    onCensusChanged();
+  } catch (err) {
+    setStatus('status-geo-attr', 'error', [`Could not read ${file.name}.`, err.message]);
+  }
+});
+$('clear-geo-attr').addEventListener('click', () => {
+  state.geoAttr = null;
+  $('file-geo-attr').value = '';
+  $('clear-geo-attr').hidden = true;
+  setStatus('status-geo-attr', 'idle', []);
+  onCensusChanged();
+});
+
+$('file-census').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  setStatus('status-census', 'busy', `Reading ${file.name}…`);
+  try {
+    const table = await Ingest.loadTable(file.name, await readFile(file));
+    const layout = Census.detectProfileLayout(table.header);
+    let source;
+    if (layout) {
+      /* Only the study area's rows are kept when the boundaries are already
+         loaded; a provincial profile has millions of others. */
+      const wanted = state.da.all.length && state.da.keyProp
+        ? new Set(state.da.all.map((f) => Census.geoKey(f.properties[state.da.keyProp]))) : null;
+      const profile = Census.parseLongProfile(table, layout, { keep: wanted ? (geo) => wanted.has(geo) : null });
+      const derived = Census.deriveVariables(profile);
+      source = { kind: 'long', profile, variables: derived.variables, matched: derived.matched,
+                 unmatched: derived.unmatched, geographies: profile.geographies, name: table.name };
+    } else {
+      const wide = Census.readWide(table);
+      const starterKeys = new Set(Census.STARTER.map((s) => s.key));
+      const starters = wide.variables.filter((v) => starterKeys.has(v.key));
+      source = { kind: 'wide', all: wide.variables,
+                 variables: starters.length ? starters : wide.variables.slice(0, 40),
+                 matched: starters.map((v) => ({ key: v.key, id: null, name: v.key })),
+                 unmatched: Census.STARTER.map((s) => s.key).filter((k) => !starters.some((v) => v.key === k)),
+                 geographies: wide.geographies, name: table.name, geoColumn: wide.geoColumn };
+    }
+    state.da.census = source;
+    const lines = [source.kind === 'long'
+      ? `Census Profile, long layout: ${fmtInt(source.geographies)} geographies${state.da.all.length ? ' in the study area' : ''}, `
+        + `${fmtInt(source.profile.characteristics.length)} characteristics, from ${table.name}.`
+      : `Wide table: ${fmtInt(source.geographies)} geographies keyed by ${source.geoColumn}, `
+        + `${fmtInt(source.all.length)} numeric columns, from ${table.name}.`];
+    if (source.matched.length) {
+      const d = el('details');
+      d.append(el('summary', null, `${fmtInt(source.matched.length)} starter variables matched`));
+      const ul = el('ul', 'text-small');
+      for (const m of source.matched) ul.append(el('li', null, `${m.key} ← ${m.id != null ? m.id + ': ' : ''}${m.name}${m.over ? ` (of ${m.over})` : ''}`));
+      d.append(ul);
+      lines.push(d);
+    }
+    if (source.unmatched.length) {
+      lines.push(el('p', 'text-warning', `Not found by name: ${source.unmatched.join(', ')}. `
+        + 'Any characteristic can still be added on the Socioeconomic tab.'));
+    }
+    if (!state.da.all.length) lines.push(el('p', 'text-muted', 'Load the dissemination-area boundaries above to join these variables to the map.'));
+    setStatus('status-census', 'ok', lines);
+    $('clear-census').hidden = false;
+    onCensusChanged();
+  } catch (err) {
+    setStatus('status-census', 'error', [`Could not read ${file.name}.`, err.message]);
+  }
+});
+$('clear-census').addEventListener('click', () => {
+  state.da.census = null;
+  state.socio.extra.clear();
+  $('file-census').value = '';
+  $('clear-census').hidden = true;
+  setStatus('status-census', 'idle', []);
+  onCensusChanged();
+});
+
+/* Joins the loaded census variables and populations to the loaded
+   boundaries, keyed by each layer's id field. */
+function rejoinCensus() {
+  const da = state.da;
+  da.variables = [];
+  if (da.all.length && da.census) {
+    const defs = da.census.variables.slice();
+    for (const [key, c] of state.socio.extra) {
+      if (da.census.kind === 'long') {
+        const v = Census.characteristicVariable(da.census.profile, c.id, c.use);
+        if (v) defs.push({ ...v, key, extra: true });
+      } else {
+        const v = da.census.all.find((x) => x.key === key);
+        if (v) defs.push({ ...v, extra: true });
+      }
+    }
+    for (const v of defs) da.variables.push({ ...v, byFeature: Census.joinToFeatures(da.all, da.keyProp, v.values) });
+    if (!state.socio.selected.size) for (const v of da.census.variables) state.socio.selected.add(v.key);
+  }
+  da.pop = null;
+  if (da.all.length) {
+    if (state.geoAttr && state.geoAttr.daPop.size) da.pop = Census.joinToFeatures(da.all, da.keyProp, state.geoAttr.daPop);
+    if (!da.pop || !da.pop.size) { const p = da.variables.find((v) => v.key === 'pop_2021'); if (p) da.pop = p.byFeature; }
+  }
+  const db = state.db;
+  db.pop = null;
+  if (db.all.length && state.geoAttr) db.pop = Census.joinToFeatures(db.all, db.keyProp, state.geoAttr.dbPop);
+}
+
+function onCensusChanged() {
+  rejoinCensus();
+  $('build-crosswalk').disabled = !state.prov.all.length && !state.da.all.length;
+  invalidateSample();
+  draw();
+  populateFinders();
+  refreshDaShadeVars();
+  renderReadout();
+  refreshTurnout();
+  refreshSocio();
 }
 
 for (const id of ['prov-key-district', 'prov-key-va']) {
@@ -385,5 +585,18 @@ function refreshPartySelectors() {
   if ($('corr-fed-party')) {
     apply('corr-fed-party', fedParties, 'Load federal results');
     apply('corr-prov-party', provParties, 'Load provincial results');
+  }
+  /* The Socioeconomic outcome can be any loaded party's share as well as turnout. */
+  const outcome = $('socio-outcome');
+  if (outcome) {
+    const previous = outcome.value;
+    fillSelect(outcome, [
+      { value: 'turnout-agg', label: 'Aggregate turnout, both elections' },
+      { value: 'turnout-fed', label: 'Federal (2025) turnout' },
+      { value: 'turnout-prov', label: 'Provincial (2024) turnout' },
+      ...fedParties.map(([name]) => ({ value: `fed:${name}`, label: `${name} share, federal 2025` })),
+      ...provParties.map(([name]) => ({ value: `prov:${name}`, label: `${name} share, provincial 2024` })),
+    ]);
+    outcome.value = [...outcome.options].some((o) => o.value === previous) ? previous : 'turnout-agg';
   }
 }

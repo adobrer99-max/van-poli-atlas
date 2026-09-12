@@ -1749,6 +1749,13 @@ html>body{padding:0}
 .va:hover { stroke-width: calc(var(--va-weight) + 1.4); }
 .va.selected { stroke: var(--orange); stroke-width: calc(var(--va-weight) + 2);
   stroke-opacity: 1; filter: drop-shadow(0 0 2px var(--orange)); }
+.da { fill: none; stroke: var(--viz-series-3); stroke-opacity: .9; stroke-width: 1.3;
+  stroke-dasharray: 5 3; vector-effect: non-scaling-stroke; pointer-events: stroke; cursor: pointer; }
+.layer-da.filled .da { fill: var(--viz-series-3); fill-opacity: .08; pointer-events: all; }
+.da:hover { stroke-width: 2.6; }
+.da.selected { stroke: var(--orange); stroke-width: 3; stroke-opacity: 1; stroke-dasharray: none;
+  filter: drop-shadow(0 0 2px var(--orange)); }
+.swatch-da { background: none; border: 2px dashed var(--viz-series-3); }
 
 .map-legend { position: absolute; left: .6rem; bottom: 1.6rem; z-index: 1001; display: flex;
   flex-direction: column; gap: .25rem; padding: .5rem .6rem; border-radius: var(--radius-md);
@@ -1845,6 +1852,19 @@ html>body{padding:0}
 .curve .diag { fill: none; stroke: var(--border); stroke-dasharray: 3 3; }
 .btn-small { padding: .2rem .6rem; font-size: var(--font-size-small); margin-top: .5rem; }
 
+/* --- Socioeconomic tab ----------------------------------------------------- */
+.socio-picker { display: flex; flex-wrap: wrap; gap: .3rem .9rem; max-height: 170px; overflow: auto;
+  padding: .45rem .6rem; border: 1px solid var(--border); border-radius: var(--radius); margin: .4rem 0;
+  font-size: var(--font-size-small); }
+.socio-picker label { display: flex; align-items: center; gap: .35rem; white-space: nowrap; cursor: pointer; }
+.socio-picker input[type="checkbox"] { margin: 0; }
+.socio-search-results { display: flex; flex-wrap: wrap; gap: .3rem; margin: .3rem 0 .6rem; }
+.socio-search-results .btn { font-size: var(--font-size-small); padding: .15rem .5rem; max-width: 100%;
+  white-space: normal; text-align: left; }
+.socio-table tr { cursor: pointer; }
+.socio-table tr.picked td { background: color-mix(in srgb, var(--viz-series-3) 14%, transparent); }
+.socio-table td.text-start { max-width: 44ch; }
+
 </style>
 </head>
 <body>
@@ -1862,6 +1882,7 @@ html>body{padding:0}
   <button class="nav-link" role="tab" id="tab-data" aria-controls="panel-data" aria-selected="false" type="button">Data</button>
   <button class="nav-link" role="tab" id="tab-corr" aria-controls="panel-corr" aria-selected="false" type="button">Correlation</button>
   <button class="nav-link" role="tab" id="tab-turnout" aria-controls="panel-turnout" aria-selected="false" type="button">Turnout</button>
+  <button class="nav-link" role="tab" id="tab-socio" aria-controls="panel-socio" aria-selected="false" type="button">Socioeconomic</button>
   <button class="nav-link" role="tab" id="tab-method" aria-controls="panel-method" aria-selected="false" type="button">Method</button>
 </nav>
 
@@ -1915,8 +1936,27 @@ html>body{padding:0}
         <option value="turnout-prov">Provincial turnout</option>
       </select>
     </label>
-    <label class="form-label" for="prov-opacity">Provincial fill strength
+    <label class="form-label" for="prov-opacity">Overlay fill strength
       <input class="form-range" type="range" id="prov-opacity" min="0.1" max="1" step="0.05" value="0.7">
+    </label>
+  </div>
+
+  <div class="viz-controls" id="da-controls" hidden>
+    <label class="form-label grow" for="shade-da-by">Shade census (2021) dissemination areas by
+      <select class="form-select" id="shade-da-by">
+        <option value="none">Nothing (outline only)</option>
+        <option value="flat">Flat fill</option>
+        <option value="turnout-agg">Aggregate turnout, both elections</option>
+        <option value="turnout-fed">Federal (2025) turnout</option>
+        <option value="turnout-prov">Provincial (2024) turnout</option>
+        <option value="variable">A census variable</option>
+      </select>
+    </label>
+    <label class="form-label grow" for="shade-da-var">Census variable
+      <select class="form-select" id="shade-da-var" disabled><option value="">Load a census profile</option></select>
+    </label>
+    <label class="form-label grow" for="find-da">Find a dissemination area
+      <select class="form-select" id="find-da"><option value="">Select an area&hellip;</option></select>
     </label>
   </div>
 
@@ -1932,6 +1972,10 @@ html>body{padding:0}
     <label class="form-check form-switch">
       <input class="form-check-input" type="checkbox" id="show-mobile">
       <span class="form-check-label">Mobile &amp; single-building polls</span>
+    </label>
+    <label class="form-check form-switch" id="show-da-wrap" hidden>
+      <input class="form-check-input" type="checkbox" id="show-da" checked>
+      <span class="form-check-label">Census (2021) dissemination areas</span>
     </label>
     <label class="form-label" for="prov-weight">Overlay line weight
       <input class="form-range" type="range" id="prov-weight" min="0.5" max="4" step="0.25" value="1.75">
@@ -1967,7 +2011,7 @@ html>body{padding:0}
   </div>
 
   <div class="readout" id="readout" aria-live="polite">
-    <p class="text-muted">Click anywhere on the map to read the federal polling division and the provincial voting area covering that point.</p>
+    <p class="text-muted">Click anywhere on the map to read the federal polling division, the provincial voting area and the dissemination area covering that point.</p>
   </div>
 
   <p class="text-small text-muted">
@@ -2035,6 +2079,58 @@ html>body{padding:0}
     <div id="status-prov-results" class="status"></div>
     <div id="map-prov-results" class="mapping" hidden></div>
   </div>
+
+  <div class="card">
+    <h2>4. Census geography and profile (Statistics Canada, 2021)</h2>
+    <p class="text-small text-muted">
+      Dissemination areas are the third geography: election results are moved onto them
+      through the crosswalk and correlated with census variables on the <b>Socioeconomic</b>
+      tab. Dissemination blocks (optional) weight every crosswalk by where people live
+      rather than by area. The national downloads are large, so run
+      <code>python3 tools/filter_census.py</code> once (see the README) and load its
+      outputs here; the national files themselves also load, more slowly.
+      Adapted from Statistics Canada, Census Profile, 2021 Census of Population, and the
+      2021 Geographic Attribute File; this does not constitute an endorsement by
+      Statistics Canada.
+    </p>
+    <label class="form-check">
+      <input class="form-check-input" type="checkbox" id="clip-census" checked>
+      <span class="form-check-label">Clip boundary files to the study area while loading (federal extent plus 2 km)</span>
+    </label>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-da-geo">Dissemination area boundaries (zipped shapefile or GeoJSON)
+        <input class="form-control" type="file" id="file-da-geo" accept=".zip,.geojson,.json,.kml,.kmz">
+      </label>
+      <button type="button" class="btn" id="clear-da-geo" hidden>Remove</button>
+    </div>
+    <div id="status-da-geo" class="status"></div>
+    <div class="viz-controls" id="da-key-row" hidden>
+      <label class="form-label grow" for="da-key">Dissemination area id field
+        <select class="form-select" id="da-key"></select>
+      </label>
+    </div>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-db-geo">Dissemination block boundaries (optional; population weighting only)
+        <input class="form-control" type="file" id="file-db-geo" accept=".zip,.geojson,.json">
+      </label>
+      <button type="button" class="btn" id="clear-db-geo" hidden>Remove</button>
+    </div>
+    <div id="status-db-geo" class="status"></div>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-geo-attr">Block population: the Geographic Attribute File, or <code>db_population.csv</code> from the tool
+        <input class="form-control" type="file" id="file-geo-attr" accept=".csv,.tsv,.txt,.zip">
+      </label>
+      <button type="button" class="btn" id="clear-geo-attr" hidden>Remove</button>
+    </div>
+    <div id="status-geo-attr" class="status"></div>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-census">Census Profile: the long download, or <code>census_da_wide.csv</code> / <code>starter.csv</code> from the tool
+        <input class="form-control" type="file" id="file-census" accept=".csv,.tsv,.txt,.zip">
+      </label>
+      <button type="button" class="btn" id="clear-census" hidden>Remove</button>
+    </div>
+    <div id="status-census" class="status"></div>
+  </div>
 </section>
 
 <!-- ---------------------------------------------------------- CORRELATION -->
@@ -2063,6 +2159,14 @@ html>body{padding:0}
           <option value="0.005">0.5% of a unit</option>
           <option value="0.02" selected>2% of a unit</option>
           <option value="0.05">5% of a unit</option>
+        </select>
+      </label>
+      <label class="form-label grow" for="sample-weighting">Weight overlaps by
+        <select class="form-select" id="sample-weighting">
+          <option value="auto" selected>Best available (block population, else area)</option>
+          <option value="area">Area only</option>
+          <option value="db">Dissemination-block population</option>
+          <option value="da">Dissemination-area population</option>
         </select>
       </label>
       <button type="button" class="btn btn-primary" id="build-crosswalk" disabled>Build crosswalk</button>
@@ -2183,6 +2287,61 @@ html>body{padding:0}
   </div>
 </section>
 
+<!-- ------------------------------------------------------------ SOCIOECONOMIC -->
+<section id="panel-socio" role="tabpanel" aria-labelledby="tab-socio" hidden>
+  <div class="card">
+    <h2>Turnout and partisanship against census variables, by dissemination area</h2>
+    <p class="text-small text-muted">
+      Federal (2025) and provincial (2024) results are moved onto Statistics Canada's 2021
+      dissemination areas through the crosswalk, so every area carries turnout and party
+      shares next to its census profile. A correlation here is a statement about
+      neighbourhoods, not about people &mdash; read the <b>Method</b> tab before quoting one.
+    </p>
+    <div class="viz-controls">
+      <label class="form-label grow" for="socio-outcome">Outcome (y)
+        <select class="form-select" id="socio-outcome">
+          <option value="turnout-agg">Aggregate turnout, both elections</option>
+          <option value="turnout-fed">Federal (2025) turnout</option>
+          <option value="turnout-prov">Provincial (2024) turnout</option>
+        </select>
+      </label>
+      <label class="form-label grow" for="socio-min-electors">Drop areas under
+        <select class="form-select" id="socio-min-electors">
+          <option value="0">No minimum</option>
+          <option value="25">25 electors</option>
+          <option value="50" selected>50 electors</option>
+          <option value="100">100 electors</option>
+        </select>
+      </label>
+      <label class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" id="socio-both-only" checked>
+        <span class="form-check-label">Only areas with both elections</span>
+      </label>
+    </div>
+    <div id="socio-status" class="status"></div>
+    <div class="viz-grid" id="socio-stats"></div>
+  </div>
+
+  <div class="card" id="socio-results" hidden>
+    <h2>Correlations</h2>
+    <p class="text-small text-muted">Tick the variables to compare; add any of the census characteristics by name. Click a column heading to sort, a row to plot it.</p>
+    <div class="socio-picker" id="socio-picker"></div>
+    <div class="viz-controls">
+      <label class="form-label grow" for="socio-search">Add a census characteristic
+        <input class="form-control" type="search" id="socio-search" placeholder="type part of a characteristic name&hellip;" autocomplete="off">
+      </label>
+    </div>
+    <div class="socio-search-results" id="socio-search-results"></div>
+    <div class="turnout-wrap"><table class="turnout-table socio-table" id="socio-table"></table></div>
+    <svg class="scatter" id="socio-scatter" role="img" aria-label="Scatter plot of a census variable against the chosen outcome, one dot per dissemination area"></svg>
+    <div id="socio-scatter-caption" class="text-small text-muted"></div>
+    <div class="viz-controls">
+      <button type="button" class="btn" id="export-socio">Download joined table (CSV)</button>
+      <span id="socio-note" class="text-small text-muted"></span>
+    </div>
+  </div>
+</section>
+
 <!-- --------------------------------------------------------------- METHOD -->
 <section id="panel-method" role="tabpanel" aria-labelledby="tab-method" hidden>
   <div class="card">
@@ -2274,6 +2433,30 @@ html>body{padding:0}
         chosen geography. Areas missing one side are shown but flagged. The
         <i>minimum</i> of the two is the stricter "reliable turnout" measure; the
         <i>delta</i> shows where one election drew people the other did not.</li>
+    </ul>
+
+    <h3>Census geography and socioeconomic variables</h3>
+    <p>Statistics Canada's dissemination areas are the smallest geography with a full
+      census profile: 400 to 700 people each, drawn to follow streets, so they are
+      neighbourhood-sized and overlap polls the way voting areas do. Election results
+      reach them through the same crosswalk, so each carries an estimated turnout and
+      party share beside its census variables.</p>
+    <ul>
+      <li><b>Ecological inference.</b> A correlation between, say, renting and turnout
+        across areas says that areas with more renters have lower turnout; it does not say
+        that renters vote less. Individual-level claims need individual-level data.</li>
+      <li><b>Population weighting.</b> With dissemination-block counts loaded, every
+        overlap is weighted by the people living in it rather than by its area, which
+        keeps a park from carrying votes. It assumes electors are spread like population
+        within a block, and it falls back to area for blocks with no population.</li>
+      <li><b>Suppression.</b> Statistics Canada suppresses small or unreliable cells; they
+        arrive as gaps, not zeros, and an area with a gap is left out of that variable's
+        correlation. The n column says how many areas each figure rests on.</li>
+      <li><b>Neighbouring areas resemble each other</b>, so the confidence intervals are
+        narrower than the spatial structure warrants, here as on the Correlation tab.</li>
+      <li><b>Attribution.</b> Adapted from Statistics Canada, Census Profile, 2021 Census of
+        Population, and the 2021 Geographic Attribute File. This does not constitute an
+        endorsement by Statistics Canada.</li>
     </ul>
 
     <h3>The street basemap</h3>
@@ -5019,7 +5202,9 @@ const Census = (() => {
 
   /* --- Wide layout ---------------------------------------------------------- */
 
-  const GEO_COLUMNS = [/^DGUID$/, /^DAUID$/, /^DBUID$/, /^GEO_CODE$/, /^ALT_GEO_CODE$/, /^GEOUID$/, /^GEO_UID$/, /UID$/];
+  /* The bare codes come first: they label the map more readably than a DGUID,
+     and either joins, since keys are compared on the trailing code. */
+  const GEO_COLUMNS = [/^DAUID$/, /^DBUID$/, /^DGUID$/, /^GEO_CODE$/, /^ALT_GEO_CODE$/, /^GEOUID$/, /^GEO_UID$/, /UID$/];
 
   function findGeoColumn(header) {
     const H = header.map(norm);
@@ -5081,16 +5266,20 @@ const Census = (() => {
 
   /* --- Joining to features --------------------------------------------------- */
 
+  /* The id field of a boundary layer: the most unique of the identifier-like
+     properties (a block file carries its DAUID too, shared by several blocks),
+     bare codes before DGUIDs, else the most unique property of all. */
   function suggestGeoKey(features) {
     const sample = features.slice(0, 200);
     const names = new Set();
     for (const f of sample) for (const k of Object.keys(f.properties || {})) names.add(k);
     const all = [...names];
-    for (const re of GEO_COLUMNS) { const hit = all.find((n) => re.test(norm(n))); if (hit) return hit; }
-    let best = null, bestU = 0;
+    const uniqueness = (n) => new Set(sample.map((f) => String((f.properties || {})[n]))).size / Math.max(1, sample.length);
+    let best = null, bestScore = -1;
     for (const n of all) {
-      const u = new Set(sample.map((f) => String((f.properties || {})[n]))).size / Math.max(1, sample.length);
-      if (u > bestU) { bestU = u; best = n; }
+      const rank = GEO_COLUMNS.findIndex((re) => re.test(norm(n)));
+      const score = uniqueness(n) * 100 + (rank >= 0 ? 10 + (GEO_COLUMNS.length - rank) : 0);
+      if (score > bestScore) { bestScore = score; best = n; }
     }
     return best;
   }
@@ -5223,6 +5412,20 @@ const state = {
   turnout: { unit: 'fed', weight: 0.5, apportion: { fed: 'none', prov: 'none' },
              minElectors: 50, rows: null, basket: new Set(), sortKey: 'agg', sortDir: 'desc' },
   shadeDomain: {},
+  /* Census geography: dissemination areas are drawn and analysed; dissemination
+     blocks only weight the crosswalk. Both trim to the federal extent like the
+     provincial layer. */
+  da: { all: [], active: [], index: null, keyProp: null, meta: null, census: null, variables: [],
+        pop: null, shadeVar: null },
+  db: { all: [], active: [], index: null, keyProp: null, meta: null, pop: null },
+  geoAttr: null,
+  /* One lattice sample over every loaded layer, and the crosswalks derived
+     from it, cached by layer pair. */
+  sample: null,
+  cross: new Map(),
+  weightingInEffect: null,
+  socio: { outcome: 'turnout-agg', minElectors: 50, selected: new Set(), extra: new Map(),
+           rows: null, byDa: null, table: null, sortKey: 'absR', sortDir: 'desc', picked: null },
 };
 
 /* Results for one side, apportioned if the Turnout tab asked for it. Every
@@ -5310,6 +5513,16 @@ function activeProvincial(fedExtent) {
   });
 }
 
+/* Any other layer trims the same way. */
+function activeWithin(layer, fedExtent) {
+  if (!layer.all.length || !fedExtent) return [];
+  const [x0, y0, x1, y1] = fedExtent;
+  return layer.all.filter((f) => {
+    const b = Geo.bboxOf(f.geometry);
+    return b[0] <= x1 && b[2] >= x0 && b[1] <= y1 && b[3] >= y0;
+  });
+}
+
 function extentOf(features) {
   let e = [Infinity, Infinity, -Infinity, -Infinity];
   for (const f of features) {
@@ -5357,8 +5570,14 @@ const fedLayer = L.geoJSON(null, {
 const provLayer = L.geoJSON(null, {
   pane: 'prov', renderer: L.svg({ pane: 'prov' }), className: 'va', fill: false,
 }).addTo(map);
+map.createPane('da').classList.add('layer-da');
+map.getPane('da').style.zIndex = 405;
+const daLayer = L.geoJSON(null, {
+  pane: 'da', renderer: L.svg({ pane: 'da' }), className: 'da', fill: false,
+}).addTo(map);
 const gFed = d3.select(map.getPane('fed'));
 const gProv = d3.select(map.getPane('prov'));
+const gDa = d3.select(map.getPane('da'));
 
 /* Free basemaps. Tiles are the only thing in the file that ever touches the
    network; without them the boundaries and every analysis still work. */
@@ -5419,6 +5638,15 @@ function shadeValue(layerKey, f, mode, fedParty, provParty) {
     if (mode === 'turnout-prov') return Turnout.rate(u);
     return null;
   }
+  if (layerKey === 'da') {
+    if (mode === 'variable') return state.da.shadeVar ? (state.da.shadeVar.get(f.__idx) ?? null) : null;
+    const row = state.socio.byDa && state.socio.byDa.get(f.__idx);
+    if (!row) return null;
+    if (mode === 'turnout-agg') return row.agg;
+    if (mode === 'turnout-fed') return row.t.fed;
+    if (mode === 'turnout-prov') return row.t.prov;
+    return null;
+  }
   const fedUnit = fedValues()?.get(f.idx);
   const provOnFed = state.provOnFed && state.provOnFed.get(f.idx);
   const fedShare = fedUnit && fedParty ? Analysis.shareOf(fedUnit, fedParty) : null;
@@ -5445,6 +5673,8 @@ function shadeValue(layerKey, f, mode, fedParty, provParty) {
 
 const TYPE_FILL = { N: 'var(--muted)', M: 'var(--viz-series-5)', S: 'var(--viz-series-6)' };
 const TURNOUT_MODES = new Set(['turnout-fed', 'turnout-prov', 'turnout-agg']);
+/* Modes whose ramp follows the data on the map rather than a fixed scale. */
+const DATA_MODES = new Set([...TURNOUT_MODES, 'variable']);
 
 /* Turnout ramps are data-driven -- 5th to 95th percentile of what is on the
    map -- because a fixed scale would either wash out or saturate depending on
@@ -5466,7 +5696,7 @@ function shadeDomain(layerKey, sel, mode, fedParty, provParty) {
 function rampT(mode, v, domain) {
   if (mode === 'gap') return Math.min(1, Math.abs(v) / 0.3);
   if (mode === 'turnout-delta') return Math.min(1, Math.abs(v) / 0.15);
-  if (TURNOUT_MODES.has(mode) && domain) {
+  if (DATA_MODES.has(mode) && domain) {
     return Math.max(0, Math.min(1, (v - domain.lo) / (domain.hi - domain.lo)));
   }
   return Math.min(1, v / 0.6);
@@ -5475,6 +5705,7 @@ function rampT(mode, v, domain) {
 function fillColour(mode, v, fedParty, provParty) {
   if (mode === 'gap') return v >= 0 ? partyColour(fedParty) : partyColour(provParty);
   if (mode === 'turnout-delta') return v >= 0 ? 'var(--viz-series-1)' : 'var(--viz-series-2)';
+  if (mode === 'variable') return 'var(--viz-series-3)';
   if (TURNOUT_MODES.has(mode)) return 'var(--viz-series-1)';
   if (mode === 'fed-party') return partyColour(fedParty);
   if (mode === 'prov-party') return partyColour(provParty);
@@ -5484,34 +5715,40 @@ function fillColour(mode, v, fedParty, provParty) {
 /* Inline style, not a presentation attribute: the .poll / .va stylesheet rules
    set default fills, and a stylesheet rule always beats an attribute in SVG.
    A null value removes the inline style so the stylesheet applies again. */
+const LAYER_SERIES = { prov: 'var(--viz-series-2)', da: 'var(--viz-series-3)' };
 function styleLayer(layerKey, sel) {
   const fedParty = $('shade-party-fed').value;
   const provParty = $('shade-party-prov').value;
-  const mode = layerKey === 'fed' ? $('shade-by').value : $('shade-prov-by').value;
-  const domain = TURNOUT_MODES.has(mode) ? shadeDomain(layerKey, sel, mode, fedParty, provParty) : null;
+  const mode = layerKey === 'fed' ? $('shade-by').value
+    : layerKey === 'prov' ? $('shade-prov-by').value : $('shade-da-by').value;
+  const domain = DATA_MODES.has(mode) ? shadeDomain(layerKey, sel, mode, fedParty, provParty) : null;
   state.shadeDomain[layerKey] = domain;
-  const base = layerKey === 'prov' ? parseFloat($('prov-opacity').value) : 1;
-  const isProv = layerKey === 'prov';
+  /* The provincial and census layers are overlays: outline-only unless shaded,
+     and their fill strength follows the one slider. */
+  const isOverlay = layerKey !== 'fed';
+  const base = isOverlay ? parseFloat($('prov-opacity').value) : 1;
+  const series = LAYER_SERIES[layerKey] || 'var(--muted)';
   sel.style('fill', (f) => {
-    if (isProv && mode === 'none') return null;
-    if (isProv && mode === 'flat') return 'var(--viz-series-2)';
+    if (isOverlay && mode === 'none') return null;
+    if (isOverlay && mode === 'flat') return series;
     if (mode === 'type') return TYPE_FILL[f.pollType] || 'var(--muted)';
     const v = shadeValue(layerKey, f, mode, fedParty, provParty);
-    if (v == null) return isProv ? 'var(--viz-series-2)' : 'var(--muted)';
+    if (v == null) return series;
     return fillColour(mode, v, fedParty, provParty);
   }).style('fill-opacity', (f) => {
-    if (isProv && mode === 'none') return null;
-    if (isProv && mode === 'flat') return base * 0.35;
+    if (isOverlay && mode === 'none') return null;
+    if (isOverlay && mode === 'flat') return base * 0.35;
     if (mode === 'none') return 0.28;
     if (mode === 'type') return f.pollType === 'N' ? 0.28 : 0.75;
     const v = shadeValue(layerKey, f, mode, fedParty, provParty);
-    if (v == null) return isProv ? 0.04 : 0.06;
+    if (v == null) return isOverlay ? 0.04 : 0.06;
     /* Capped below full opacity so the outlines stay readable underneath. */
     return base * (0.10 + 0.68 * rampT(mode, v, domain));
   });
 }
 const applyFederalStyle = (sel) => styleLayer('fed', sel);
 const applyProvincialStyle = (sel) => styleLayer('prov', sel);
+const applyDaStyle = (sel) => styleLayer('da', sel);
 
 /* Bind the feature to its Leaflet-drawn path so d3 selections of the pane
    see it as the datum. */
@@ -5532,10 +5769,14 @@ function draw() {
   state.fed.active = activeFederal();
   const fedExtent = extentOf(state.fed.active);
   state.prov.active = activeProvincial(fedExtent);
+  state.da.active = activeWithin(state.da, fedExtent);
+  state.db.active = activeWithin(state.db, fedExtent);
   state.fed.index = Geo.buildIndex(state.fed.active);
   state.prov.index = state.prov.active.length ? Geo.buildIndex(state.prov.active) : null;
+  state.da.index = state.da.active.length ? Geo.buildIndex(state.da.active) : null;
 
   const signature = [state.fed.active.length, state.prov.active.length, state.prov.all.length,
+    state.da.active.length, state.da.all.length,
     $('area-filter').value, $('show-mobile').checked,
     state.fed.active[0]?.key, state.fed.active[state.fed.active.length - 1]?.key].join('|');
   if (signature !== layersSignature) {
@@ -5551,9 +5792,15 @@ function draw() {
       provLayer.addData({ type: 'FeatureCollection', features: state.prov.active });
     }
     bindPaths(provLayer);
+    daLayer.clearLayers();
+    if (state.da.active.length) {
+      daLayer.addData({ type: 'FeatureCollection', features: state.da.active });
+    }
+    bindPaths(daLayer);
   }
   applyFederalStyle(gFed.selectAll('path'));
   applyProvincialStyle(gProv.selectAll('path'));
+  applyDaStyle(gDa.selectAll('path'));
 
   updateLayerVisibility();
   renderLegend();
@@ -5567,7 +5814,12 @@ function draw() {
 function updateLayerVisibility() {
   map.getPane('fed').style.display = $('show-fed').checked ? '' : 'none';
   map.getPane('prov').style.display = $('show-prov').checked ? '' : 'none';
+  map.getPane('da').style.display = $('show-da').checked ? '' : 'none';
   gProv.classed('filled', $('shade-prov-by').value !== 'none');
+  gDa.classed('filled', $('shade-da-by').value !== 'none');
+  const hasDa = state.da.all.length > 0;
+  $('da-controls').hidden = !hasDa;
+  $('show-da-wrap').hidden = !hasDa;
   root.style.setProperty('--va-weight', $('prov-weight').value);
 }
 
@@ -5606,11 +5858,25 @@ function renderLegend() {
     }
     items.push(['outline', 'Provincial (2024) voting area']);
   }
+  if (state.da.active.length) {
+    const daMode = $('shade-da-by').value;
+    if (DATA_MODES.has(daMode)) {
+      const name = daMode === 'variable'
+        ? ($('shade-da-var').selectedOptions[0]?.textContent || 'census variable')
+        : { 'turnout-agg': 'Aggregate turnout', 'turnout-fed': '2025 federal turnout', 'turnout-prov': '2024 provincial turnout' }[daMode];
+      const dom = state.shadeDomain.da;
+      const rangeText = dom ? (daMode === 'variable'
+        ? ` — ${fmtNum(dom.lo, 1)} to ${fmtNum(dom.hi, 1)}` : range(dom)) : '';
+      items.push([daMode === 'variable' ? 'var(--viz-series-3)' : 'var(--viz-series-1)', `${name} on dissemination areas${rangeText}`]);
+    }
+    items.push(['outline-da', 'Census (2021) dissemination area']);
+  }
   legend.hidden = items.length === 0;
   for (const [colour, text] of items) {
     const row = el('div', 'legend-item');
-    const sw = el('span', colour === 'outline' ? 'swatch swatch-outline' : 'swatch');
-    if (colour !== 'outline') sw.style.background = colour;
+    const outline = colour === 'outline' || colour === 'outline-da';
+    const sw = el('span', colour === 'outline' ? 'swatch swatch-outline' : colour === 'outline-da' ? 'swatch swatch-da' : 'swatch');
+    if (!outline) sw.style.background = colour;
     row.append(sw, el('span', null, text));
     legend.append(row);
   }
@@ -5618,26 +5884,20 @@ function renderLegend() {
 
 /* --- Selection and readout ------------------------------------------------- */
 
-function selectAt(lonlat, fedFeature, provFeature) {
-  if (lonlat) {
-    const fi = state.fed.index ? state.fed.index.hit(lonlat[0], lonlat[1]) : -1;
-    const pi = state.prov.index ? state.prov.index.hit(lonlat[0], lonlat[1]) : -1;
-    state.selection.fed = fi >= 0 ? state.fed.active[fi] : null;
-    state.selection.prov = pi >= 0 ? state.prov.active[pi] : null;
-  } else {
-    if (fedFeature) {
-      state.selection.fed = fedFeature;
-      const pt = Geo.representativePoint(fedFeature.geometry);
-      const pi = pt && state.prov.index ? state.prov.index.hit(pt[0], pt[1]) : -1;
-      state.selection.prov = pi >= 0 ? state.prov.active[pi] : null;
-    }
-    if (provFeature) {
-      state.selection.prov = provFeature;
-      const pt = Geo.representativePoint(provFeature.geometry);
-      const fi = pt && state.fed.index ? state.fed.index.hit(pt[0], pt[1]) : -1;
-      if (fi >= 0) state.selection.fed = state.fed.active[fi];
-    }
-  }
+/* Hit-test one point against every layer; a feature given directly stands in
+   for its own layer and the others are found at its interior point. */
+function selectAt(lonlat, fedFeature, provFeature, daFeature) {
+  const hitAll = (pt) => ({
+    fed: pt && state.fed.index ? state.fed.index.hit(pt[0], pt[1]) : -1,
+    prov: pt && state.prov.index ? state.prov.index.hit(pt[0], pt[1]) : -1,
+    da: pt && state.da.index ? state.da.index.hit(pt[0], pt[1]) : -1,
+  });
+  const given = fedFeature || provFeature || daFeature;
+  const pt = lonlat || (given ? Geo.representativePoint(given.geometry) : null);
+  const h = hitAll(pt);
+  state.selection.fed = fedFeature || (h.fed >= 0 ? state.fed.active[h.fed] : null);
+  state.selection.prov = provFeature || (h.prov >= 0 ? state.prov.active[h.prov] : null);
+  state.selection.da = daFeature || (h.da >= 0 ? state.da.active[h.da] : null);
   redrawSelection();
   renderReadout();
 }
@@ -5645,9 +5905,11 @@ function selectAt(lonlat, fedFeature, provFeature) {
 function redrawSelection() {
   gFed.selectAll('path').classed('selected', (f) => f === state.selection.fed);
   gProv.selectAll('path').classed('selected', (f) => f === state.selection.prov);
+  gDa.selectAll('path').classed('selected', (f) => f === state.selection.da);
   /* Re-appending brings the selected outline above its neighbours. */
   gFed.selectAll('path.selected').raise();
   gProv.selectAll('path.selected').raise();
+  gDa.selectAll('path.selected').raise();
 }
 
 function resultsList(unit, limit = 6) {
@@ -5668,10 +5930,10 @@ function resultsList(unit, limit = 6) {
 function renderReadout() {
   const box = $('readout');
   box.textContent = '';
-  const { fed, prov } = state.selection;
-  if (!fed && !prov) {
+  const { fed, prov, da } = state.selection;
+  if (!fed && !prov && !da) {
     box.append(el('p', 'text-muted',
-      'Click anywhere on the map to read the federal polling division and the provincial voting area covering that point.'));
+      'Click anywhere on the map to read the federal polling division, the provincial voting area and the dissemination area covering that point.'));
     return;
   }
   const grid = el('div', 'readout-grid');
@@ -5725,6 +5987,38 @@ function renderReadout() {
   }
 
   grid.append(fedCard, provCard);
+  if (state.da.all.length) {
+    const daCard = el('div', 'readout-card');
+    daCard.append(el('h3', null, 'Census (2021)'));
+    if (da) {
+      daCard.append(el('p', 'readout-name', daLabel(da)));
+      const bits = [];
+      const pop = state.da.pop?.get(da.__idx);
+      if (pop != null) bits.push(`${fmtInt(pop)} people`);
+      const row = state.socio.byDa && state.socio.byDa.get(da.__idx);
+      if (row) {
+        if (row.t.fed != null) bits.push(`federal turnout ${fmtPct(row.t.fed)}`);
+        if (row.t.prov != null) bits.push(`provincial turnout ${fmtPct(row.t.prov)}`);
+        if (row.agg != null) bits.push(`aggregate ${fmtPct(row.agg)}`);
+      }
+      if (bits.length) daCard.append(el('p', 'text-small', bits.join(' · ')));
+      const shown = state.da.variables.filter((v) => v.byFeature.has(da.__idx)).slice(0, 8);
+      if (shown.length) {
+        const list = el('ul', 'result-list');
+        for (const v of shown) {
+          const li = el('li');
+          li.append(el('span', 'party', v.label), el('span', 'votes tabular-nums', fmtNum(v.byFeature.get(da.__idx), 1)));
+          list.append(li);
+        }
+        daCard.append(list);
+      } else if (state.da.census) {
+        daCard.append(el('p', 'text-small text-warning', 'No census row matched this area.'));
+      }
+    } else {
+      daCard.append(el('p', 'text-muted', 'No dissemination area at this point.'));
+    }
+    grid.append(daCard);
+  }
   box.append(grid);
 
   const bkey = basketKeyForSelection();
@@ -5776,6 +6070,86 @@ function zoomToFeature(feature) {
   const b = Geo.bboxOf(feature.geometry);
   if (!isFinite(b[0])) return;
   map.fitBounds([[b[1], b[0]], [b[3], b[2]]], { padding: [24, 24], maxZoom: 17 });
+}
+
+/* --- The sample table and its crosswalks ------------------------------------
+   buildCrosswalk (g3) samples every loaded layer once into state.sample.
+   crossPair(a, b) then derives the crosswalk for any two layers on demand,
+   weighted as the Correlation tab asks, and caches it; the federal-provincial
+   pair also fills the older state.crosswalk / state.pairs fields the rest of
+   the app reads. */
+
+/* Per-point weights from the best population layer available:
+   dissemination blocks, else dissemination areas, else none (area). */
+function sampleWeights() {
+  const s = state.sample;
+  const none = { weights: null, label: 'area', short: 'area', detail: '' };
+  if (!s) return none;
+  const mode = $('sample-weighting').value;
+  if (mode === 'area') return none;
+  const popOf = (id) => {
+    const k = s.ids.indexOf(id);
+    if (k < 0 || !state[id].pop) return null;
+    const m = new Map();
+    state[id].active.forEach((f, i) => { const v = state[id].pop.get(f.__idx); if (v != null) m.set(i, v); });
+    return m.size ? { k, m } : null;
+  };
+  const da = (mode === 'auto' || mode === 'da') ? popOf('da') : null;
+  const db = (mode === 'auto' || mode === 'db') ? popOf('db') : null;
+  let weights = null, label = 'area', short = 'area', detail = '';
+  if (da) { weights = Analysis.pointWeights(s, da.k, da.m, null); label = 'dissemination-area population'; short = 'area population'; }
+  if (db) {
+    weights = Analysis.pointWeights(s, db.k, db.m, weights);
+    short = 'block population';
+    detail = da ? 'area population where a block has none' : '';
+    label = 'dissemination-block population' + (detail ? ` (${detail})` : '');
+  }
+  if (!weights && mode !== 'auto') { label = 'area (no population loaded for that layer)'; detail = 'no population loaded for that layer'; }
+  return { weights, label, short, detail };
+}
+
+function crossPair(a, b) {
+  const s = state.sample;
+  if (!s) return null;
+  const ka = s.ids.indexOf(a), kb = s.ids.indexOf(b);
+  if (ka < 0 || kb < 0) return null;
+  const key = a + '|' + b;
+  let c = state.cross.get(key);
+  if (c) return c;
+  const { weights, label, short, detail } = sampleWeights();
+  const cw = Analysis.crosswalkBetween(s, ka, kb, { weights });
+  const repaired = Analysis.repairSmallFeatures(cw, state[a].active, state[b].active,
+    { a: s.indexes[ka], b: s.indexes[kb] });
+  const minShare = parseFloat($('min-overlap').value);
+  c = { cw, pairs: Analysis.crosswalkPairs(cw, { minShare }), coverage: Analysis.coverage(cw), repaired, weighting: label };
+  state.cross.set(key, c);
+  state.weightingInEffect = label;
+  state.weightingShort = short;
+  state.weightingDetail = detail;
+  if (a === 'fed' && b === 'prov') {
+    state.crosswalk = cw; state.pairs = c.pairs; state.coverage = c.coverage;
+    state.crosswalkFed = state.fed.active; state.crosswalkProv = state.prov.active;
+  }
+  return c;
+}
+
+/* Weighting or the sliver threshold changed: the sample stands, the
+   crosswalks are rebuilt from it. */
+function invalidateCross() {
+  state.cross.clear();
+  state.crosswalk = null; state.pairs = null; state.coverage = null; state.provOnFed = null;
+  state.crosswalkFed = null; state.crosswalkProv = null;
+  if (state.sample) crossPair('fed', 'prov');
+}
+
+/* The active sets changed: nothing derived from the sample survives. */
+function invalidateSample() {
+  state.sample = null;
+  invalidateCross();
+  state.turnout.rows = null; state.turnout.basket.clear();
+  state.socio.rows = null; state.socio.byDa = null; state.socio.table = null;
+  $('corr-controls').hidden = true;
+  refreshCrosswalkStatus();
 }
 
 /* --- Loading data ---------------------------------------------------------- */
@@ -5846,7 +6220,7 @@ $('file-prov-geo').addEventListener('change', async (event) => {
 
 $('clear-prov-geo').addEventListener('click', () => {
   state.prov.all = []; state.prov.meta = null; state.prov.keyDef = null;
-  state.provResults = null; state.crosswalk = null; state.pairs = null; state.provOnFed = null;
+  state.provResults = null;
   $('file-prov-geo').value = '';
   $('clear-prov-geo').hidden = true;
   $('prov-key-row').hidden = true;
@@ -5861,11 +6235,211 @@ function onProvincialLayerChanged() {
   state.selection.prov = null;
   const has = state.prov.all.length > 0;
   $('find-va').disabled = !has;
-  $('build-crosswalk').disabled = !has;
-  refreshCrosswalkStatus();
+  $('build-crosswalk').disabled = !has && !state.da.all.length;
+  invalidateSample();
   draw();
   populateFinders();
   renderReadout();
+  refreshTurnout();
+  refreshSocio();
+}
+
+/* --- Census layers (Statistics Canada, 2021) --------------------------------- */
+
+/* The study area plus 2 km, in lon/lat, for clipping census files on load. */
+function clipBox() {
+  if (!$('clip-census').checked) return null;
+  const e = extentOf(state.fed.active);
+  if (!e) return null;
+  const dLat = 2000 / 110574;
+  const dLon = 2000 / (111320 * Math.cos(((e[1] + e[3]) / 2) * Math.PI / 180));
+  return [e[0] - dLon, e[1] - dLat, e[2] + dLon, e[3] + dLat];
+}
+
+const CENSUS_NAMES = { da: 'dissemination areas', db: 'dissemination blocks' };
+
+async function loadCensusLayer(kind, file) {
+  const statusId = `status-${kind}-geo`;
+  setStatus(statusId, 'busy', `Reading ${file.name}…`);
+  try {
+    /* The File itself goes in, so a national archive is read lazily and
+       clipped before its geometry is parsed. */
+    const loaded = await Ingest.loadBoundaries(file.name, file, { bbox: clipBox() });
+    loaded.features.forEach((f, i) => { f.__idx = i; f.__key = kind + i; });
+    const layer = state[kind];
+    layer.all = loaded.features;
+    layer.meta = loaded;
+    layer.keyProp = Census.suggestGeoKey(loaded.features);
+    if (kind === 'da') {
+      const props = [...new Set(loaded.features.slice(0, 200).flatMap((f) => Object.keys(f.properties || {})))];
+      fillSelect($('da-key'), props, layer.keyProp || props[0]);
+      $('da-key-row').hidden = props.length === 0;
+    }
+    const lines = [
+      `Loaded ${fmtInt(loaded.kept)} ${CENSUS_NAMES[kind]}`
+        + (loaded.filtered && loaded.records !== loaded.kept
+          ? ` of ${fmtInt(loaded.records)} in ${loaded.label}, clipped to the study area.` : ` from ${loaded.label}.`),
+      `Coordinate system: ${loaded.crsLabel}. Id field: ${layer.keyProp || '(none found)'}.`,
+    ];
+    for (const w of loaded.warnings) lines.push(el('p', 'text-warning', w));
+    setStatus(statusId, 'ok', lines);
+    $(`clear-${kind}-geo`).hidden = false;
+    onCensusChanged();
+  } catch (err) {
+    setStatus(statusId, 'error', [`Could not read ${file.name}.`, err.message]);
+  }
+}
+
+for (const kind of ['da', 'db']) {
+  $(`file-${kind}-geo`).addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) loadCensusLayer(kind, file);
+  });
+  $(`clear-${kind}-geo`).addEventListener('click', () => {
+    const layer = state[kind];
+    layer.all = []; layer.active = []; layer.index = null; layer.meta = null; layer.keyProp = null;
+    if (kind === 'da') { layer.variables = []; layer.pop = null; layer.shadeVar = null; state.selection.da = null; $('da-key-row').hidden = true; }
+    else layer.pop = null;
+    $(`file-${kind}-geo`).value = '';
+    $(`clear-${kind}-geo`).hidden = true;
+    setStatus(`status-${kind}-geo`, 'idle', []);
+    onCensusChanged();
+  });
+}
+$('da-key').addEventListener('change', () => {
+  state.da.keyProp = $('da-key').value || null;
+  onCensusChanged();
+});
+
+$('file-geo-attr').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  setStatus('status-geo-attr', 'busy', `Reading ${file.name}…`);
+  try {
+    const table = await Ingest.loadTable(file.name, await readFile(file));
+    const geo = Census.readGeoAttributes(table);
+    state.geoAttr = geo;
+    let people = 0; for (const v of geo.dbPop.values()) people += v;
+    setStatus('status-geo-attr', 'ok', [
+      `${fmtInt(geo.dbPop.size)} blocks with a population (${fmtInt(people)} people), summed into `
+        + `${fmtInt(geo.daPop.size)} dissemination areas, from ${table.name}.`,
+      `Columns: ${geo.columns.db}, ${geo.columns.pop}${geo.columns.da ? ', ' + geo.columns.da : ' (no DAUID column, so no area totals)'}.`,
+    ]);
+    $('clear-geo-attr').hidden = false;
+    onCensusChanged();
+  } catch (err) {
+    setStatus('status-geo-attr', 'error', [`Could not read ${file.name}.`, err.message]);
+  }
+});
+$('clear-geo-attr').addEventListener('click', () => {
+  state.geoAttr = null;
+  $('file-geo-attr').value = '';
+  $('clear-geo-attr').hidden = true;
+  setStatus('status-geo-attr', 'idle', []);
+  onCensusChanged();
+});
+
+$('file-census').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  setStatus('status-census', 'busy', `Reading ${file.name}…`);
+  try {
+    const table = await Ingest.loadTable(file.name, await readFile(file));
+    const layout = Census.detectProfileLayout(table.header);
+    let source;
+    if (layout) {
+      /* Only the study area's rows are kept when the boundaries are already
+         loaded; a provincial profile has millions of others. */
+      const wanted = state.da.all.length && state.da.keyProp
+        ? new Set(state.da.all.map((f) => Census.geoKey(f.properties[state.da.keyProp]))) : null;
+      const profile = Census.parseLongProfile(table, layout, { keep: wanted ? (geo) => wanted.has(geo) : null });
+      const derived = Census.deriveVariables(profile);
+      source = { kind: 'long', profile, variables: derived.variables, matched: derived.matched,
+                 unmatched: derived.unmatched, geographies: profile.geographies, name: table.name };
+    } else {
+      const wide = Census.readWide(table);
+      const starterKeys = new Set(Census.STARTER.map((s) => s.key));
+      const starters = wide.variables.filter((v) => starterKeys.has(v.key));
+      source = { kind: 'wide', all: wide.variables,
+                 variables: starters.length ? starters : wide.variables.slice(0, 40),
+                 matched: starters.map((v) => ({ key: v.key, id: null, name: v.key })),
+                 unmatched: Census.STARTER.map((s) => s.key).filter((k) => !starters.some((v) => v.key === k)),
+                 geographies: wide.geographies, name: table.name, geoColumn: wide.geoColumn };
+    }
+    state.da.census = source;
+    const lines = [source.kind === 'long'
+      ? `Census Profile, long layout: ${fmtInt(source.geographies)} geographies${state.da.all.length ? ' in the study area' : ''}, `
+        + `${fmtInt(source.profile.characteristics.length)} characteristics, from ${table.name}.`
+      : `Wide table: ${fmtInt(source.geographies)} geographies keyed by ${source.geoColumn}, `
+        + `${fmtInt(source.all.length)} numeric columns, from ${table.name}.`];
+    if (source.matched.length) {
+      const d = el('details');
+      d.append(el('summary', null, `${fmtInt(source.matched.length)} starter variables matched`));
+      const ul = el('ul', 'text-small');
+      for (const m of source.matched) ul.append(el('li', null, `${m.key} ← ${m.id != null ? m.id + ': ' : ''}${m.name}${m.over ? ` (of ${m.over})` : ''}`));
+      d.append(ul);
+      lines.push(d);
+    }
+    if (source.unmatched.length) {
+      lines.push(el('p', 'text-warning', `Not found by name: ${source.unmatched.join(', ')}. `
+        + 'Any characteristic can still be added on the Socioeconomic tab.'));
+    }
+    if (!state.da.all.length) lines.push(el('p', 'text-muted', 'Load the dissemination-area boundaries above to join these variables to the map.'));
+    setStatus('status-census', 'ok', lines);
+    $('clear-census').hidden = false;
+    onCensusChanged();
+  } catch (err) {
+    setStatus('status-census', 'error', [`Could not read ${file.name}.`, err.message]);
+  }
+});
+$('clear-census').addEventListener('click', () => {
+  state.da.census = null;
+  state.socio.extra.clear();
+  $('file-census').value = '';
+  $('clear-census').hidden = true;
+  setStatus('status-census', 'idle', []);
+  onCensusChanged();
+});
+
+/* Joins the loaded census variables and populations to the loaded
+   boundaries, keyed by each layer's id field. */
+function rejoinCensus() {
+  const da = state.da;
+  da.variables = [];
+  if (da.all.length && da.census) {
+    const defs = da.census.variables.slice();
+    for (const [key, c] of state.socio.extra) {
+      if (da.census.kind === 'long') {
+        const v = Census.characteristicVariable(da.census.profile, c.id, c.use);
+        if (v) defs.push({ ...v, key, extra: true });
+      } else {
+        const v = da.census.all.find((x) => x.key === key);
+        if (v) defs.push({ ...v, extra: true });
+      }
+    }
+    for (const v of defs) da.variables.push({ ...v, byFeature: Census.joinToFeatures(da.all, da.keyProp, v.values) });
+    if (!state.socio.selected.size) for (const v of da.census.variables) state.socio.selected.add(v.key);
+  }
+  da.pop = null;
+  if (da.all.length) {
+    if (state.geoAttr && state.geoAttr.daPop.size) da.pop = Census.joinToFeatures(da.all, da.keyProp, state.geoAttr.daPop);
+    if (!da.pop || !da.pop.size) { const p = da.variables.find((v) => v.key === 'pop_2021'); if (p) da.pop = p.byFeature; }
+  }
+  const db = state.db;
+  db.pop = null;
+  if (db.all.length && state.geoAttr) db.pop = Census.joinToFeatures(db.all, db.keyProp, state.geoAttr.dbPop);
+}
+
+function onCensusChanged() {
+  rejoinCensus();
+  $('build-crosswalk').disabled = !state.prov.all.length && !state.da.all.length;
+  invalidateSample();
+  draw();
+  populateFinders();
+  refreshDaShadeVars();
+  renderReadout();
+  refreshTurnout();
+  refreshSocio();
 }
 
 for (const id of ['prov-key-district', 'prov-key-va']) {
@@ -6166,41 +6740,57 @@ function refreshPartySelectors() {
     apply('corr-fed-party', fedParties, 'Load federal results');
     apply('corr-prov-party', provParties, 'Load provincial results');
   }
+  /* The Socioeconomic outcome can be any loaded party's share as well as turnout. */
+  const outcome = $('socio-outcome');
+  if (outcome) {
+    const previous = outcome.value;
+    fillSelect(outcome, [
+      { value: 'turnout-agg', label: 'Aggregate turnout, both elections' },
+      { value: 'turnout-fed', label: 'Federal (2025) turnout' },
+      { value: 'turnout-prov', label: 'Provincial (2024) turnout' },
+      ...fedParties.map(([name]) => ({ value: `fed:${name}`, label: `${name} share, federal 2025` })),
+      ...provParties.map(([name]) => ({ value: `prov:${name}`, label: `${name} share, provincial 2024` })),
+    ]);
+    outcome.value = [...outcome.options].some((o) => o.value === previous) ? previous : 'turnout-agg';
+  }
 }
 
 /* --- Crosswalk -------------------------------------------------------------- */
 
 function refreshCrosswalkStatus() {
-  const has = state.prov.all.length > 0;
+  const has = state.prov.all.length > 0 || state.da.all.length > 0;
   if (!has) {
     setStatus('status-crosswalk', 'idle',
-      ['Load a provincial voting-area layer on the Data tab first.']);
+      ['Load a provincial voting-area layer or a census layer on the Data tab first.']);
     $('corr-controls').hidden = true;
     return;
   }
-  if (!state.crosswalk) {
+  if (!state.sample) {
     setStatus('status-crosswalk', 'idle',
-      ['Ready. Building the crosswalk takes a second or two.']);
+      ['Ready. Sampling the layers takes a few seconds; every crosswalk is derived from that one sample.']);
   }
 }
 
+/* Samples every loaded layer once into state.sample, then derives the
+   federal-provincial crosswalk (and any other on demand, see crossPair). */
 function buildCrosswalk() {
   const spacingM = parseInt($('lattice').value, 10);
-  const fedFeatures = state.fed.active, provFeatures = state.prov.active;
-  if (!fedFeatures.length || !provFeatures.length) {
-    setStatus('status-crosswalk', 'error', ['Nothing to cross: one of the two layers is empty here.']);
+  const fedFeatures = state.fed.active;
+  if (!fedFeatures.length || (!state.prov.active.length && !state.da.active.length)) {
+    setStatus('status-crosswalk', 'error', ['Nothing to cross: the federal layer is empty here, or no other layer is loaded.']);
     return;
   }
   const bar = $('crosswalk-bar');
   $('crosswalk-progress').hidden = false;
   bar.style.width = '0%';
   $('build-crosswalk').disabled = true;
-  setStatus('status-crosswalk', 'busy', ['Sampling the overlap…']);
+  setStatus('status-crosswalk', 'busy', ['Sampling the layers…']);
 
-  const fedIndex = Geo.buildIndex(fedFeatures);
-  const provIndex = Geo.buildIndex(provFeatures);
-  const runner = Analysis.crosswalkRunner(fedFeatures, provFeatures,
-    { spacingM, fedIndex, provIndex });
+  const layers = [{ id: 'fed', features: fedFeatures, index: Geo.buildIndex(fedFeatures) }];
+  for (const id of ['prov', 'da', 'db']) {
+    if (state[id].active.length) layers.push({ id, features: state[id].active, index: Geo.buildIndex(state[id].active) });
+  }
+  const runner = Analysis.sampleLattice(layers, { spacingM });
   const started = Date.now();
 
   /* Stepped through a timer so the progress bar actually paints. */
@@ -6213,64 +6803,71 @@ function buildCrosswalk() {
       setTimeout(step, 0);
       return;
     }
-    const cw = result.value;
-    const repaired = Analysis.repairSmallFeatures(cw, fedFeatures, provFeatures,
-      { fed: fedIndex, prov: provIndex });
-    state.crosswalk = cw;
-    state.crosswalkFed = fedFeatures;
-    state.crosswalkProv = provFeatures;
-    state.coverage = Analysis.coverage(cw);
-    applyMinOverlap();
+    const sample = result.value;
+    sample.ids = layers.map((l) => l.id);
+    state.sample = sample;
+    state.cross.clear();
+    const fp = crossPair('fed', 'prov');
     bar.style.width = '100%';
     $('crosswalk-progress').hidden = true;
     $('build-crosswalk').disabled = false;
 
     const seconds = ((Date.now() - started) / 1000).toFixed(1);
-    const fullyInside = state.coverage.fed.filter((c) => c > 0.999).length;
-    const partial = state.coverage.fed.filter((c) => c > 0.001 && c <= 0.999).length;
-    const uncovered = state.coverage.fed.filter((c) => c <= 0.001).length;
     const lines = [
-      `Sampled ${fmtInt(cw.points)} lattice points at ${cw.spacingM} m in ${seconds}s, `
-        + `giving ${fmtInt(state.pairs.length)} federal–provincial overlaps.`,
-      `${fmtInt(fullyInside)} polling divisions sit wholly inside the provincial layer, `
-        + `${fmtInt(partial)} straddle its edge, ${fmtInt(uncovered)} fall outside it entirely.`,
+      `Sampled ${fmtInt(sample.points)} lattice points at ${sample.spacingM} m over `
+        + `${layers.map((l) => ({ fed: 'federal polls', prov: 'voting areas', da: 'dissemination areas', db: 'dissemination blocks' })[l.id]).join(', ')} in ${seconds}s.`,
     ];
-    if (repaired.fed.length || repaired.prov.length) {
-      lines.push(el('p', 'text-small text-muted',
-        `${fmtInt(repaired.fed.length)} federal and ${fmtInt(repaired.prov.length)} provincial `
-        + 'polygons were too small for the lattice and were assigned whole to the unit '
-        + 'containing an interior point.'));
+    if (fp) {
+      const cov = fp.coverage.fed;
+      const fullyInside = cov.filter((c) => c > 0.999).length;
+      const partial = cov.filter((c) => c > 0.001 && c <= 0.999).length;
+      const uncovered = cov.filter((c) => c <= 0.001).length;
+      lines.push(`${fmtInt(fp.pairs.length)} federal–provincial overlaps: ${fmtInt(fullyInside)} polling divisions sit wholly inside `
+        + `the provincial layer, ${fmtInt(partial)} straddle its edge, ${fmtInt(uncovered)} fall outside it entirely.`);
+      if (fp.repaired.a.length || fp.repaired.b.length) {
+        lines.push(el('p', 'text-small text-muted',
+          `${fmtInt(fp.repaired.a.length)} federal and ${fmtInt(fp.repaired.b.length)} provincial `
+          + 'polygons were too small for the lattice and were assigned whole to the unit '
+          + 'containing an interior point.'));
+      }
+      if (uncovered > 0) {
+        lines.push(el('p', 'text-warning',
+          `${fmtInt(uncovered)} polling divisions have no provincial coverage; their votes are `
+          + 'left out of the comparison. Check that the provincial file covers the whole area.'));
+      }
     }
-    if (uncovered > 0) {
-      lines.push(el('p', 'text-warning',
-        `${fmtInt(uncovered)} polling divisions have no provincial coverage; their votes are `
-        + 'left out of the comparison. Check that the provincial file covers the whole area.'));
+    const fd = crossPair('fed', 'da');
+    if (fd) {
+      const uncoveredDa = fd.coverage.fed.filter((c) => c <= 0.001).length;
+      lines.push(`${fmtInt(fd.pairs.length)} federal–census overlaps across ${fmtInt(state.da.active.length)} dissemination areas`
+        + (uncoveredDa ? `; ${fmtInt(uncoveredDa)} polling divisions lie outside the census layer.` : '.'));
     }
+    lines.push(el('p', 'text-small text-muted', `Overlaps weighted by ${state.weightingInEffect || 'area'}`
+      + (fp && fp.cw.weighted && (fp.cw.areaFallback.a.length || fp.cw.areaFallback.b.length)
+        ? `; ${fmtInt(fp.cw.areaFallback.a.length + fp.cw.areaFallback.b.length)} polygons with no population fell back to area.` : '.')));
     setStatus('status-crosswalk', 'ok', lines);
     recomputeProvincialOnFederal();
-    $('corr-controls').hidden = false;
+    $('corr-controls').hidden = !fp;
     refreshCorrelation();
     refreshTurnout();
+    refreshSocio();
     draw();
   };
   setTimeout(step, 0);
 }
 
-function applyMinOverlap() {
-  if (!state.crosswalk) return;
-  const minShare = parseFloat($('min-overlap').value);
-  state.pairs = Analysis.crosswalkPairs(state.crosswalk, { minShare });
-}
-
 $('build-crosswalk').addEventListener('click', buildCrosswalk);
-$('min-overlap').addEventListener('change', () => {
-  if (!state.crosswalk) return;
-  applyMinOverlap();
-  recomputeProvincialOnFederal();
-  refreshCorrelation();
-  refreshTurnout();
-  draw();
-});
+for (const id of ['min-overlap', 'sample-weighting']) {
+  $(id).addEventListener('change', () => {
+    if (!state.sample) return;
+    invalidateCross();
+    recomputeProvincialOnFederal();
+    refreshCorrelation();
+    refreshTurnout();
+    refreshSocio();
+    draw();
+  });
+}
 
 /* Provincial votes pushed onto federal divisions, for map shading. */
 function recomputeProvincialOnFederal() {
@@ -6368,49 +6965,61 @@ for (const id of ['corr-unit', 'corr-fed-party', 'corr-prov-party', 'corr-min-vo
   $(id).addEventListener('change', refreshCorrelation);
 }
 
-function drawScatter(result, fedParty, provParty) {
-  const node = $('scatter');
+/* One scatter routine for every tab: points {x, y, weight, label}, axis
+   labels and formats, a colour, an optional fit line, a title per dot. */
+function drawScatterXY(node, points, opts) {
   const sel = d3.select(node);
   sel.selectAll('*').remove();
   const w = Math.max(320, node.getBoundingClientRect().width || 640);
   const h = Math.max(280, Math.min(460, w * 0.62));
   sel.attr('viewBox', `0 0 ${w} ${h}`).attr('height', h);
-  if (!result.points.length) return;
+  if (!points.length) return;
   const m = { top: 14, right: 16, bottom: 44, left: 54 };
-  const pad = 0.02;
-  const xd = d3.extent(result.points, (p) => p.x), yd = d3.extent(result.points, (p) => p.y);
-  const x = d3.scaleLinear().domain([Math.max(0, xd[0] - pad), Math.min(1, xd[1] + pad)])
-    .range([m.left, w - m.right]).nice();
-  const y = d3.scaleLinear().domain([Math.max(0, yd[0] - pad), Math.min(1, yd[1] + pad)])
-    .range([h - m.bottom, m.top]).nice();
+  const xd = d3.extent(points, (p) => p.x), yd = d3.extent(points, (p) => p.y);
+  const padX = ((xd[1] - xd[0]) || Math.abs(xd[0]) || 1) * 0.04;
+  const padY = ((yd[1] - yd[0]) || Math.abs(yd[0]) || 1) * 0.04;
+  const x = d3.scaleLinear().domain(opts.xDomain || [xd[0] - padX, xd[1] + padX]).range([m.left, w - m.right]).nice();
+  const y = d3.scaleLinear().domain(opts.yDomain || [yd[0] - padY, yd[1] + padY]).range([h - m.bottom, m.top]).nice();
+  const xFormat = opts.xFormat || d3.format('.0%'), yFormat = opts.yFormat || d3.format('.0%');
 
   const g = sel.append('g');
   g.append('g').attr('class', 'axis').attr('transform', `translate(0,${h - m.bottom})`)
-    .call(d3.axisBottom(x).ticks(6).tickFormat(d3.format('.0%')));
+    .call(d3.axisBottom(x).ticks(6).tickFormat(xFormat));
   g.append('g').attr('class', 'axis').attr('transform', `translate(${m.left},0)`)
-    .call(d3.axisLeft(y).ticks(6).tickFormat(d3.format('.0%')));
+    .call(d3.axisLeft(y).ticks(6).tickFormat(yFormat));
   sel.append('text').attr('class', 'axis-label').attr('x', (m.left + w - m.right) / 2)
-    .attr('y', h - 8).attr('text-anchor', 'middle').text(`${fedParty} — federal share`);
+    .attr('y', h - 8).attr('text-anchor', 'middle').text(opts.xLabel || '');
   sel.append('text').attr('class', 'axis-label')
-    .attr('transform', `rotate(-90)`).attr('x', -(m.top + h - m.bottom) / 2).attr('y', 14)
-    .attr('text-anchor', 'middle').text(`${provParty} — provincial share`);
+    .attr('transform', 'rotate(-90)').attr('x', -(m.top + h - m.bottom) / 2).attr('y', 14)
+    .attr('text-anchor', 'middle').text(opts.yLabel || '');
 
-  const maxWeight = Math.max(...result.points.map((p) => p.weight)) || 1;
+  const maxWeight = Math.max(...points.map((p) => p.weight)) || 1;
   const r = (p) => 2 + 5 * Math.sqrt(Math.min(1, p.weight / maxWeight));
-  sel.append('g').selectAll('circle').data(result.points).join('circle')
+  sel.append('g').selectAll('circle').data(points).join('circle')
     .attr('class', 'dot')
     .attr('cx', (p) => x(p.x)).attr('cy', (p) => y(p.y)).attr('r', r)
-    .attr('fill', partyColour(fedParty))
+    .attr('fill', opts.colour || 'var(--viz-series-1)')
     .append('title')
-    .text((p) => `${p.label}\n${fedParty} federal ${fmtPct(p.x)}\n${provParty} provincial ${fmtPct(p.y)}`
-      + `\n${fmtInt(p.weight)} votes`);
+    .text((p) => (opts.title ? opts.title(p) : `${p.label}\n${xFormat(p.x)}, ${yFormat(p.y)}`));
 
-  if (result.fit) {
+  if (opts.fit) {
     const xs = x.domain();
     const line = d3.line().x((d) => x(d[0])).y((d) => y(d[1]));
-    const pts = xs.map((v) => [v, result.fit.intercept + result.fit.slope * v]);
+    const pts = xs.map((v) => [v, opts.fit.intercept + opts.fit.slope * v]);
     sel.append('path').attr('class', 'fit-line').attr('d', line(pts));
   }
+}
+
+function drawScatter(result, fedParty, provParty) {
+  const pad = 0.02;
+  const xd = d3.extent(result.points, (p) => p.x), yd = d3.extent(result.points, (p) => p.y);
+  drawScatterXY($('scatter'), result.points, {
+    xLabel: `${fedParty} — federal share`, yLabel: `${provParty} — provincial share`,
+    xDomain: result.points.length ? [Math.max(0, xd[0] - pad), Math.min(1, xd[1] + pad)] : null,
+    yDomain: result.points.length ? [Math.max(0, yd[0] - pad), Math.min(1, yd[1] + pad)] : null,
+    colour: partyColour(fedParty), fit: result.fit,
+    title: (p) => `${p.label}\n${fedParty} federal ${fmtPct(p.x)}\n${provParty} provincial ${fmtPct(p.y)}\n${fmtInt(p.weight)} votes`,
+  });
 }
 
 /* --- Exports ----------------------------------------------------------------- */
@@ -6485,6 +7094,12 @@ function populateFinders() {
         .map((f) => ({ value: f.__key, label: provLabel(f) }))
         .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }))]);
   }
+  const daSel = $('find-da');
+  fillSelect(daSel, [{ value: '', label: state.da.active.length ? 'Select an area…' : 'No census layer loaded' },
+    ...state.da.active
+      .map((f) => ({ value: f.__key, label: daLabel(f) }))
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }))]);
+  daSel.disabled = !state.da.active.length;
 }
 
 $('find-poll').addEventListener('change', (e) => {
@@ -6504,11 +7119,8 @@ for (const id of ['show-fed', 'show-prov', 'prov-weight']) {
 }
 for (const id of ['area-filter', 'show-mobile']) {
   $(id).addEventListener('change', () => {
-    state.crosswalk = null; state.pairs = null; state.provOnFed = null;
-    state.turnout.rows = null; state.turnout.basket.clear();
-    $('corr-controls').hidden = true;
-    refreshCrosswalkStatus();
-    draw(); populateFinders(); renderReadout(); refreshTurnout();
+    invalidateSample();
+    draw(); populateFinders(); renderReadout(); refreshTurnout(); refreshSocio();
   });
 }
 for (const id of ['shade-by', 'shade-party-fed']) {
@@ -6848,6 +7460,353 @@ $('basket-clear').addEventListener('click', () => {
   renderBasket(); markBasketOnMap(); renderReadout();
 });
 
+/* --- Socioeconomic tab ------------------------------------------------------
+   Election results moved onto Statistics Canada's dissemination areas through
+   the sample-table crosswalk, correlated with census variables. The maths is
+   in f2-turnout.js (rows on a target geography), e-analysis.js (correlateXY)
+   and f3-census.js (variables); this file wires the controls, the variable
+   picker, the table, the scatter and the export, and keeps the map's
+   dissemination-area shading in step. */
+
+function daLabel(f) {
+  if (!f) return 'Dissemination area';
+  const k = state.da.keyProp;
+  const v = k ? f.properties[k] : null;
+  return v != null && String(v).trim() !== '' ? `DA ${String(v).trim()}` : `DA #${f.__idx}`;
+}
+
+/* Sources in the crosswalk's index space (active-layer indices), each on
+   side 'a' of its own pair with the dissemination areas. */
+function socioSources() {
+  const s = state.sample;
+  if (!s || !s.ids.includes('da')) return [];
+  const sources = [];
+  const add = (id, values, key) => {
+    const c = crossPair(id, 'da');
+    if (!c) return;
+    const m = new Map();
+    state[id].active.forEach((f, i) => { const u = values.get(f[key]); if (u) m.set(i, u); });
+    sources.push({ id, values: m, pairs: c.pairs, side: 'a' });
+  };
+  const fv = fedValues(); if (fv) add('fed', fv, 'idx');
+  const pv = provValues(); if (pv) add('prov', pv, '__idx');
+  return sources;
+}
+
+/* The chosen outcome as a function of a scored row; null when unavailable. */
+function socioOutcome(mode) {
+  if (mode === 'turnout-fed') return { label: 'Federal (2025) turnout', of: (r) => r.t.fed, format: fmtPct };
+  if (mode === 'turnout-prov') return { label: 'Provincial (2024) turnout', of: (r) => r.t.prov, format: fmtPct };
+  const m = /^(fed|prov):(.*)$/.exec(mode);
+  if (m) {
+    const side = m[1], party = m[2];
+    return { label: `${party} share, ${side === 'fed' ? 'federal 2025' : 'provincial 2024'}`,
+             of: (r) => Analysis.shareOf(r.by[side], party), format: fmtPct };
+  }
+  return { label: 'Aggregate turnout, both elections', of: (r) => r.agg, format: fmtPct };
+}
+
+/* Every variable currently available on the dissemination areas: the
+   starter set (or the wide file's columns) plus any characteristic added
+   from the search box. Each has byFeature: Map<feature index, value>. */
+function socioVariables() {
+  return state.da.variables;
+}
+
+function refreshSocio() {
+  const statsHost = $('socio-stats');
+  if (!statsHost) return;
+  const st = state.socio;
+  st.outcome = $('socio-outcome').value;
+  st.minElectors = parseFloat($('socio-min-electors').value);
+  statsHost.textContent = '';
+  const results = $('socio-results');
+
+  const missing = [];
+  if (!state.da.all.length) missing.push('the dissemination-area boundaries (Data tab, section 4)');
+  if (state.da.all.length && !socioVariables().length) missing.push('a census profile joined to them');
+  if (!state.fedResults?.values && !state.provResults?.values) missing.push('federal or provincial results');
+  if (state.da.all.length && (!state.sample || !state.sample.ids.includes('da'))) {
+    missing.push('the crosswalk (build it on the Correlation tab after loading the census layer)');
+  }
+  if (missing.length) {
+    setStatus('socio-status', 'idle', [`Needed first: ${missing.join('; ')}.`]);
+    st.rows = null; st.byDa = null; st.table = null;
+    results.hidden = true;
+    restyleDa();
+    return;
+  }
+
+  const sources = socioSources();
+  const labels = {
+    fed: (i) => state.fed.active[i]?.label ?? `poll ${i}`,
+    prov: (i) => provLabel(state.prov.active[i]),
+    da: (i) => daLabel(state.da.active[i]),
+  };
+  let rows = Turnout.rowsOnUnit('da', sources, labels, { minElectors: st.minElectors });
+  rows = Turnout.score(rows, { weights: { fed: state.turnout.weight, prov: 1 - state.turnout.weight } });
+  for (const r of rows) r.feature = state.da.active[+r.key];
+  /* An area covered by only one election carries that election alone as its
+     "aggregate"; by default those stay out of a correlation. */
+  const partialCount = rows.filter((r) => r.partial).length;
+  const bothOnly = $('socio-both-only').checked && sources.length > 1;
+  if (bothOnly) rows = rows.filter((r) => !r.partial);
+  st.rows = rows;
+  st.byDa = new Map(rows.map((r) => [r.feature.__idx, r]));
+
+  const outcome = socioOutcome(st.outcome);
+  const table = [];
+  for (const v of socioVariables()) {
+    if (!st.selected.has(v.key)) continue;
+    const pts = [];
+    for (const r of rows) {
+      const y = outcome.of(r);
+      const x = v.byFeature.get(r.feature.__idx);
+      if (y == null || !isFinite(y) || x == null || !isFinite(x)) continue;
+      pts.push({ x, y, weight: r.electors, label: daLabel(r.feature), key: r.key });
+    }
+    const c = Analysis.correlateXY(pts);
+    table.push({ key: v.key, label: v.label, n: pts.length, r: c.r, rWeighted: c.rWeighted, rho: c.rho,
+                 ci: c.ci, absR: c.r == null ? null : Math.abs(c.r), points: pts, fit: c.fit });
+  }
+  st.table = table;
+
+  const withOutcome = rows.filter((r) => outcome.of(r) != null);
+  const electors = withOutcome.reduce((a, r) => a + r.electors, 0);
+  const stat = (label, value, note) => {
+    const box = el('div', 'viz-stat');
+    box.append(el('div', 'viz-stat-value', value), el('div', 'text-small text-muted', label));
+    if (note) box.append(el('div', 'text-small text-muted', note));
+    return box;
+  };
+  statsHost.append(
+    stat('dissemination areas', fmtInt(withOutcome.length), `of ${fmtInt(state.da.active.length)} in the study area`),
+    stat('electors located', fmtInt(electors)),
+    stat('overlaps weighted by', state.weightingShort || 'area', state.weightingDetail || null),
+    stat('variables compared', fmtInt(table.length), `${fmtInt(socioVariables().length)} available`),
+  );
+  const lines = [`${fmtInt(withOutcome.length)} dissemination areas carry ${outcome.label.toLowerCase()}; `
+    + `${sources.map((s) => (s.id === 'fed' ? 'federal (2025)' : 'provincial (2024)')).join(' and ')} results moved through the crosswalk`
+    + (partialCount ? ` (${fmtInt(partialCount)} areas touch only one election${bothOnly ? ' and are left out' : ' and are included with that election alone'}).` : '.')];
+  if (state.da.census?.unmatched?.length) {
+    lines.push(el('p', 'text-small text-muted',
+      `Starter variables not found in this profile: ${state.da.census.unmatched.join(', ')}. Add them by name below if the file spells them differently.`));
+  }
+  setStatus('socio-status', 'ok', lines);
+  results.hidden = false;
+  renderSocioPicker();
+  renderSocioTable();
+  if (st.picked && !table.some((t) => t.key === st.picked)) st.picked = table.length ? table[0].key : null;
+  if (!st.picked && table.length) st.picked = sortedSocio(table)[0].key;
+  drawSocioScatter();
+  restyleDa();
+}
+
+function sortedSocio(table) {
+  const { sortKey, sortDir } = state.socio;
+  const val = (t) => (sortKey === 'label' ? t.label : t[sortKey]);
+  return table.slice().sort((a, b) => {
+    const x = val(a), y = val(b);
+    if (sortKey === 'label') return sortDir === 'desc' ? String(y).localeCompare(String(x)) : String(x).localeCompare(String(y));
+    if (x == null && y == null) return 0;
+    if (x == null) return 1;
+    if (y == null) return -1;
+    return sortDir === 'desc' ? y - x : x - y;
+  });
+}
+
+const SOCIO_COLUMNS = [
+  { key: 'label', label: 'Census variable', get: (t) => t.label, fmt: (v) => v, left: true },
+  { key: 'n', label: 'n', get: (t) => t.n, fmt: fmtInt },
+  { key: 'r', label: 'Pearson r', get: (t) => t.r, fmt: (v) => fmtNum(v, 3) },
+  { key: 'rWeighted', label: 'Electors-weighted r', get: (t) => t.rWeighted, fmt: (v) => fmtNum(v, 3) },
+  { key: 'rho', label: "Spearman's rho", get: (t) => t.rho, fmt: (v) => fmtNum(v, 3) },
+  { key: 'absR', label: '|r|', get: (t) => t.absR, fmt: (v) => fmtNum(v, 3) },
+  { key: 'ci', label: '95% CI of r', get: (t) => t.ci, fmt: (v) => `${fmtNum(v[0], 2)} to ${fmtNum(v[1], 2)}` },
+];
+
+function renderSocioTable() {
+  const table = $('socio-table');
+  table.textContent = '';
+  const st = state.socio;
+  const thead = el('thead'), hr = el('tr');
+  for (const c of SOCIO_COLUMNS) {
+    const th = el('th', c.left ? 'text-start' : null, c.label);
+    if (c.key === st.sortKey) th.classList.add('sorted', st.sortDir);
+    th.addEventListener('click', () => {
+      if (st.sortKey === c.key) st.sortDir = st.sortDir === 'desc' ? 'asc' : 'desc';
+      else { st.sortKey = c.key; st.sortDir = c.key === 'label' ? 'asc' : 'desc'; }
+      renderSocioTable();
+    });
+    hr.append(th);
+  }
+  thead.append(hr);
+  const tbody = el('tbody');
+  for (const t of sortedSocio(st.table || [])) {
+    const tr = el('tr');
+    tr.dataset.key = t.key;
+    if (t.key === st.picked) tr.classList.add('picked');
+    for (const c of SOCIO_COLUMNS) {
+      const v = c.get(t);
+      tr.append(el('td', c.left ? 'text-start' : null, v == null ? '--' : c.fmt(v)));
+    }
+    tr.addEventListener('click', () => { st.picked = t.key; renderSocioTable(); drawSocioScatter(); });
+    tbody.append(tr);
+  }
+  table.append(thead, tbody);
+}
+
+function drawSocioScatter() {
+  const st = state.socio;
+  const node = $('socio-scatter');
+  const caption = $('socio-scatter-caption');
+  const t = (st.table || []).find((x) => x.key === st.picked);
+  if (!t) { d3.select(node).selectAll('*').remove(); caption.textContent = ''; return; }
+  const outcome = socioOutcome(st.outcome);
+  const xFormat = d3.format(Math.max(...t.points.map((p) => Math.abs(p.x))) >= 1000 ? ',.3~s' : ',.3~r');
+  drawScatterXY(node, t.points, {
+    xLabel: t.label, yLabel: outcome.label, xFormat, yFormat: d3.format('.0%'),
+    colour: 'var(--viz-series-3)', fit: t.fit,
+    title: (p) => `${p.label}\n${t.label}: ${xFormat(p.x)}\n${outcome.label}: ${fmtPct(p.y)}\n${fmtInt(p.weight)} electors`,
+  });
+  const dropped = (st.rows || []).length - t.n;
+  caption.textContent = `${t.label} against ${outcome.label.toLowerCase()} across ${fmtInt(t.n)} dissemination areas`
+    + (dropped > 0 ? ` (${fmtInt(dropped)} left out for missing values)` : '')
+    + `; r = ${fmtNum(t.r, 3)}, electors-weighted r = ${fmtNum(t.rWeighted, 3)}. Dot size follows electors.`;
+}
+
+/* --- Variable picker and search ------------------------------------------ */
+
+function renderSocioPicker() {
+  const host = $('socio-picker');
+  host.textContent = '';
+  const st = state.socio;
+  for (const v of socioVariables()) {
+    const lab = el('label');
+    const cb = el('input'); cb.type = 'checkbox'; cb.checked = st.selected.has(v.key);
+    cb.addEventListener('change', () => { if (cb.checked) st.selected.add(v.key); else st.selected.delete(v.key); refreshSocio(); });
+    lab.append(cb, el('span', null, v.label));
+    if (v.extra) {
+      const rm = el('button', 'btn btn-small', '×'); rm.type = 'button'; rm.title = 'Remove this characteristic';
+      rm.style.marginTop = '0';
+      rm.addEventListener('click', () => { st.extra.delete(v.key); st.selected.delete(v.key); rejoinCensus(); refreshSocio(); });
+      lab.append(rm);
+    }
+    host.append(lab);
+  }
+}
+
+/* Characteristics the user can add by name: the long profile's full list, or
+   the wide file's columns that are not already shown. */
+function socioCandidates(query) {
+  const q = query.trim().toLowerCase();
+  if (!q || !state.da.census) return [];
+  const shown = new Set(socioVariables().map((v) => v.key));
+  const out = [];
+  if (state.da.census.kind === 'long') {
+    for (const c of state.da.census.profile.characteristics) {
+      if (!c.name.toLowerCase().includes(q)) continue;
+      if (!shown.has('c' + c.id)) out.push({ key: 'c' + c.id, id: c.id, use: 'count', label: c.name + (c.depth ? ` (level ${c.depth})` : '') });
+      if (out.length >= 40) break;
+    }
+  } else {
+    for (const v of state.da.census.all) {
+      if (shown.has(v.key) || !v.key.toLowerCase().includes(q)) continue;
+      out.push({ key: v.key, wide: true, label: v.key });
+      if (out.length >= 40) break;
+    }
+  }
+  return out;
+}
+
+function renderSocioSearch() {
+  const host = $('socio-search-results');
+  host.textContent = '';
+  const query = $('socio-search').value;
+  const found = socioCandidates(query);
+  if (query.trim() && !found.length) { host.append(el('span', 'text-small text-muted', 'No characteristic matches.')); return; }
+  for (const c of found) {
+    const b = el('button', 'btn', `+ ${c.label}`); b.type = 'button';
+    b.addEventListener('click', () => {
+      state.socio.extra.set(c.key, c);
+      state.socio.selected.add(c.key);
+      rejoinCensus();
+      $('socio-search').value = '';
+      host.textContent = '';
+      refreshSocio();
+      refreshDaShadeVars();
+    });
+    host.append(b);
+  }
+}
+
+/* --- Map shading of the dissemination areas ------------------------------ */
+
+function refreshDaShadeVars() {
+  const sel = $('shade-da-var');
+  const vars = socioVariables();
+  const previous = sel.value;
+  if (!vars.length) { fillSelect(sel, [{ value: '', label: 'Load a census profile' }]); sel.disabled = true; state.da.shadeVar = null; return; }
+  sel.disabled = false;
+  fillSelect(sel, vars.map((v) => ({ value: v.key, label: v.label })));
+  sel.value = vars.some((v) => v.key === previous) ? previous : vars[0].key;
+  state.da.shadeVar = vars.find((v) => v.key === sel.value)?.byFeature || null;
+}
+
+function restyleDa() {
+  applyDaStyle(gDa.selectAll('path'));
+  updateLayerVisibility();
+  renderLegend();
+}
+
+/* --- Export ---------------------------------------------------------------- */
+
+$('export-socio').addEventListener('click', () => {
+  const st = state.socio;
+  if (!st.rows || !st.rows.length) { $('socio-note').textContent = 'Nothing to export yet.'; return; }
+  const fedParties = (state.fedResults?.parties || []).map(([p]) => p);
+  const provParties = (state.provResults?.parties || []).map(([p]) => p);
+  const vars = socioVariables().filter((v) => st.selected.has(v.key));
+  const cFed = crossPair('fed', 'da'), cProv = crossPair('prov', 'da');
+  const covOf = (c, i) => (c ? c.coverage.b[i] : null);
+  const k = state.da.keyProp;
+  const header = ['da_id', 'dguid', 'population_2021', 'electors_fed', 'ballots_fed', 'turnout_fed',
+    'electors_prov', 'ballots_prov', 'turnout_prov', 'turnout_agg', 'coverage_fed', 'coverage_prov',
+    ...fedParties.map((p) => `fed_share_${p}`), ...provParties.map((p) => `prov_share_${p}`),
+    ...vars.map((v) => v.key)];
+  const f6 = (v) => (v == null || !isFinite(v) ? '' : Number(v).toFixed(6));
+  const f2 = (v) => (v == null || !isFinite(v) ? '' : Number(v).toFixed(2));
+  const rows = [header];
+  for (const r of st.rows) {
+    const f = r.feature, i = +r.key;
+    rows.push([k ? f.properties[k] ?? '' : f.__idx, f.properties.DGUID ?? f.properties.dguid ?? '',
+      f2(state.da.pop?.get(f.__idx)),
+      f2(r.by.fed?.electors), f2(Turnout.ballots(r.by.fed)), f6(r.t.fed),
+      f2(r.by.prov?.electors), f2(Turnout.ballots(r.by.prov)), f6(r.t.prov), f6(r.agg),
+      f6(covOf(cFed, i)), f6(covOf(cProv, i)),
+      ...fedParties.map((p) => f6(Analysis.shareOf(r.by.fed, p))),
+      ...provParties.map((p) => f6(Analysis.shareOf(r.by.prov, p))),
+      ...vars.map((v) => { const x = v.byFeature.get(f.__idx); return x == null ? '' : String(x); })]);
+  }
+  downloadCsv('vancouver-da-joined.csv', rows);
+  $('socio-note').textContent = `Saved vancouver-da-joined.csv (${fmtInt(rows.length - 1)} rows).`;
+});
+
+/* --- Wiring ---------------------------------------------------------------- */
+
+for (const id of ['socio-outcome', 'socio-min-electors', 'socio-both-only']) $(id).addEventListener('change', refreshSocio);
+$('socio-search').addEventListener('input', renderSocioSearch);
+$('shade-da-by').addEventListener('change', restyleDa);
+$('shade-da-var').addEventListener('change', () => {
+  state.da.shadeVar = socioVariables().find((v) => v.key === $('shade-da-var').value)?.byFeature || null;
+  restyleDa();
+});
+$('show-da').addEventListener('input', updateLayerVisibility);
+$('find-da').addEventListener('change', (e) => {
+  const f = state.da.active.find((x) => x.__key === e.target.value);
+  if (f) { selectAt(null, null, null, f); zoomToFeature(f); }
+});
+
 /* --- Start ---------------------------------------------------------------
    Boot sequence and the close of the application IIFE opened in
    g1-app-core.js. New application files are inserted before this one in
@@ -6863,6 +7822,8 @@ populateFinders();
 refreshCrosswalkStatus();
 refreshPartySelectors();
 refreshTurnout();
+refreshDaShadeVars();
+refreshSocio();
 
 /* Watch the map's own box, not #atlas: the atlas changes height on every tab
    switch, and a Leaflet map only needs telling when its container resized. */
@@ -6877,9 +7838,13 @@ new ResizeObserver(() => {
         state.lastCorrelation.provParty);
     }
     if (state.turnout.rows && !$('panel-turnout').hidden) refreshTurnout();
+    if (state.socio.table && !$('panel-socio').hidden) drawSocioScatter();
   }, 120);
 }).observe(root);
 $('tab-map').addEventListener('click', () => setTimeout(() => map.invalidateSize({ animate: false }), 0));
+/* For the browser console and the test suites: the live state, read-only by
+   convention. */
+window.vanPoliAtlas = { state, crossPair };
 })();
 
 </script>

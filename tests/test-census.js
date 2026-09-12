@@ -108,7 +108,7 @@ console.log('\n== Wide tables ==');
 const wideHeader = ['DGUID', 'DAUID', 'pct_renter', 'median_hh_income', 'note'];
 const wideRows = [['2021S051259150101', '59150101', '40.0', '90,000', 'a'], ['2021S051259150102', '59150102', '80', '', 'b'], ['2021S051259150103', '59150103', 'x', '55000', 'c']];
 const wide = Census.readWide({ header: wideHeader, rows: wideRows });
-eq('geography column found', wide.geoColumn, 'DGUID');
+eq('geography column found', wide.geoColumn, 'DAUID');
 eq('numeric columns become variables; text columns do not', wide.variables.map((v) => v.key), ['pct_renter', 'median_hh_income']);
 eq('values keyed by the trailing code, commas stripped', [wide.variables[1].values.get('59150101'), wide.variables[0].values.has('59150103')], [90000, false]);
 eq('DGUID and DAUID spell the same key', [Census.geoKey('2021S051259150101'), Census.geoKey('59150101'), Census.geoKey(' 2021S051359150101001 ')], ['59150101', '59150101', '59150101001']);
@@ -126,7 +126,10 @@ ok('missing columns are an error, not silence', /DBUID/.test(threw || ''));
 
 console.log('\n== Joining to features ==');
 const feats = [{ properties: { DAUID: '59150102', DGUID: '2021S051259150102' } }, { properties: { DAUID: '59150101', DGUID: '2021S051259150101' } }, { properties: { DAUID: '59159999' } }];
-eq('DAUID suggested as the key', Census.suggestGeoKey(feats), 'DGUID');
+eq('DAUID suggested as the key', Census.suggestGeoKey(feats), 'DAUID');
+const blockFeats = [{ properties: { DBUID: '5915010101', DGUID: '2021S05135915010101', DAUID: '59150101' } },
+  { properties: { DBUID: '5915010102', DGUID: '2021S05135915010102', DAUID: '59150101' } }];
+eq('a block layer keys by DBUID, not the shared DAUID', Census.suggestGeoKey(blockFeats), 'DBUID');
 const joined = Census.joinToFeatures(feats, 'DAUID', byKey.get('pct_renter').values);
 eq('joined by DAUID', [joined.get(0), joined.get(1), joined.has(2)], [80, 40, false]);
 const joined2 = Census.joinToFeatures(feats, 'DGUID', byKey.get('pct_renter').values);
