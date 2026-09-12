@@ -1,0 +1,20 @@
+{
+  "name": "van-poli-atlas",
+  "version": "0.3.0",
+  "private": true,
+  "description": "Single-file atlas of Vancouver's 2025 federal polling divisions and 2024 provincial voting areas: results crosswalk, turnout ranking, street basemap.",
+  "license": "SEE LICENSE IN NOTICE",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "fixtures": "python3 tests/make-fixtures.py && python3 tests/make-e2e-fixtures.py",
+    "build": "python3 build.py",
+    "test": "node tests/run.js --all",
+    "test:node": "node tests/run.js",
+    "test:browser": "node tests/run.js --browser"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

@@ -222,3 +222,6 @@ __marimo__/
 fixtures/
 # Playwright screenshots from the browser suites
 shot-*.png
+
+# Node dependencies (Playwright for the browser suites)
+node_modules/
