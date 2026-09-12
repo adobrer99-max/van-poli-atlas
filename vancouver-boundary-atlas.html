@@ -3099,11 +3099,8 @@ const BinaryFormats = (() => {
 
   /* --- DBF (shapefile attribute table) ----------------------------------- */
 
-  function readDbf(bytes, decode) {
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    const numRecords = view.getUint32(4, true);
-    const headerLen = view.getUint16(8, true);
-    const recordLen = view.getUint16(10, true);
+  /* Field descriptors: 32 bytes each from offset 32 up to the 0x0d terminator. */
+  function dbfFields(bytes, headerLen, decode) {
     const fields = [];
     for (let o = 32; o < headerLen - 1 && bytes[o] !== 0x0d; o += 32) {
       let end = 0;
@@ -3115,29 +3112,96 @@ const BinaryFormats = (() => {
         decimals: bytes[o + 17],
       });
     }
+    return fields;
+  }
+
+  function dbfRow(bytes, base, fields, decode) {
+    if (bytes[base] === 0x2a) return null; // deleted
+    const row = {};
+    let o = base + 1;
+    for (const f of fields) {
+      const raw = decode(bytes.subarray(o, o + f.length)).trim();
+      o += f.length;
+      if (f.type === 'N' || f.type === 'F') {
+        row[f.name] = raw === '' ? null : Number(raw);
+      } else if (f.type === 'L') {
+        row[f.name] = /^[YyTt]$/.test(raw) ? true : /^[NnFf]$/.test(raw) ? false : null;
+      } else if (f.type === 'D') {
+        row[f.name] = /^\d{8}$/.test(raw)
+          ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6)}` : raw;
+      } else {
+        row[f.name] = raw;
+      }
+    }
+    return row;
+  }
+
+  /* options.keep(i) decides whether row i is parsed at all; a skipped row is
+     null so the row index still lines up with the shapes in the .shp. */
+  function readDbf(bytes, decode, options = {}) {
+    const keep = options.keep || null;
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const numRecords = view.getUint32(4, true);
+    const headerLen = view.getUint16(8, true);
+    const recordLen = view.getUint16(10, true);
+    const fields = dbfFields(bytes, headerLen, decode);
     const rows = [];
     for (let r = 0; r < numRecords; r++) {
       const base = headerLen + r * recordLen;
       if (base + recordLen > bytes.byteLength) break;
-      if (bytes[base] === 0x2a) { rows.push(null); continue; } // deleted
-      const row = {};
-      let o = base + 1;
-      for (const f of fields) {
-        const raw = decode(bytes.subarray(o, o + f.length)).trim();
-        o += f.length;
-        if (f.type === 'N' || f.type === 'F') {
-          row[f.name] = raw === '' ? null : Number(raw);
-        } else if (f.type === 'L') {
-          row[f.name] = /^[YyTt]$/.test(raw) ? true : /^[NnFf]$/.test(raw) ? false : null;
-        } else if (f.type === 'D') {
-          row[f.name] = /^\d{8}$/.test(raw)
-            ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6)}` : raw;
-        } else {
-          row[f.name] = raw;
-        }
-      }
-      rows.push(row);
+      rows.push(keep && !keep(r) ? null : dbfRow(bytes, base, fields, decode));
     }
+    return { fields, rows };
+  }
+
+  /* --- Streaming ----------------------------------------------------------
+     A national dissemination-block shapefile is over a gigabyte; the reader
+     below walks a ReadableStream of chunks with a small carry buffer so the
+     file never has to sit in memory whole. */
+  function chunkCursor(stream) {
+    const reader = stream.getReader();
+    let buf = new Uint8Array(0), o = 0, done = false;
+    return {
+      get buffer() { return buf; },
+      get offset() { return o; },
+      advance(n) { o += n; },
+      /* Ensure n bytes are available from the cursor; false at end of stream. */
+      async need(n) {
+        while (buf.byteLength - o < n) {
+          if (done) return false;
+          const r = await reader.read();
+          if (r.done) { done = true; return buf.byteLength - o >= n; }
+          const chunk = r.value instanceof Uint8Array ? r.value : new Uint8Array(r.value);
+          const merged = new Uint8Array(buf.byteLength - o + chunk.byteLength);
+          merged.set(buf.subarray(o));
+          merged.set(chunk, buf.byteLength - o);
+          buf = merged; o = 0;
+        }
+        return true;
+      },
+      view() { return new DataView(buf.buffer, buf.byteOffset, buf.byteLength); },
+      async cancel() { try { await reader.cancel(); } catch (e) { /* already closed */ } },
+    };
+  }
+
+  async function readDbfStream(stream, decode, options = {}) {
+    const keep = options.keep || null;
+    const cur = chunkCursor(stream);
+    if (!(await cur.need(32))) throw new Error('Not a DBF (too short).');
+    let view = cur.view();
+    const numRecords = view.getUint32(cur.offset + 4, true);
+    const headerLen = view.getUint16(cur.offset + 8, true);
+    const recordLen = view.getUint16(cur.offset + 10, true);
+    if (!(await cur.need(headerLen))) throw new Error('Truncated DBF header.');
+    const fields = dbfFields(cur.buffer.subarray(cur.offset), headerLen, decode);
+    cur.advance(headerLen);
+    const rows = [];
+    for (let r = 0; r < numRecords; r++) {
+      if (!(await cur.need(recordLen))) break;
+      rows.push(keep && !keep(r) ? null : dbfRow(cur.buffer, cur.offset, fields, decode));
+      cur.advance(recordLen);
+    }
+    await cur.cancel();
     return { fields, rows };
   }
 
@@ -3169,7 +3233,54 @@ const BinaryFormats = (() => {
     return polys;
   }
 
-  function readShp(bytes) {
+  /* The bounding box every polygon record carries right after its shape type. */
+  const recordBox = (view, body) => [
+    view.getFloat64(body + 4, true), view.getFloat64(body + 12, true),
+    view.getFloat64(body + 20, true), view.getFloat64(body + 28, true),
+  ];
+
+  /* One polygon record starting at `body` (just after the 8-byte record
+     header). keep(bbox, index) can reject it from its header bbox alone, before
+     a single point is read; a rejected or non-areal record is null. */
+  function shpRecord(view, body, keep, index) {
+    const type = view.getInt32(body, true);
+    /* 5/15/25 are Polygon, PolygonZ and PolygonM. Z and M values trail the
+       X/Y block, so the same offsets read all three. */
+    if (type !== 5 && type !== 15 && type !== 25) return null;
+    if (keep && !keep(recordBox(view, body), index)) return null;
+    const numParts = view.getInt32(body + 36, true);
+    const numPoints = view.getInt32(body + 40, true);
+    const partsAt = body + 44;
+    const pointsAt = partsAt + numParts * 4;
+    const parts = [];
+    for (let i = 0; i < numParts; i++) parts.push(view.getInt32(partsAt + i * 4, true));
+    const rings = [];
+    for (let i = 0; i < numParts; i++) {
+      const from = parts[i], to = i + 1 < numParts ? parts[i + 1] : numPoints;
+      const ring = [];
+      for (let k = from; k < to; k++) {
+        ring.push([
+          view.getFloat64(pointsAt + k * 16, true),
+          view.getFloat64(pointsAt + k * 16 + 8, true),
+        ]);
+      }
+      if (ring.length >= 4) rings.push(ring);
+    }
+    const polys = groupRings(rings);
+    return polys.length === 0 ? null
+      : polys.length === 1 ? { type: 'Polygon', coordinates: polys[0] }
+      : { type: 'MultiPolygon', coordinates: polys };
+  }
+
+  /* The file header's bounding box (bytes 36-68), in the file's own units. */
+  function shpHeaderBox(bytes) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (bytes.byteLength < 100 || view.getInt32(0, false) !== 9994) return null;
+    return [view.getFloat64(36, true), view.getFloat64(44, true), view.getFloat64(52, true), view.getFloat64(60, true)];
+  }
+
+  function readShp(bytes, options = {}) {
+    const keep = options.keep || null;
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     if (view.getInt32(0, false) !== 9994) throw new Error('Not a shapefile (.shp signature missing).');
     const fileLen = view.getInt32(24, false) * 2;
@@ -3180,41 +3291,106 @@ const BinaryFormats = (() => {
       const contentLen = view.getInt32(o + 4, false) * 2;
       const body = o + 8;
       if (body + contentLen > bytes.byteLength) break;
-      const type = view.getInt32(body, true);
-      /* 5/15/25 are Polygon, PolygonZ and PolygonM. Z and M values trail the
-         X/Y block, so the same offsets read all three. */
-      if (type === 5 || type === 15 || type === 25) {
-        const numParts = view.getInt32(body + 36, true);
-        const numPoints = view.getInt32(body + 40, true);
-        const partsAt = body + 44;
-        const pointsAt = partsAt + numParts * 4;
-        const parts = [];
-        for (let i = 0; i < numParts; i++) parts.push(view.getInt32(partsAt + i * 4, true));
-        const rings = [];
-        for (let i = 0; i < numParts; i++) {
-          const from = parts[i], to = i + 1 < numParts ? parts[i + 1] : numPoints;
-          const ring = [];
-          for (let k = from; k < to; k++) {
-            ring.push([
-              view.getFloat64(pointsAt + k * 16, true),
-              view.getFloat64(pointsAt + k * 16 + 8, true),
-            ]);
-          }
-          if (ring.length >= 4) rings.push(ring);
-        }
-        const polys = groupRings(rings);
-        shapes.push(polys.length === 0 ? null
-          : polys.length === 1 ? { type: 'Polygon', coordinates: polys[0] }
-          : { type: 'MultiPolygon', coordinates: polys });
-      } else {
-        shapes.push(null); // null shape, or a non-areal type we do not map
-      }
+      shapes.push(shpRecord(view, body, keep, shapes.length));
       o = body + contentLen;
     }
     return shapes;
   }
 
-  return { readZip, readDbf, readShp, inflateRaw, groupRings };
+  async function readShpStream(stream, options = {}) {
+    const keep = options.keep || null;
+    const cur = chunkCursor(stream);
+    if (!(await cur.need(100))) throw new Error('Not a shapefile (too short).');
+    if (cur.view().getInt32(cur.offset, false) !== 9994) throw new Error('Not a shapefile (.shp signature missing).');
+    const header = cur.buffer.slice(cur.offset, cur.offset + 100);
+    cur.advance(100);
+    const shapes = [];
+    while (await cur.need(8)) {
+      const contentLen = cur.view().getInt32(cur.offset + 4, false) * 2;
+      if (!(await cur.need(8 + contentLen))) break;
+      shapes.push(shpRecord(cur.view(), cur.offset + 8, keep, shapes.length));
+      cur.advance(8 + contentLen);
+    }
+    await cur.cancel();
+    return Object.assign(shapes, { headerBox: shpHeaderBox(header) });
+  }
+
+  /* --- ZIP from a Blob ------------------------------------------------------
+     Same directory walk as readZip, but only the tail and the central
+     directory are read up front; each entry is opened from its own byte range,
+     as a whole (bytes) or as a stream. Entries are the same async openers
+     readZip returns, with .size and .stream added. */
+  async function readZipBlob(blob) {
+    const size = blob.size;
+    const tailStart = Math.max(0, size - 66000);
+    const tail = new Uint8Array(await blob.slice(tailStart, size).arrayBuffer());
+    const tview = new DataView(tail.buffer, tail.byteOffset, tail.byteLength);
+    const eocdLocal = findEocd(tview, tail.byteLength);
+    if (eocdLocal < 0) throw new Error('Not a ZIP archive (no end-of-central-directory record).');
+    let count = tview.getUint16(eocdLocal + 10, true);
+    let cdSize = tview.getUint32(eocdLocal + 12, true);
+    let cdOffset = tview.getUint32(eocdLocal + 16, true);
+    if ((count === 0xffff || cdOffset === 0xffffffff || cdSize === 0xffffffff) && eocdLocal >= 20 &&
+        tview.getUint32(eocdLocal - 20, true) === 0x07064b50) {
+      const z64 = Number(tview.getBigUint64(eocdLocal - 20 + 8, true));
+      const rec = new DataView(await blob.slice(z64, z64 + 56).arrayBuffer());
+      if (rec.getUint32(0, true) === 0x06064b50) {
+        count = Number(rec.getBigUint64(32, true));
+        cdSize = Number(rec.getBigUint64(40, true));
+        cdOffset = Number(rec.getBigUint64(48, true));
+      }
+    }
+    const cd = new Uint8Array(await blob.slice(cdOffset, cdOffset + cdSize).arrayBuffer());
+    const view = new DataView(cd.buffer, cd.byteOffset, cd.byteLength);
+    const entries = [];
+    let o = 0;
+    for (let i = 0; i < count && o + 46 <= cd.byteLength; i++) {
+      if (view.getUint32(o, true) !== SIG_CD) break;
+      const nameLen = view.getUint16(o + 28, true);
+      const extraLen = view.getUint16(o + 30, true);
+      const commentLen = view.getUint16(o + 32, true);
+      const entry = {
+        name: new TextDecoder('utf-8').decode(cd.subarray(o + 46, o + 46 + nameLen)),
+        method: view.getUint16(o + 10, true),
+        compressedSize: view.getUint32(o + 20, true),
+        uncompressedSize: view.getUint32(o + 24, true),
+        offset: view.getUint32(o + 42, true),
+      };
+      if (extraLen) zip64Patch(new DataView(cd.buffer, cd.byteOffset + o + 46 + nameLen, extraLen), entry);
+      entries.push(entry);
+      o += 46 + nameLen + extraLen + commentLen;
+    }
+    const files = new Map();
+    for (const e of entries) {
+      if (e.name.endsWith('/')) continue;
+      const dataStart = async () => {
+        const lh = new DataView(await blob.slice(e.offset, e.offset + 30).arrayBuffer());
+        if (lh.getUint32(0, true) !== SIG_LOCAL) throw new Error(`Corrupt ZIP entry: ${e.name}`);
+        return e.offset + 30 + lh.getUint16(26, true) + lh.getUint16(28, true);
+      };
+      if (e.method !== 0 && e.method !== 8) {
+        files.set(e.name, async () => { throw new Error(`Unsupported ZIP compression method ${e.method} for ${e.name}`); });
+        continue;
+      }
+      const open = async () => {
+        const start = await dataStart();
+        const raw = new Uint8Array(await blob.slice(start, start + e.compressedSize).arrayBuffer());
+        return e.method === 0 ? raw : inflateRaw(raw);
+      };
+      open.size = e.uncompressedSize;
+      open.compressedSize = e.compressedSize;
+      open.stream = async () => {
+        const start = await dataStart();
+        const raw = blob.slice(start, start + e.compressedSize).stream();
+        return e.method === 0 ? raw : raw.pipeThrough(new DecompressionStream('deflate-raw'));
+      };
+      files.set(e.name, open);
+    }
+    return files;
+  }
+
+  return { readZip, readZipBlob, readDbf, readDbfStream, readShp, readShpStream, shpHeaderBox,
+           inflateRaw, groupRings };
 })();
 
 /* ---------------------------------------------------------------------------
@@ -3327,47 +3503,112 @@ const Ingest = (() => {
     return null;
   }
 
-  /* Pair up the .shp/.dbf/.prj members of a zipped shapefile by stem. */
-  async function shapefileFromZip(zip, warnings) {
+  /* Entries above this many bytes are parsed from a stream instead of being
+     inflated whole: a national dissemination-block shapefile is ~1.1 GB. */
+  const STREAM_THRESHOLD = 256 * 1024 * 1024;
+
+  /* The first 100 bytes of a .shp, read without inflating the rest, give the
+     file's own bounding box -- enough to sniff its coordinate system. */
+  async function peekShpHeader(open) {
+    if (!open.stream) return BinaryFormats.shpHeaderBox(await open());
+    const reader = (await open.stream()).getReader();
+    let buf = new Uint8Array(0);
+    while (buf.byteLength < 100) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const merged = new Uint8Array(buf.byteLength + value.byteLength);
+      merged.set(buf); merged.set(value, buf.byteLength);
+      buf = merged;
+    }
+    try { await reader.cancel(); } catch (e) { /* stream already finished */ }
+    return BinaryFormats.shpHeaderBox(buf);
+  }
+
+  /* A record is kept when its bounding box, taken to lon/lat, overlaps the
+     study-area box. Four corners are exact for an axis-aligned box in lon/lat
+     and within metres for census polygons in a conic projection; the caller
+     pads the box. */
+  function bboxKeep(target, inverse) {
+    const [tx0, ty0, tx1, ty1] = target;
+    return (box) => {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const [x, y] of [[box[0], box[1]], [box[2], box[1]], [box[2], box[3]], [box[0], box[3]]]) {
+        const q = inverse ? inverse(x, y) : [x, y];
+        if (q[0] < x0) x0 = q[0]; if (q[0] > x1) x1 = q[0];
+        if (q[1] < y0) y0 = q[1]; if (q[1] > y1) y1 = q[1];
+      }
+      return x1 >= tx0 && x0 <= tx1 && y1 >= ty0 && y0 <= ty1;
+    };
+  }
+
+  const bboxTouches = (a, b) => a[2] >= b[0] && a[0] <= b[2] && a[3] >= b[1] && a[1] <= b[3];
+
+  /* Pair up the .shp/.dbf/.prj members of a zipped shapefile by stem. The .prj
+     is read first so a study-area box can filter records before any geometry
+     is parsed; entries too big to hold whole are streamed. */
+  async function shapefileFromZip(zip, warnings, options = {}) {
     let stem = null;
     for (const name of zip.keys()) {
       if (name.includes('__MACOSX') || baseName(name).startsWith('.')) continue;
       if (extensionOf(name) === 'shp') { stem = name.replace(/\.shp$/i, ''); break; }
     }
     if (stem === null) return null;
-    const at = async (ext) => {
+    const opener = (ext) => {
       for (const [name, open] of zip) {
-        if (name.toLowerCase() === (stem + '.' + ext).toLowerCase()) return open();
+        if (name.toLowerCase() === (stem + '.' + ext).toLowerCase()) return open;
       }
       return null;
     };
-    const shpBytes = await at('shp');
-    const geometries = BinaryFormats.readShp(shpBytes);
-    const dbfBytes = await at('dbf');
+    const shpOpen = opener('shp'), dbfOpen = opener('dbf'), prjOpen = opener('prj');
+    const declared = prjOpen ? Geo.crsFromWkt(TextFormats.decodeBytes(await prjOpen())) : null;
+    if (!prjOpen) warnings.push('No .prj in the archive; the coordinate system was inferred from the extent.');
+
+    const streamAbove = options.streamAbove ?? STREAM_THRESHOLD;
+    const big = (open) => Boolean(open && open.stream && open.size > streamAbove);
+
+    let keep = null, filtered = false;
+    if (options.bbox) {
+      let crs = declared && Geo.CRS[declared] ? declared : null;
+      if (!crs) {
+        const hb = await peekShpHeader(shpOpen);
+        crs = hb ? Geo.crsFromExtent(hb[0], hb[1], hb[2], hb[3]) : null;
+      }
+      if (crs) { keep = bboxKeep(options.bbox, Geo.project(crs)); filtered = true; }
+      else warnings.push('Could not identify the coordinate system, so the file was read whole instead of clipped to the study area.');
+    }
+    const geometries = big(shpOpen)
+      ? await BinaryFormats.readShpStream(await shpOpen.stream(), { keep })
+      : BinaryFormats.readShp(await shpOpen(), { keep });
     let rows = [];
-    if (dbfBytes) {
-      rows = BinaryFormats.readDbf(dbfBytes, TextFormats.decodeBytes).rows;
+    if (dbfOpen) {
+      const keepRow = keep ? (i) => geometries[i] != null : null;
+      rows = big(dbfOpen)
+        ? (await BinaryFormats.readDbfStream(await dbfOpen.stream(), TextFormats.decodeBytes, { keep: keepRow })).rows
+        : BinaryFormats.readDbf(await dbfOpen(), TextFormats.decodeBytes, { keep: keepRow }).rows;
     } else {
       warnings.push('No .dbf in the archive, so the shapes arrived without attributes. '
-        + 'Include the .dbf to label the voting areas.');
+        + 'Include the .dbf to label the areas.');
     }
-    const prjBytes = await at('prj');
-    const declared = prjBytes ? Geo.crsFromWkt(TextFormats.decodeBytes(prjBytes)) : null;
-    if (!prjBytes) warnings.push('No .prj in the archive; the coordinate system was inferred from the extent.');
     const features = [];
     geometries.forEach((geometry, i) => {
       if (!geometry) return;
       features.push({ type: 'Feature', properties: rows[i] || {}, geometry });
     });
-    return { features, declared, label: baseName(stem) + '.shp' };
+    return { features, declared, label: baseName(stem) + '.shp', records: geometries.length, filtered };
   }
 
   /* --- Boundary files ---------------------------------------------------- */
 
-  async function loadBoundaries(fileName, bytes) {
+  /* source: a Uint8Array, or a File/Blob (read lazily, so a zipped shapefile
+     far larger than memory can still be clipped to the study area).
+     options.bbox: [minLon, minLat, maxLon, maxLat] -- keep only features whose
+     bounding box touches it; options.streamAbove overrides STREAM_THRESHOLD. */
+  async function loadBoundaries(fileName, source, options = {}) {
     const warnings = [];
     const ext = extensionOf(fileName);
-    let features = [], declared = null, label = fileName;
+    const isBlob = typeof Blob !== 'undefined' && source instanceof Blob;
+    const bytesOf = async () => (isBlob ? new Uint8Array(await source.arrayBuffer()) : source);
+    let features = [], declared = null, label = fileName, records = null, filtered = false;
 
     const fromText = (text, how) => {
       if (how === 'kml') return { features: TextFormats.kmlToFeatures(text), declared: 'EPSG:4326' };
@@ -3379,10 +3620,10 @@ const Ingest = (() => {
     };
 
     if (ext === 'zip' || ext === 'kmz') {
-      const zip = BinaryFormats.readZip(bytes);
-      const shp = await shapefileFromZip(zip, warnings);
+      const zip = isBlob ? await BinaryFormats.readZipBlob(source) : BinaryFormats.readZip(source);
+      const shp = await shapefileFromZip(zip, warnings, options);
       if (shp) {
-        ({ features, declared, label } = shp);
+        ({ features, declared, label, records, filtered } = shp);
       } else {
         const inner = await firstMatchingEntry(zip, (n) => /\.(kml|geojson|json)$/i.test(n));
         if (!inner) {
@@ -3394,13 +3635,14 @@ const Ingest = (() => {
         label = baseName(inner.name);
       }
     } else if (ext === 'kml') {
-      ({ features, declared } = fromText(TextFormats.decodeBytes(bytes), 'kml'));
+      ({ features, declared } = fromText(TextFormats.decodeBytes(await bytesOf()), 'kml'));
     } else if (ext === 'shp') {
       throw new Error('A .shp on its own has no attributes or projection. '
         + 'Zip it together with the matching .dbf and .prj and load the .zip.');
     } else {
-      ({ features, declared } = fromText(TextFormats.decodeBytes(bytes), 'json'));
+      ({ features, declared } = fromText(TextFormats.decodeBytes(await bytesOf()), 'json'));
     }
+    if (records == null) records = features.length;
 
     const normalized = [];
     let dropped = 0;
@@ -3416,7 +3658,17 @@ const Ingest = (() => {
       warnings.push(`${dropped} non-polygon features (points or lines) were skipped.`);
     }
     const crs = toWgs84(normalized, declared, warnings);
-    return { features: normalized, crs, crsLabel: Geo.crsName(crs), label, warnings };
+    let kept = normalized;
+    if (options.bbox) {
+      kept = normalized.filter((f) => bboxTouches(Geo.bboxOf(f.geometry), options.bbox));
+      filtered = true;
+      if (!kept.length) {
+        throw new Error('None of the polygons in this file touch the study area. '
+          + 'Untick the clipping option to load it whole, or check that it covers Vancouver.');
+      }
+    }
+    return { features: kept, crs, crsLabel: Geo.crsName(crs), label, warnings,
+             records, kept: kept.length, filtered };
   }
 
   /* --- Tables ------------------------------------------------------------ */
@@ -3439,7 +3691,7 @@ const Ingest = (() => {
     return { ...table, name };
   }
 
-  return { loadBoundaries, loadTable, normalizeFeature, crsFromGeoJson, overallExtent };
+  return { loadBoundaries, loadTable, normalizeFeature, crsFromGeoJson, overallExtent, STREAM_THRESHOLD, bboxKeep };
 })();
 
 /* ---------------------------------------------------------------------------

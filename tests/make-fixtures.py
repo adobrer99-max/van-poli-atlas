@@ -1,7 +1,9 @@
 """Build real SHP/DBF/PRJ/KMZ fixtures so the browser readers are tested
 against actual binary files rather than mocks. The forward Albers here is an
 independent implementation of the inverse used in the atlas."""
-import math, struct, zipfile, os, datetime
+import math, struct, zipfile, os, datetime, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tools.shp import write_shp, write_dbf   # the shapefile writers live with the tools
 
 A = 6378137.0
 F = 1 / 298.257222101
@@ -76,59 +78,6 @@ BC_ALBERS_WKT = (
     'PARAMETER["latitude_of_center",45],PARAMETER["longitude_of_center",-126],'
     'PARAMETER["false_easting",1000000],PARAMETER["false_northing",0],'
     'UNIT["metre",1,AUTHORITY["EPSG","9001"]],AUTHORITY["EPSG","3005"]]')
-
-
-def write_shp(path, polygons):
-    """polygons: list of list-of-rings; each ring a list of (x, y)."""
-    records = b""
-    gx0 = gy0 = float("inf"); gx1 = gy1 = float("-inf")
-    for i, rings in enumerate(polygons, start=1):
-        pts = [p for ring in rings for p in ring]
-        x0 = min(p[0] for p in pts); y0 = min(p[1] for p in pts)
-        x1 = max(p[0] for p in pts); y1 = max(p[1] for p in pts)
-        gx0, gy0 = min(gx0, x0), min(gy0, y0)
-        gx1, gy1 = max(gx1, x1), max(gy1, y1)
-        parts, offset = [], 0
-        for ring in rings:
-            parts.append(offset); offset += len(ring)
-        content = struct.pack("<i", 5)
-        content += struct.pack("<4d", x0, y0, x1, y1)
-        content += struct.pack("<ii", len(rings), len(pts))
-        content += b"".join(struct.pack("<i", p) for p in parts)
-        content += b"".join(struct.pack("<2d", p[0], p[1]) for p in pts)
-        records += struct.pack(">ii", i, len(content) // 2) + content
-    total_words = (100 + len(records)) // 2
-    header = struct.pack(">i", 9994) + b"\0" * 20 + struct.pack(">i", total_words)
-    header += struct.pack("<ii", 1000, 5)
-    header += struct.pack("<4d", gx0, gy0, gx1, gy1) + struct.pack("<4d", 0, 0, 0, 0)
-    with open(path, "wb") as fh:
-        fh.write(header + records)
-
-
-def write_dbf(path, fields, rows, encoding="utf-8"):
-    """fields: [(name, type, length, decimals)]"""
-    record_len = 1 + sum(f[2] for f in fields)
-    header_len = 32 + 32 * len(fields) + 1
-    today = datetime.date.today()
-    out = struct.pack("<BBBBIHH", 0x03, today.year - 1900, today.month, today.day,
-                      len(rows), header_len, record_len) + b"\0" * 20
-    for name, ftype, length, dec in fields:
-        out += name.encode(encoding)[:11].ljust(11, b"\0")
-        out += ftype.encode("ascii") + b"\0" * 4
-        out += bytes([length, dec]) + b"\0" * 14
-    out += b"\x0d"
-    for row in rows:
-        out += b" "
-        for name, ftype, length, dec in fields:
-            value = row.get(name, "")
-            if ftype == "N":
-                text = ("" if value is None else str(value)).rjust(length)
-            else:
-                text = str("" if value is None else value).ljust(length)
-            out += text.encode(encoding)[:length].ljust(length, b" ")
-    out += b"\x1a"
-    with open(path, "wb") as fh:
-        fh.write(out)
 
 
 def rect(lon0, lat0, lon1, lat1, project=True):
