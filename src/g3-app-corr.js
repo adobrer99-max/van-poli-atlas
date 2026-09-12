@@ -326,11 +326,8 @@ $('find-va').addEventListener('change', (e) => {
   if (f) { selectAt(null, null, f); zoomToFeature(f); }
 });
 
-$('zoom-in').addEventListener('click', () => svg.transition().duration(200).call(zoom.scaleBy, 1.6));
-$('zoom-out').addEventListener('click', () => svg.transition().duration(200).call(zoom.scaleBy, 1 / 1.6));
-$('zoom-reset').addEventListener('click', () => {
-  svg.transition().duration(300).call(zoom.transform, d3.zoomIdentity);
-});
+$('zoom-reset').addEventListener('click', () => { fitAll(); });
+$('basemap').addEventListener('change', () => setBasemap($('basemap').value));
 
 for (const id of ['show-fed', 'show-prov', 'prov-weight']) {
   $(id).addEventListener('input', updateLayerVisibility);
