@@ -41,6 +41,34 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     await page.close();
   }
 
+  console.log('\n== Census boundaries: clipped or whole, shapefile or GeoJSON ==');
+  {
+    const expected = JSON.parse(require('fs').readFileSync('fixtures/e2e_expected.json', 'utf8')).census;
+    const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    const errs = []; page.on('pageerror', (e) => errs.push(e.message));
+    await stubTiles(page); await page.goto(FILE); await page.waitForTimeout(500);
+    await page.locator('#tab-data').click();
+    const loadDa = async (file) => {
+      await page.locator('#file-da-geo').setInputFiles(file);
+      await page.waitForFunction(() => /Loaded|Could not/.test(document.querySelector('#status-da-geo').innerText), null, { timeout: 20000 });
+      return page.locator('#status-da-geo').innerText();
+    };
+    let st = await loadDa('fixtures/e2e_da.zip');
+    ok(`Lambert shapefile, clipped: ${expected.dissemination_areas} areas`, new RegExp(`Loaded ${expected.dissemination_areas} dissemination areas`).test(st), st);
+    await page.locator('#clear-da-geo').click();
+    await page.locator('#clip-census').uncheck();
+    st = await loadDa('fixtures/e2e_da.zip');
+    ok('unclipped load gives the same layer', new RegExp(`Loaded ${expected.dissemination_areas} dissemination areas from`).test(st), st);
+    await page.locator('#clear-da-geo').click();
+    await page.locator('#clip-census').check();
+    st = await loadDa('fixtures/e2e_da.geojson');
+    ok('lon/lat GeoJSON loads to the same count', new RegExp(`Loaded ${expected.dissemination_areas} dissemination areas`).test(st) && /lon-lat/.test(st), st);
+    await page.locator('#tab-map').click(); await page.waitForTimeout(500);
+    ok('dissemination areas drawn from GeoJSON', (await page.locator('.layer-da path').count()) === expected.dissemination_areas);
+    ok('no errors across the census variants', errs.length === 0, errs.join(' | '));
+    await page.close();
+  }
+
   console.log('\n== Ring winding: RFC 7946 files must not blow up the projection ==');
   // d3-geo wants clockwise exterior rings; RFC 7946 mandates counter-clockwise.
   // Both spellings must land on the same pixels.

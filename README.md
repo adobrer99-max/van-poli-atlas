@@ -26,16 +26,70 @@ Open the file in a browser, then work through the **Data** tab:
 
 Files are read in the browser tab. Nothing is uploaded anywhere.
 
-The **Map** tab overlays the two geographies on a street basemap and reads out
-the federal polling division and the provincial voting area at whatever point
-you click. Each layer
+4. **Census geography and profile** (optional) — Statistics Canada's 2021
+   dissemination areas, dissemination blocks and Census Profile, cut down to
+   the study area first with `tools/filter_census.py` (see below).
+
+The **Map** tab overlays the geographies on a street basemap and reads out
+the federal polling division, the provincial voting area and the dissemination
+area at whatever point you click. Each layer
 is shaded by its own election's results — party share or turnout — and the
 federal layer can also carry provincial results redistributed through the
 crosswalk. The **Correlation** tab builds the crosswalk and plots one vote share
 against the other. The **Turnout** tab ranks every area by turnout combined
 across both elections, draws the "top X % of areas hold Y % of electors" curve,
-pools any set of areas into a basket, and exports the ranking. The **Method**
-tab states the assumptions; read it before quoting a coefficient.
+pools any set of areas into a basket, and exports the ranking. The
+**Socioeconomic** tab moves both elections' results onto dissemination areas
+and correlates turnout, or any party's share, with census variables. The
+**Method** tab states the assumptions; read it before quoting a coefficient.
+
+## Census data
+
+Statistics Canada publishes the pieces separately and nationally, and the
+dissemination-block boundary file alone is over a gigabyte, so the atlas comes
+with a standard-library Python script that cuts everything down to a study
+area on your machine:
+
+```sh
+python3 tools/filter_census.py \
+    --geo-attr 2021_92-151_X.csv \
+    --csd 5915022 \
+    --profile 98-401-X2021006_English_CSV_data_BritishColumbia.csv \
+    --clip-shp lda_000b21a_e.zip --clip-shp ldb_000b21a_e.zip \
+    --out-dir census/
+```
+
+It needs the 2021 Geographic Attribute File (one row per dissemination block
+with its population and its parent geographies), the comprehensive Census
+Profile download for the province at the dissemination-area level, and the
+zipped dissemination-area and dissemination-block boundary files; 5915022 is
+the City of Vancouver's census subdivision id. It writes `db_population.csv`
+and `da_population.csv`, `census_da_wide.csv` (every characteristic, one row
+per area), `variables.csv` (the characteristic list with its hierarchy),
+`starter.csv` (the fourteen starter variables), and a clipped copy of each
+boundary file. Every column it relies on is found by name and printed, and
+`--list PATTERN` searches the characteristic names.
+
+Load the clipped boundaries, `db_population.csv` and either the long profile
+or `census_da_wide.csv` in section 4 of the Data tab. The national files load
+too — the reader clips a zipped shapefile to the study area before parsing its
+geometry, and streams files too big to hold whole — but slowly, and the
+national profile must fit in memory. With blocks loaded, every crosswalk is
+weighted by where people live rather than by area; the Correlation tab says
+which weighting is in effect.
+
+Fourteen starter variables are derived by characteristic name (population,
+density, age, household size and tenure, income, low income, unemployment,
+mobility, immigration, education); any of the ~2,600 characteristics can be
+added by name on the Socioeconomic tab. The Census Profile's column names, the
+DGUID prefix and the suppression symbols were written from documentation and
+memory rather than from the real files, so both the reader and the tool detect
+by pattern and report what they matched; if a name differs in your download,
+the match report will say so.
+
+Adapted from Statistics Canada, Census Profile, 2021 Census of Population, and
+the 2021 Geographic Attribute File. This does not constitute an endorsement by
+Statistics Canada.
 
 ## Basemap
 
@@ -110,9 +164,11 @@ index), `b-text.js` (delimited text, XML, KML), `c-binary.js` (ZIP, DBF, SHP),
 area), `e-analysis.js` (the lattice sample, crosswalks between any two layers,
 population weights, statistics), `f-results.js` (results joining),
 `f2-turnout.js` (turnout, apportionment, ranking), `f3-census.js` (Statistics
-Canada's Census Profile and Geographic Attribute File), `g1`–`g4` and `g9` (the
-application, one shared scope), plus the shared stylesheet and two vendored
-libraries: d3 v7 for the charts and Leaflet 1.9.4 for the map.
+Canada's Census Profile and Geographic Attribute File), `g1`–`g5` and `g9` (the
+application, one shared scope; `g5` is the Socioeconomic tab), plus the shared
+stylesheet and two vendored libraries: d3 v7 for the charts and Leaflet 1.9.4
+for the map. The page exposes `window.vanPoliAtlas.state` for the browser
+console and the test suites.
 
 `tools/` holds two standard-library Python scripts that run on your own
 machine: `shp.py` (shapefile and DBF reading, writing and clipping, also used
@@ -138,11 +194,12 @@ and so on. `tests/run.js` stops at the first failing suite. GitHub Actions (`.gi
 every pull request, plus a check that the committed
 `vancouver-boundary-atlas.html` matches a fresh build.
 
-440+ assertions. The browser suites drive the real page in Chromium through
+480+ assertions. The browser suites drive the real page in Chromium through
 Playwright: loading each boundary format, joining results, building the
-crosswalk, ranking turnout, exporting CSV, dark mode, phone-width layout, and
-the basemap with tile requests stubbed — including a run where every tile
-fails, to check the atlas carries on without them.
+crosswalk, ranking turnout, loading the census layers and correlating a planted
+variable on the Socioeconomic tab, exporting CSV, dark mode, phone-width
+layout, and the basemap with tile requests stubbed — including a run where
+every tile fails, to check the atlas carries on without them.
 
 The projections are checked against control points produced by independent
 forward implementations in `tests/make-fixtures.py` (BC Albers and Statistics

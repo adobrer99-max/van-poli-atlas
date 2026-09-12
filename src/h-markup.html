@@ -12,6 +12,7 @@
   <button class="nav-link" role="tab" id="tab-data" aria-controls="panel-data" aria-selected="false" type="button">Data</button>
   <button class="nav-link" role="tab" id="tab-corr" aria-controls="panel-corr" aria-selected="false" type="button">Correlation</button>
   <button class="nav-link" role="tab" id="tab-turnout" aria-controls="panel-turnout" aria-selected="false" type="button">Turnout</button>
+  <button class="nav-link" role="tab" id="tab-socio" aria-controls="panel-socio" aria-selected="false" type="button">Socioeconomic</button>
   <button class="nav-link" role="tab" id="tab-method" aria-controls="panel-method" aria-selected="false" type="button">Method</button>
 </nav>
 
@@ -65,8 +66,27 @@
         <option value="turnout-prov">Provincial turnout</option>
       </select>
     </label>
-    <label class="form-label" for="prov-opacity">Provincial fill strength
+    <label class="form-label" for="prov-opacity">Overlay fill strength
       <input class="form-range" type="range" id="prov-opacity" min="0.1" max="1" step="0.05" value="0.7">
+    </label>
+  </div>
+
+  <div class="viz-controls" id="da-controls" hidden>
+    <label class="form-label grow" for="shade-da-by">Shade census (2021) dissemination areas by
+      <select class="form-select" id="shade-da-by">
+        <option value="none">Nothing (outline only)</option>
+        <option value="flat">Flat fill</option>
+        <option value="turnout-agg">Aggregate turnout, both elections</option>
+        <option value="turnout-fed">Federal (2025) turnout</option>
+        <option value="turnout-prov">Provincial (2024) turnout</option>
+        <option value="variable">A census variable</option>
+      </select>
+    </label>
+    <label class="form-label grow" for="shade-da-var">Census variable
+      <select class="form-select" id="shade-da-var" disabled><option value="">Load a census profile</option></select>
+    </label>
+    <label class="form-label grow" for="find-da">Find a dissemination area
+      <select class="form-select" id="find-da"><option value="">Select an area&hellip;</option></select>
     </label>
   </div>
 
@@ -82,6 +102,10 @@
     <label class="form-check form-switch">
       <input class="form-check-input" type="checkbox" id="show-mobile">
       <span class="form-check-label">Mobile &amp; single-building polls</span>
+    </label>
+    <label class="form-check form-switch" id="show-da-wrap" hidden>
+      <input class="form-check-input" type="checkbox" id="show-da" checked>
+      <span class="form-check-label">Census (2021) dissemination areas</span>
     </label>
     <label class="form-label" for="prov-weight">Overlay line weight
       <input class="form-range" type="range" id="prov-weight" min="0.5" max="4" step="0.25" value="1.75">
@@ -117,7 +141,7 @@
   </div>
 
   <div class="readout" id="readout" aria-live="polite">
-    <p class="text-muted">Click anywhere on the map to read the federal polling division and the provincial voting area covering that point.</p>
+    <p class="text-muted">Click anywhere on the map to read the federal polling division, the provincial voting area and the dissemination area covering that point.</p>
   </div>
 
   <p class="text-small text-muted">
@@ -185,6 +209,58 @@
     <div id="status-prov-results" class="status"></div>
     <div id="map-prov-results" class="mapping" hidden></div>
   </div>
+
+  <div class="card">
+    <h2>4. Census geography and profile (Statistics Canada, 2021)</h2>
+    <p class="text-small text-muted">
+      Dissemination areas are the third geography: election results are moved onto them
+      through the crosswalk and correlated with census variables on the <b>Socioeconomic</b>
+      tab. Dissemination blocks (optional) weight every crosswalk by where people live
+      rather than by area. The national downloads are large, so run
+      <code>python3 tools/filter_census.py</code> once (see the README) and load its
+      outputs here; the national files themselves also load, more slowly.
+      Adapted from Statistics Canada, Census Profile, 2021 Census of Population, and the
+      2021 Geographic Attribute File; this does not constitute an endorsement by
+      Statistics Canada.
+    </p>
+    <label class="form-check">
+      <input class="form-check-input" type="checkbox" id="clip-census" checked>
+      <span class="form-check-label">Clip boundary files to the study area while loading (federal extent plus 2 km)</span>
+    </label>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-da-geo">Dissemination area boundaries (zipped shapefile or GeoJSON)
+        <input class="form-control" type="file" id="file-da-geo" accept=".zip,.geojson,.json,.kml,.kmz">
+      </label>
+      <button type="button" class="btn" id="clear-da-geo" hidden>Remove</button>
+    </div>
+    <div id="status-da-geo" class="status"></div>
+    <div class="viz-controls" id="da-key-row" hidden>
+      <label class="form-label grow" for="da-key">Dissemination area id field
+        <select class="form-select" id="da-key"></select>
+      </label>
+    </div>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-db-geo">Dissemination block boundaries (optional; population weighting only)
+        <input class="form-control" type="file" id="file-db-geo" accept=".zip,.geojson,.json">
+      </label>
+      <button type="button" class="btn" id="clear-db-geo" hidden>Remove</button>
+    </div>
+    <div id="status-db-geo" class="status"></div>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-geo-attr">Block population: the Geographic Attribute File, or <code>db_population.csv</code> from the tool
+        <input class="form-control" type="file" id="file-geo-attr" accept=".csv,.tsv,.txt,.zip">
+      </label>
+      <button type="button" class="btn" id="clear-geo-attr" hidden>Remove</button>
+    </div>
+    <div id="status-geo-attr" class="status"></div>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-census">Census Profile: the long download, or <code>census_da_wide.csv</code> / <code>starter.csv</code> from the tool
+        <input class="form-control" type="file" id="file-census" accept=".csv,.tsv,.txt,.zip">
+      </label>
+      <button type="button" class="btn" id="clear-census" hidden>Remove</button>
+    </div>
+    <div id="status-census" class="status"></div>
+  </div>
 </section>
 
 <!-- ---------------------------------------------------------- CORRELATION -->
@@ -213,6 +289,14 @@
           <option value="0.005">0.5% of a unit</option>
           <option value="0.02" selected>2% of a unit</option>
           <option value="0.05">5% of a unit</option>
+        </select>
+      </label>
+      <label class="form-label grow" for="sample-weighting">Weight overlaps by
+        <select class="form-select" id="sample-weighting">
+          <option value="auto" selected>Best available (block population, else area)</option>
+          <option value="area">Area only</option>
+          <option value="db">Dissemination-block population</option>
+          <option value="da">Dissemination-area population</option>
         </select>
       </label>
       <button type="button" class="btn btn-primary" id="build-crosswalk" disabled>Build crosswalk</button>
@@ -333,6 +417,61 @@
   </div>
 </section>
 
+<!-- ------------------------------------------------------------ SOCIOECONOMIC -->
+<section id="panel-socio" role="tabpanel" aria-labelledby="tab-socio" hidden>
+  <div class="card">
+    <h2>Turnout and partisanship against census variables, by dissemination area</h2>
+    <p class="text-small text-muted">
+      Federal (2025) and provincial (2024) results are moved onto Statistics Canada's 2021
+      dissemination areas through the crosswalk, so every area carries turnout and party
+      shares next to its census profile. A correlation here is a statement about
+      neighbourhoods, not about people &mdash; read the <b>Method</b> tab before quoting one.
+    </p>
+    <div class="viz-controls">
+      <label class="form-label grow" for="socio-outcome">Outcome (y)
+        <select class="form-select" id="socio-outcome">
+          <option value="turnout-agg">Aggregate turnout, both elections</option>
+          <option value="turnout-fed">Federal (2025) turnout</option>
+          <option value="turnout-prov">Provincial (2024) turnout</option>
+        </select>
+      </label>
+      <label class="form-label grow" for="socio-min-electors">Drop areas under
+        <select class="form-select" id="socio-min-electors">
+          <option value="0">No minimum</option>
+          <option value="25">25 electors</option>
+          <option value="50" selected>50 electors</option>
+          <option value="100">100 electors</option>
+        </select>
+      </label>
+      <label class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" id="socio-both-only" checked>
+        <span class="form-check-label">Only areas with both elections</span>
+      </label>
+    </div>
+    <div id="socio-status" class="status"></div>
+    <div class="viz-grid" id="socio-stats"></div>
+  </div>
+
+  <div class="card" id="socio-results" hidden>
+    <h2>Correlations</h2>
+    <p class="text-small text-muted">Tick the variables to compare; add any of the census characteristics by name. Click a column heading to sort, a row to plot it.</p>
+    <div class="socio-picker" id="socio-picker"></div>
+    <div class="viz-controls">
+      <label class="form-label grow" for="socio-search">Add a census characteristic
+        <input class="form-control" type="search" id="socio-search" placeholder="type part of a characteristic name&hellip;" autocomplete="off">
+      </label>
+    </div>
+    <div class="socio-search-results" id="socio-search-results"></div>
+    <div class="turnout-wrap"><table class="turnout-table socio-table" id="socio-table"></table></div>
+    <svg class="scatter" id="socio-scatter" role="img" aria-label="Scatter plot of a census variable against the chosen outcome, one dot per dissemination area"></svg>
+    <div id="socio-scatter-caption" class="text-small text-muted"></div>
+    <div class="viz-controls">
+      <button type="button" class="btn" id="export-socio">Download joined table (CSV)</button>
+      <span id="socio-note" class="text-small text-muted"></span>
+    </div>
+  </div>
+</section>
+
 <!-- --------------------------------------------------------------- METHOD -->
 <section id="panel-method" role="tabpanel" aria-labelledby="tab-method" hidden>
   <div class="card">
@@ -424,6 +563,30 @@
         chosen geography. Areas missing one side are shown but flagged. The
         <i>minimum</i> of the two is the stricter "reliable turnout" measure; the
         <i>delta</i> shows where one election drew people the other did not.</li>
+    </ul>
+
+    <h3>Census geography and socioeconomic variables</h3>
+    <p>Statistics Canada's dissemination areas are the smallest geography with a full
+      census profile: 400 to 700 people each, drawn to follow streets, so they are
+      neighbourhood-sized and overlap polls the way voting areas do. Election results
+      reach them through the same crosswalk, so each carries an estimated turnout and
+      party share beside its census variables.</p>
+    <ul>
+      <li><b>Ecological inference.</b> A correlation between, say, renting and turnout
+        across areas says that areas with more renters have lower turnout; it does not say
+        that renters vote less. Individual-level claims need individual-level data.</li>
+      <li><b>Population weighting.</b> With dissemination-block counts loaded, every
+        overlap is weighted by the people living in it rather than by its area, which
+        keeps a park from carrying votes. It assumes electors are spread like population
+        within a block, and it falls back to area for blocks with no population.</li>
+      <li><b>Suppression.</b> Statistics Canada suppresses small or unreliable cells; they
+        arrive as gaps, not zeros, and an area with a gap is left out of that variable's
+        correlation. The n column says how many areas each figure rests on.</li>
+      <li><b>Neighbouring areas resemble each other</b>, so the confidence intervals are
+        narrower than the spatial structure warrants, here as on the Correlation tab.</li>
+      <li><b>Attribution.</b> Adapted from Statistics Canada, Census Profile, 2021 Census of
+        Population, and the 2021 Geographic Attribute File. This does not constitute an
+        endorsement by Statistics Canada.</li>
     </ul>
 
     <h3>The street basemap</h3>

@@ -37,6 +37,20 @@ const state = {
   turnout: { unit: 'fed', weight: 0.5, apportion: { fed: 'none', prov: 'none' },
              minElectors: 50, rows: null, basket: new Set(), sortKey: 'agg', sortDir: 'desc' },
   shadeDomain: {},
+  /* Census geography: dissemination areas are drawn and analysed; dissemination
+     blocks only weight the crosswalk. Both trim to the federal extent like the
+     provincial layer. */
+  da: { all: [], active: [], index: null, keyProp: null, meta: null, census: null, variables: [],
+        pop: null, shadeVar: null },
+  db: { all: [], active: [], index: null, keyProp: null, meta: null, pop: null },
+  geoAttr: null,
+  /* One lattice sample over every loaded layer, and the crosswalks derived
+     from it, cached by layer pair. */
+  sample: null,
+  cross: new Map(),
+  weightingInEffect: null,
+  socio: { outcome: 'turnout-agg', minElectors: 50, selected: new Set(), extra: new Map(),
+           rows: null, byDa: null, table: null, sortKey: 'absR', sortDir: 'desc', picked: null },
 };
 
 /* Results for one side, apportioned if the Turnout tab asked for it. Every
@@ -124,6 +138,16 @@ function activeProvincial(fedExtent) {
   });
 }
 
+/* Any other layer trims the same way. */
+function activeWithin(layer, fedExtent) {
+  if (!layer.all.length || !fedExtent) return [];
+  const [x0, y0, x1, y1] = fedExtent;
+  return layer.all.filter((f) => {
+    const b = Geo.bboxOf(f.geometry);
+    return b[0] <= x1 && b[2] >= x0 && b[1] <= y1 && b[3] >= y0;
+  });
+}
+
 function extentOf(features) {
   let e = [Infinity, Infinity, -Infinity, -Infinity];
   for (const f of features) {
@@ -171,8 +195,14 @@ const fedLayer = L.geoJSON(null, {
 const provLayer = L.geoJSON(null, {
   pane: 'prov', renderer: L.svg({ pane: 'prov' }), className: 'va', fill: false,
 }).addTo(map);
+map.createPane('da').classList.add('layer-da');
+map.getPane('da').style.zIndex = 405;
+const daLayer = L.geoJSON(null, {
+  pane: 'da', renderer: L.svg({ pane: 'da' }), className: 'da', fill: false,
+}).addTo(map);
 const gFed = d3.select(map.getPane('fed'));
 const gProv = d3.select(map.getPane('prov'));
+const gDa = d3.select(map.getPane('da'));
 
 /* Free basemaps. Tiles are the only thing in the file that ever touches the
    network; without them the boundaries and every analysis still work. */
@@ -233,6 +263,15 @@ function shadeValue(layerKey, f, mode, fedParty, provParty) {
     if (mode === 'turnout-prov') return Turnout.rate(u);
     return null;
   }
+  if (layerKey === 'da') {
+    if (mode === 'variable') return state.da.shadeVar ? (state.da.shadeVar.get(f.__idx) ?? null) : null;
+    const row = state.socio.byDa && state.socio.byDa.get(f.__idx);
+    if (!row) return null;
+    if (mode === 'turnout-agg') return row.agg;
+    if (mode === 'turnout-fed') return row.t.fed;
+    if (mode === 'turnout-prov') return row.t.prov;
+    return null;
+  }
   const fedUnit = fedValues()?.get(f.idx);
   const provOnFed = state.provOnFed && state.provOnFed.get(f.idx);
   const fedShare = fedUnit && fedParty ? Analysis.shareOf(fedUnit, fedParty) : null;
@@ -259,6 +298,8 @@ function shadeValue(layerKey, f, mode, fedParty, provParty) {
 
 const TYPE_FILL = { N: 'var(--muted)', M: 'var(--viz-series-5)', S: 'var(--viz-series-6)' };
 const TURNOUT_MODES = new Set(['turnout-fed', 'turnout-prov', 'turnout-agg']);
+/* Modes whose ramp follows the data on the map rather than a fixed scale. */
+const DATA_MODES = new Set([...TURNOUT_MODES, 'variable']);
 
 /* Turnout ramps are data-driven -- 5th to 95th percentile of what is on the
    map -- because a fixed scale would either wash out or saturate depending on
@@ -280,7 +321,7 @@ function shadeDomain(layerKey, sel, mode, fedParty, provParty) {
 function rampT(mode, v, domain) {
   if (mode === 'gap') return Math.min(1, Math.abs(v) / 0.3);
   if (mode === 'turnout-delta') return Math.min(1, Math.abs(v) / 0.15);
-  if (TURNOUT_MODES.has(mode) && domain) {
+  if (DATA_MODES.has(mode) && domain) {
     return Math.max(0, Math.min(1, (v - domain.lo) / (domain.hi - domain.lo)));
   }
   return Math.min(1, v / 0.6);
@@ -289,6 +330,7 @@ function rampT(mode, v, domain) {
 function fillColour(mode, v, fedParty, provParty) {
   if (mode === 'gap') return v >= 0 ? partyColour(fedParty) : partyColour(provParty);
   if (mode === 'turnout-delta') return v >= 0 ? 'var(--viz-series-1)' : 'var(--viz-series-2)';
+  if (mode === 'variable') return 'var(--viz-series-3)';
   if (TURNOUT_MODES.has(mode)) return 'var(--viz-series-1)';
   if (mode === 'fed-party') return partyColour(fedParty);
   if (mode === 'prov-party') return partyColour(provParty);
@@ -298,34 +340,40 @@ function fillColour(mode, v, fedParty, provParty) {
 /* Inline style, not a presentation attribute: the .poll / .va stylesheet rules
    set default fills, and a stylesheet rule always beats an attribute in SVG.
    A null value removes the inline style so the stylesheet applies again. */
+const LAYER_SERIES = { prov: 'var(--viz-series-2)', da: 'var(--viz-series-3)' };
 function styleLayer(layerKey, sel) {
   const fedParty = $('shade-party-fed').value;
   const provParty = $('shade-party-prov').value;
-  const mode = layerKey === 'fed' ? $('shade-by').value : $('shade-prov-by').value;
-  const domain = TURNOUT_MODES.has(mode) ? shadeDomain(layerKey, sel, mode, fedParty, provParty) : null;
+  const mode = layerKey === 'fed' ? $('shade-by').value
+    : layerKey === 'prov' ? $('shade-prov-by').value : $('shade-da-by').value;
+  const domain = DATA_MODES.has(mode) ? shadeDomain(layerKey, sel, mode, fedParty, provParty) : null;
   state.shadeDomain[layerKey] = domain;
-  const base = layerKey === 'prov' ? parseFloat($('prov-opacity').value) : 1;
-  const isProv = layerKey === 'prov';
+  /* The provincial and census layers are overlays: outline-only unless shaded,
+     and their fill strength follows the one slider. */
+  const isOverlay = layerKey !== 'fed';
+  const base = isOverlay ? parseFloat($('prov-opacity').value) : 1;
+  const series = LAYER_SERIES[layerKey] || 'var(--muted)';
   sel.style('fill', (f) => {
-    if (isProv && mode === 'none') return null;
-    if (isProv && mode === 'flat') return 'var(--viz-series-2)';
+    if (isOverlay && mode === 'none') return null;
+    if (isOverlay && mode === 'flat') return series;
     if (mode === 'type') return TYPE_FILL[f.pollType] || 'var(--muted)';
     const v = shadeValue(layerKey, f, mode, fedParty, provParty);
-    if (v == null) return isProv ? 'var(--viz-series-2)' : 'var(--muted)';
+    if (v == null) return series;
     return fillColour(mode, v, fedParty, provParty);
   }).style('fill-opacity', (f) => {
-    if (isProv && mode === 'none') return null;
-    if (isProv && mode === 'flat') return base * 0.35;
+    if (isOverlay && mode === 'none') return null;
+    if (isOverlay && mode === 'flat') return base * 0.35;
     if (mode === 'none') return 0.28;
     if (mode === 'type') return f.pollType === 'N' ? 0.28 : 0.75;
     const v = shadeValue(layerKey, f, mode, fedParty, provParty);
-    if (v == null) return isProv ? 0.04 : 0.06;
+    if (v == null) return isOverlay ? 0.04 : 0.06;
     /* Capped below full opacity so the outlines stay readable underneath. */
     return base * (0.10 + 0.68 * rampT(mode, v, domain));
   });
 }
 const applyFederalStyle = (sel) => styleLayer('fed', sel);
 const applyProvincialStyle = (sel) => styleLayer('prov', sel);
+const applyDaStyle = (sel) => styleLayer('da', sel);
 
 /* Bind the feature to its Leaflet-drawn path so d3 selections of the pane
    see it as the datum. */
@@ -346,10 +394,14 @@ function draw() {
   state.fed.active = activeFederal();
   const fedExtent = extentOf(state.fed.active);
   state.prov.active = activeProvincial(fedExtent);
+  state.da.active = activeWithin(state.da, fedExtent);
+  state.db.active = activeWithin(state.db, fedExtent);
   state.fed.index = Geo.buildIndex(state.fed.active);
   state.prov.index = state.prov.active.length ? Geo.buildIndex(state.prov.active) : null;
+  state.da.index = state.da.active.length ? Geo.buildIndex(state.da.active) : null;
 
   const signature = [state.fed.active.length, state.prov.active.length, state.prov.all.length,
+    state.da.active.length, state.da.all.length,
     $('area-filter').value, $('show-mobile').checked,
     state.fed.active[0]?.key, state.fed.active[state.fed.active.length - 1]?.key].join('|');
   if (signature !== layersSignature) {
@@ -365,9 +417,15 @@ function draw() {
       provLayer.addData({ type: 'FeatureCollection', features: state.prov.active });
     }
     bindPaths(provLayer);
+    daLayer.clearLayers();
+    if (state.da.active.length) {
+      daLayer.addData({ type: 'FeatureCollection', features: state.da.active });
+    }
+    bindPaths(daLayer);
   }
   applyFederalStyle(gFed.selectAll('path'));
   applyProvincialStyle(gProv.selectAll('path'));
+  applyDaStyle(gDa.selectAll('path'));
 
   updateLayerVisibility();
   renderLegend();
@@ -381,7 +439,12 @@ function draw() {
 function updateLayerVisibility() {
   map.getPane('fed').style.display = $('show-fed').checked ? '' : 'none';
   map.getPane('prov').style.display = $('show-prov').checked ? '' : 'none';
+  map.getPane('da').style.display = $('show-da').checked ? '' : 'none';
   gProv.classed('filled', $('shade-prov-by').value !== 'none');
+  gDa.classed('filled', $('shade-da-by').value !== 'none');
+  const hasDa = state.da.all.length > 0;
+  $('da-controls').hidden = !hasDa;
+  $('show-da-wrap').hidden = !hasDa;
   root.style.setProperty('--va-weight', $('prov-weight').value);
 }
 
@@ -420,11 +483,25 @@ function renderLegend() {
     }
     items.push(['outline', 'Provincial (2024) voting area']);
   }
+  if (state.da.active.length) {
+    const daMode = $('shade-da-by').value;
+    if (DATA_MODES.has(daMode)) {
+      const name = daMode === 'variable'
+        ? ($('shade-da-var').selectedOptions[0]?.textContent || 'census variable')
+        : { 'turnout-agg': 'Aggregate turnout', 'turnout-fed': '2025 federal turnout', 'turnout-prov': '2024 provincial turnout' }[daMode];
+      const dom = state.shadeDomain.da;
+      const rangeText = dom ? (daMode === 'variable'
+        ? ` — ${fmtNum(dom.lo, 1)} to ${fmtNum(dom.hi, 1)}` : range(dom)) : '';
+      items.push([daMode === 'variable' ? 'var(--viz-series-3)' : 'var(--viz-series-1)', `${name} on dissemination areas${rangeText}`]);
+    }
+    items.push(['outline-da', 'Census (2021) dissemination area']);
+  }
   legend.hidden = items.length === 0;
   for (const [colour, text] of items) {
     const row = el('div', 'legend-item');
-    const sw = el('span', colour === 'outline' ? 'swatch swatch-outline' : 'swatch');
-    if (colour !== 'outline') sw.style.background = colour;
+    const outline = colour === 'outline' || colour === 'outline-da';
+    const sw = el('span', colour === 'outline' ? 'swatch swatch-outline' : colour === 'outline-da' ? 'swatch swatch-da' : 'swatch');
+    if (!outline) sw.style.background = colour;
     row.append(sw, el('span', null, text));
     legend.append(row);
   }
@@ -432,26 +509,20 @@ function renderLegend() {
 
 /* --- Selection and readout ------------------------------------------------- */
 
-function selectAt(lonlat, fedFeature, provFeature) {
-  if (lonlat) {
-    const fi = state.fed.index ? state.fed.index.hit(lonlat[0], lonlat[1]) : -1;
-    const pi = state.prov.index ? state.prov.index.hit(lonlat[0], lonlat[1]) : -1;
-    state.selection.fed = fi >= 0 ? state.fed.active[fi] : null;
-    state.selection.prov = pi >= 0 ? state.prov.active[pi] : null;
-  } else {
-    if (fedFeature) {
-      state.selection.fed = fedFeature;
-      const pt = Geo.representativePoint(fedFeature.geometry);
-      const pi = pt && state.prov.index ? state.prov.index.hit(pt[0], pt[1]) : -1;
-      state.selection.prov = pi >= 0 ? state.prov.active[pi] : null;
-    }
-    if (provFeature) {
-      state.selection.prov = provFeature;
-      const pt = Geo.representativePoint(provFeature.geometry);
-      const fi = pt && state.fed.index ? state.fed.index.hit(pt[0], pt[1]) : -1;
-      if (fi >= 0) state.selection.fed = state.fed.active[fi];
-    }
-  }
+/* Hit-test one point against every layer; a feature given directly stands in
+   for its own layer and the others are found at its interior point. */
+function selectAt(lonlat, fedFeature, provFeature, daFeature) {
+  const hitAll = (pt) => ({
+    fed: pt && state.fed.index ? state.fed.index.hit(pt[0], pt[1]) : -1,
+    prov: pt && state.prov.index ? state.prov.index.hit(pt[0], pt[1]) : -1,
+    da: pt && state.da.index ? state.da.index.hit(pt[0], pt[1]) : -1,
+  });
+  const given = fedFeature || provFeature || daFeature;
+  const pt = lonlat || (given ? Geo.representativePoint(given.geometry) : null);
+  const h = hitAll(pt);
+  state.selection.fed = fedFeature || (h.fed >= 0 ? state.fed.active[h.fed] : null);
+  state.selection.prov = provFeature || (h.prov >= 0 ? state.prov.active[h.prov] : null);
+  state.selection.da = daFeature || (h.da >= 0 ? state.da.active[h.da] : null);
   redrawSelection();
   renderReadout();
 }
@@ -459,9 +530,11 @@ function selectAt(lonlat, fedFeature, provFeature) {
 function redrawSelection() {
   gFed.selectAll('path').classed('selected', (f) => f === state.selection.fed);
   gProv.selectAll('path').classed('selected', (f) => f === state.selection.prov);
+  gDa.selectAll('path').classed('selected', (f) => f === state.selection.da);
   /* Re-appending brings the selected outline above its neighbours. */
   gFed.selectAll('path.selected').raise();
   gProv.selectAll('path.selected').raise();
+  gDa.selectAll('path.selected').raise();
 }
 
 function resultsList(unit, limit = 6) {
@@ -482,10 +555,10 @@ function resultsList(unit, limit = 6) {
 function renderReadout() {
   const box = $('readout');
   box.textContent = '';
-  const { fed, prov } = state.selection;
-  if (!fed && !prov) {
+  const { fed, prov, da } = state.selection;
+  if (!fed && !prov && !da) {
     box.append(el('p', 'text-muted',
-      'Click anywhere on the map to read the federal polling division and the provincial voting area covering that point.'));
+      'Click anywhere on the map to read the federal polling division, the provincial voting area and the dissemination area covering that point.'));
     return;
   }
   const grid = el('div', 'readout-grid');
@@ -539,6 +612,38 @@ function renderReadout() {
   }
 
   grid.append(fedCard, provCard);
+  if (state.da.all.length) {
+    const daCard = el('div', 'readout-card');
+    daCard.append(el('h3', null, 'Census (2021)'));
+    if (da) {
+      daCard.append(el('p', 'readout-name', daLabel(da)));
+      const bits = [];
+      const pop = state.da.pop?.get(da.__idx);
+      if (pop != null) bits.push(`${fmtInt(pop)} people`);
+      const row = state.socio.byDa && state.socio.byDa.get(da.__idx);
+      if (row) {
+        if (row.t.fed != null) bits.push(`federal turnout ${fmtPct(row.t.fed)}`);
+        if (row.t.prov != null) bits.push(`provincial turnout ${fmtPct(row.t.prov)}`);
+        if (row.agg != null) bits.push(`aggregate ${fmtPct(row.agg)}`);
+      }
+      if (bits.length) daCard.append(el('p', 'text-small', bits.join(' · ')));
+      const shown = state.da.variables.filter((v) => v.byFeature.has(da.__idx)).slice(0, 8);
+      if (shown.length) {
+        const list = el('ul', 'result-list');
+        for (const v of shown) {
+          const li = el('li');
+          li.append(el('span', 'party', v.label), el('span', 'votes tabular-nums', fmtNum(v.byFeature.get(da.__idx), 1)));
+          list.append(li);
+        }
+        daCard.append(list);
+      } else if (state.da.census) {
+        daCard.append(el('p', 'text-small text-warning', 'No census row matched this area.'));
+      }
+    } else {
+      daCard.append(el('p', 'text-muted', 'No dissemination area at this point.'));
+    }
+    grid.append(daCard);
+  }
   box.append(grid);
 
   const bkey = basketKeyForSelection();
@@ -590,4 +695,84 @@ function zoomToFeature(feature) {
   const b = Geo.bboxOf(feature.geometry);
   if (!isFinite(b[0])) return;
   map.fitBounds([[b[1], b[0]], [b[3], b[2]]], { padding: [24, 24], maxZoom: 17 });
+}
+
+/* --- The sample table and its crosswalks ------------------------------------
+   buildCrosswalk (g3) samples every loaded layer once into state.sample.
+   crossPair(a, b) then derives the crosswalk for any two layers on demand,
+   weighted as the Correlation tab asks, and caches it; the federal-provincial
+   pair also fills the older state.crosswalk / state.pairs fields the rest of
+   the app reads. */
+
+/* Per-point weights from the best population layer available:
+   dissemination blocks, else dissemination areas, else none (area). */
+function sampleWeights() {
+  const s = state.sample;
+  const none = { weights: null, label: 'area', short: 'area', detail: '' };
+  if (!s) return none;
+  const mode = $('sample-weighting').value;
+  if (mode === 'area') return none;
+  const popOf = (id) => {
+    const k = s.ids.indexOf(id);
+    if (k < 0 || !state[id].pop) return null;
+    const m = new Map();
+    state[id].active.forEach((f, i) => { const v = state[id].pop.get(f.__idx); if (v != null) m.set(i, v); });
+    return m.size ? { k, m } : null;
+  };
+  const da = (mode === 'auto' || mode === 'da') ? popOf('da') : null;
+  const db = (mode === 'auto' || mode === 'db') ? popOf('db') : null;
+  let weights = null, label = 'area', short = 'area', detail = '';
+  if (da) { weights = Analysis.pointWeights(s, da.k, da.m, null); label = 'dissemination-area population'; short = 'area population'; }
+  if (db) {
+    weights = Analysis.pointWeights(s, db.k, db.m, weights);
+    short = 'block population';
+    detail = da ? 'area population where a block has none' : '';
+    label = 'dissemination-block population' + (detail ? ` (${detail})` : '');
+  }
+  if (!weights && mode !== 'auto') { label = 'area (no population loaded for that layer)'; detail = 'no population loaded for that layer'; }
+  return { weights, label, short, detail };
+}
+
+function crossPair(a, b) {
+  const s = state.sample;
+  if (!s) return null;
+  const ka = s.ids.indexOf(a), kb = s.ids.indexOf(b);
+  if (ka < 0 || kb < 0) return null;
+  const key = a + '|' + b;
+  let c = state.cross.get(key);
+  if (c) return c;
+  const { weights, label, short, detail } = sampleWeights();
+  const cw = Analysis.crosswalkBetween(s, ka, kb, { weights });
+  const repaired = Analysis.repairSmallFeatures(cw, state[a].active, state[b].active,
+    { a: s.indexes[ka], b: s.indexes[kb] });
+  const minShare = parseFloat($('min-overlap').value);
+  c = { cw, pairs: Analysis.crosswalkPairs(cw, { minShare }), coverage: Analysis.coverage(cw), repaired, weighting: label };
+  state.cross.set(key, c);
+  state.weightingInEffect = label;
+  state.weightingShort = short;
+  state.weightingDetail = detail;
+  if (a === 'fed' && b === 'prov') {
+    state.crosswalk = cw; state.pairs = c.pairs; state.coverage = c.coverage;
+    state.crosswalkFed = state.fed.active; state.crosswalkProv = state.prov.active;
+  }
+  return c;
+}
+
+/* Weighting or the sliver threshold changed: the sample stands, the
+   crosswalks are rebuilt from it. */
+function invalidateCross() {
+  state.cross.clear();
+  state.crosswalk = null; state.pairs = null; state.coverage = null; state.provOnFed = null;
+  state.crosswalkFed = null; state.crosswalkProv = null;
+  if (state.sample) crossPair('fed', 'prov');
+}
+
+/* The active sets changed: nothing derived from the sample survives. */
+function invalidateSample() {
+  state.sample = null;
+  invalidateCross();
+  state.turnout.rows = null; state.turnout.basket.clear();
+  state.socio.rows = null; state.socio.byDa = null; state.socio.table = null;
+  $('corr-controls').hidden = true;
+  refreshCrosswalkStatus();
 }
