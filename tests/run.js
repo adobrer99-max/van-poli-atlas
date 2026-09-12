@@ -14,7 +14,7 @@ const path = require('path');
 
 const root = path.join(__dirname, '..');
 const NODE_SUITES = ['test-geo', 'test-lcc', 'test-text', 'test-binary', 'test-ingest', 'test-analysis',
-  'test-slivers', 'test-repair', 'test-results', 'test-turnout', 'test-perf'];
+  'test-sample', 'test-slivers', 'test-repair', 'test-results', 'test-turnout', 'test-perf'];
 const BROWSER_SUITES = ['test-browser', 'test-variants'];
 
 const args = new Set(process.argv.slice(2));
