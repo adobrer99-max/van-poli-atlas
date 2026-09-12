@@ -80,6 +80,7 @@ function buildCrosswalk() {
     recomputeProvincialOnFederal();
     $('corr-controls').hidden = false;
     refreshCorrelation();
+    refreshTurnout();
     draw();
   };
   setTimeout(step, 0);
@@ -97,16 +98,18 @@ $('min-overlap').addEventListener('change', () => {
   applyMinOverlap();
   recomputeProvincialOnFederal();
   refreshCorrelation();
+  refreshTurnout();
   draw();
 });
 
 /* Provincial votes pushed onto federal divisions, for map shading. */
 function recomputeProvincialOnFederal() {
   state.provOnFed = null;
-  if (!state.pairs || !state.provResults?.values) return;
+  const pv = provValues();
+  if (!state.pairs || !pv) return;
   const byIndex = new Map();
   state.crosswalkProv.forEach((f, i) => {
-    const unit = state.provResults.values.get(f.__idx);
+    const unit = pv.get(f.__idx);
     if (unit) byIndex.set(i, unit);
   });
   const onFed = Analysis.redistribute(state.pairs, byIndex, { from: 'prov' });
@@ -262,11 +265,16 @@ $('export-joined').addEventListener('click', () => {
   const fedParties = (state.fedResults?.parties || []).map(([p]) => p);
   const provParties = (state.provResults?.parties || []).map(([p]) => p);
   const header = ['unit_key', 'unit_label', 'federal_votes', 'provincial_votes',
+    'federal_electors', 'federal_rejected', 'turnout_fed',
+    'provincial_electors', 'provincial_rejected', 'turnout_prov',
     ...fedParties.map((p) => `fed_${p}`), ...fedParties.map((p) => `fed_share_${p}`),
     ...provParties.map((p) => `prov_${p}`), ...provParties.map((p) => `prov_share_${p}`)];
   const rows = [header];
+  const t6 = (v) => (v == null ? '' : v.toFixed(6));
   for (const row of c.rows) {
     rows.push([row.key, row.label, row.fed.total.toFixed(2), row.prov.total.toFixed(2),
+      (row.fed.electors || 0).toFixed(2), (row.fed.rejected || 0).toFixed(2), t6(Turnout.rate(row.fed)),
+      (row.prov.electors || 0).toFixed(2), (row.prov.rejected || 0).toFixed(2), t6(Turnout.rate(row.prov)),
       ...fedParties.map((p) => (row.fed.parties.get(p) || 0).toFixed(2)),
       ...fedParties.map((p) => { const s = Analysis.shareOf(row.fed, p); return s == null ? '' : s.toFixed(6); }),
       ...provParties.map((p) => (row.prov.parties.get(p) || 0).toFixed(2)),
@@ -324,20 +332,32 @@ $('zoom-reset').addEventListener('click', () => {
   svg.transition().duration(300).call(zoom.transform, d3.zoomIdentity);
 });
 
-for (const id of ['show-fed', 'show-prov', 'prov-fill', 'prov-weight']) {
+for (const id of ['show-fed', 'show-prov', 'prov-weight']) {
   $(id).addEventListener('input', updateLayerVisibility);
 }
 for (const id of ['area-filter', 'show-mobile']) {
   $(id).addEventListener('change', () => {
     state.crosswalk = null; state.pairs = null; state.provOnFed = null;
+    state.turnout.rows = null; state.turnout.basket.clear();
     $('corr-controls').hidden = true;
     refreshCrosswalkStatus();
-    draw(); populateFinders(); renderReadout();
+    draw(); populateFinders(); renderReadout(); refreshTurnout();
   });
 }
-for (const id of ['shade-by', 'shade-party-fed', 'shade-party-prov']) {
+for (const id of ['shade-by', 'shade-party-fed']) {
   $(id).addEventListener('change', () => {
     applyFederalStyle(gFed.selectAll('path'));
     renderLegend();
   });
 }
+/* The provincial party feeds both the cross-level modes on the federal layer
+   and the provincial layer's own shading. */
+for (const id of ['shade-prov-by', 'shade-party-prov']) {
+  $(id).addEventListener('change', () => {
+    applyFederalStyle(gFed.selectAll('path'));
+    applyProvincialStyle(gProv.selectAll('path'));
+    updateLayerVisibility();
+    renderLegend();
+  });
+}
+$('prov-opacity').addEventListener('input', () => applyProvincialStyle(gProv.selectAll('path')));

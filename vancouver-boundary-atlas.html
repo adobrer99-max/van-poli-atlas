@@ -1141,6 +1141,33 @@ html>body{padding:0}
   .map-legend { position: static; max-width: none; margin-top: .5rem; }
 }
 
+/* --- Turnout tab ----------------------------------------------------------- */
+.turnout-wrap { max-height: 520px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+.turnout-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-small);
+  font-variant-numeric: tabular-nums; }
+.turnout-table th { position: sticky; top: 0; background: var(--card); text-align: right;
+  cursor: pointer; user-select: none; white-space: nowrap; padding: .4rem .5rem;
+  border-bottom: 1px solid var(--border); font-weight: var(--font-weight-medium); }
+.turnout-table th.text-start, .turnout-table td.text-start { text-align: left; }
+.turnout-table th.sorted::after { content: ' \25BE'; color: var(--muted-foreground); }
+.turnout-table th.sorted.asc::after { content: ' \25B4'; }
+.turnout-table td { text-align: right; padding: .3rem .5rem; border-bottom: 1px solid var(--border);
+  white-space: nowrap; }
+.turnout-table td.text-start { max-width: 28ch; overflow: hidden; text-overflow: ellipsis; }
+.turnout-table tr.in-basket td { background: color-mix(in srgb, var(--viz-series-1) 12%, transparent); }
+.turnout-table tr.partial td { color: var(--muted-foreground); font-style: italic; }
+.turnout-table input[type="checkbox"] { margin: 0; }
+.poll.basket { stroke: var(--viz-series-1); stroke-width: 2.2; stroke-opacity: 1; stroke-dasharray: 4 2; }
+.va.basket { stroke: var(--viz-series-1); stroke-dasharray: 4 2; }
+.curve { display: block; width: 100%; margin: .4rem 0; }
+.curve .axis text { fill: var(--muted-foreground); font-size: var(--font-size-small); }
+.curve .axis path, .curve .axis line { stroke: var(--border); }
+.curve .axis-label { fill: var(--muted-foreground); font-size: var(--font-size-small); }
+.curve .line { fill: none; stroke: var(--viz-series-1); stroke-width: 2; }
+.curve .line-expected { fill: none; stroke: var(--viz-series-2); stroke-width: 1.5; stroke-dasharray: 5 3; }
+.curve .diag { fill: none; stroke: var(--border); stroke-dasharray: 3 3; }
+.btn-small { padding: .2rem .6rem; font-size: var(--font-size-small); margin-top: .5rem; }
+
 </style>
 </head>
 <body>
@@ -1157,6 +1184,7 @@ html>body{padding:0}
   <button class="nav-link active" role="tab" id="tab-map" aria-controls="panel-map" aria-selected="true" type="button">Map</button>
   <button class="nav-link" role="tab" id="tab-data" aria-controls="panel-data" aria-selected="false" type="button">Data</button>
   <button class="nav-link" role="tab" id="tab-corr" aria-controls="panel-corr" aria-selected="false" type="button">Correlation</button>
+  <button class="nav-link" role="tab" id="tab-turnout" aria-controls="panel-turnout" aria-selected="false" type="button">Turnout</button>
   <button class="nav-link" role="tab" id="tab-method" aria-controls="panel-method" aria-selected="false" type="button">Method</button>
 </nav>
 
@@ -1180,35 +1208,49 @@ html>body{padding:0}
         <option value="all">Everything in the file (Metro Vancouver)</option>
       </select>
     </label>
-    <label class="form-label grow" for="shade-by">Shade federal polls by
+    <label class="form-label grow" for="shade-by">Shade federal (2025) polls by
       <select class="form-select" id="shade-by">
         <option value="none">Nothing (plain boundaries)</option>
         <option value="type">Poll type</option>
         <option value="fed-party">Federal party share</option>
-        <option value="prov-party">Provincial party share (redistributed)</option>
-        <option value="gap">Federal minus provincial share</option>
+        <option value="turnout-fed">Federal turnout</option>
+        <option value="prov-party">Provincial party share (redistributed onto polls)</option>
+        <option value="turnout-prov">Provincial turnout (redistributed onto polls)</option>
+        <option value="turnout-agg">Aggregate turnout, both elections</option>
+        <option value="turnout-delta">Federal minus provincial turnout</option>
+        <option value="gap">Federal minus provincial party share</option>
       </select>
     </label>
-    <label class="form-label grow" for="shade-party-fed">Federal party
-      <select class="form-select" id="shade-party-fed" disabled><option>Load federal results</option></select>
+    <label class="form-label grow" for="shade-party-fed">Federal (2025) party
+      <select class="form-select" id="shade-party-fed" disabled><option>Load 2025 federal results</option></select>
     </label>
-    <label class="form-label grow" for="shade-party-prov">Provincial party
-      <select class="form-select" id="shade-party-prov" disabled><option>Load provincial results</option></select>
+    <label class="form-label grow" for="shade-party-prov">Provincial (2024) party
+      <select class="form-select" id="shade-party-prov" disabled><option>Load 2024 provincial results</option></select>
+    </label>
+  </div>
+
+  <div class="viz-controls">
+    <label class="form-label grow" for="shade-prov-by">Shade provincial (2024) voting areas by
+      <select class="form-select" id="shade-prov-by">
+        <option value="none">Nothing (outline only)</option>
+        <option value="flat">Flat fill</option>
+        <option value="prov-party">Provincial party share</option>
+        <option value="turnout-prov">Provincial turnout</option>
+      </select>
+    </label>
+    <label class="form-label" for="prov-opacity">Provincial fill strength
+      <input class="form-range" type="range" id="prov-opacity" min="0.1" max="1" step="0.05" value="0.7">
     </label>
   </div>
 
   <div class="viz-controls">
     <label class="form-check form-switch">
       <input class="form-check-input" type="checkbox" id="show-fed" checked>
-      <span class="form-check-label">Federal polling divisions</span>
+      <span class="form-check-label">Federal (2025) polling divisions</span>
     </label>
     <label class="form-check form-switch">
       <input class="form-check-input" type="checkbox" id="show-prov" checked>
-      <span class="form-check-label">Provincial voting areas</span>
-    </label>
-    <label class="form-check form-switch">
-      <input class="form-check-input" type="checkbox" id="prov-fill">
-      <span class="form-check-label">Fill provincial areas</span>
+      <span class="form-check-label">Provincial (2024) voting areas</span>
     </label>
     <label class="form-check form-switch">
       <input class="form-check-input" type="checkbox" id="show-mobile">
@@ -1220,10 +1262,10 @@ html>body{padding:0}
   </div>
 
   <div class="viz-controls">
-    <label class="form-label grow" for="find-poll">Find a federal polling division
+    <label class="form-label grow" for="find-poll">Find a federal (2025) polling division
       <select class="form-select" id="find-poll"><option value="">Select a division&hellip;</option></select>
     </label>
-    <label class="form-label grow" for="find-va">Find a provincial voting area
+    <label class="form-label grow" for="find-va">Find a provincial (2024) voting area
       <select class="form-select" id="find-va" disabled><option value="">No provincial layer loaded</option></select>
     </label>
     <button type="button" class="btn" id="zoom-in" aria-label="Zoom in">Zoom +</button>
@@ -1253,7 +1295,7 @@ html>body{padding:0}
 <!-- ----------------------------------------------------------------- DATA -->
 <section id="panel-data" role="tabpanel" aria-labelledby="tab-data" hidden>
   <div class="card">
-    <h2>1. Provincial voting-area boundaries</h2>
+    <h2>1. Provincial (2024) voting-area boundaries</h2>
     <p class="text-small text-muted">
       Get these from Elections BC's
       <a href="https://elections.bc.ca/resources/maps/gis-spatial-data/" target="_blank" rel="noopener">GIS spatial data</a>
@@ -1280,7 +1322,7 @@ html>body{padding:0}
   </div>
 
   <div class="card">
-    <h2>2. Federal poll-by-poll results</h2>
+    <h2>2. Federal (2025) poll-by-poll results</h2>
     <p class="text-small text-muted">
       Elections Canada publishes one <code>pollresults_resultatsbureau&lt;riding&gt;.csv</code>
       per electoral district. Load them one at a time or as a <code>.zip</code>;
@@ -1295,7 +1337,7 @@ html>body{padding:0}
   </div>
 
   <div class="card">
-    <h2>3. Provincial results by voting area</h2>
+    <h2>3. Provincial (2024) results by voting area</h2>
     <p class="text-small text-muted">
       Elections BC publishes results by voting area for each electoral district.
       Long files (one row per candidate) and wide files (one column per party) are both read.
@@ -1379,6 +1421,82 @@ html>body{padding:0}
   </div>
 </section>
 
+<!-- -------------------------------------------------------------- TURNOUT -->
+<section id="panel-turnout" role="tabpanel" aria-labelledby="tab-turnout" hidden>
+  <div class="card">
+    <h2>Turnout by area, across both elections</h2>
+    <p class="text-small text-muted">
+      Turnout is ballots cast (valid plus rejected) over electors, for each area, in
+      each election. The aggregate combines the two with the weight below. Advance
+      polls and special ballots have no boundary; by default they are left out, which
+      understates turnout in areas where people vote early. Read the <b>Method</b> tab
+      before quoting a figure.
+    </p>
+    <div class="viz-controls">
+      <label class="form-label grow" for="turnout-unit">Common geography
+        <select class="form-select" id="turnout-unit">
+          <option value="fed">Federal (2025) polling divisions</option>
+          <option value="prov">Provincial (2024) voting areas</option>
+          <option value="atom">Overlap pieces (finest)</option>
+        </select>
+      </label>
+      <label class="form-label grow" for="turnout-weight">Weight <span id="turnout-weight-label">50% federal · 50% provincial</span>
+        <input class="form-range" type="range" id="turnout-weight" min="0" max="1" step="0.05" value="0.5">
+      </label>
+      <label class="form-label grow" for="turnout-min-electors">Drop areas under
+        <select class="form-select" id="turnout-min-electors">
+          <option value="0">No minimum</option>
+          <option value="25">25 electors</option>
+          <option value="50" selected>50 electors</option>
+          <option value="100">100 electors</option>
+        </select>
+      </label>
+    </div>
+    <div class="viz-controls">
+      <label class="form-label grow" for="apportion-fed">Federal advance &amp; special ballots
+        <select class="form-select" id="apportion-fed">
+          <option value="none">Leave out (election-day turnout)</option>
+          <option value="votes">Apportion by ballots (scales each turnout)</option>
+          <option value="electors">Apportion by electors (shifts each turnout)</option>
+        </select>
+      </label>
+      <label class="form-label grow" for="apportion-prov">Provincial advance &amp; absentee ballots
+        <select class="form-select" id="apportion-prov">
+          <option value="none">Leave out (as reported by voting area)</option>
+          <option value="votes">Apportion by ballots</option>
+          <option value="electors">Apportion by electors</option>
+        </select>
+      </label>
+    </div>
+    <div id="turnout-status" class="status"></div>
+    <div class="viz-grid" id="turnout-stats"></div>
+  </div>
+
+  <div class="card" id="turnout-results" hidden>
+    <h2>Ranked areas</h2>
+    <p class="text-small text-muted">Click a column heading to sort. Tick areas, or shift-click them on the map, to pool them in the basket.</p>
+    <svg class="curve" id="turnout-curve" role="img" aria-label="Cumulative share of electors held by the top-ranked areas"></svg>
+    <div id="turnout-curve-caption" class="text-small text-muted"></div>
+    <div class="turnout-wrap"><table class="turnout-table" id="turnout-table"></table></div>
+    <div class="viz-controls">
+      <button type="button" class="btn" id="export-turnout">Download ranking (CSV)</button>
+      <span id="turnout-note" class="text-small text-muted"></span>
+    </div>
+  </div>
+
+  <div class="card" id="turnout-basket-card" hidden>
+    <h2>Basket</h2>
+    <div class="viz-controls">
+      <label class="form-label" for="basket-top-n">Add the top
+        <input class="form-control" type="number" id="basket-top-n" min="1" max="2000" value="50" style="width:6em">
+      </label>
+      <button type="button" class="btn" id="basket-add-top">Add top areas</button>
+      <button type="button" class="btn" id="basket-clear">Clear basket</button>
+    </div>
+    <div class="viz-grid" id="turnout-basket"></div>
+  </div>
+</section>
+
 <!-- --------------------------------------------------------------- METHOD -->
 <section id="panel-method" role="tabpanel" aria-labelledby="tab-method" hidden>
   <div class="card">
@@ -1438,6 +1556,39 @@ html>body{padding:0}
       pieces move both and give the most units, but each is smaller and noisier.
       If a result only holds on one of the three, it is a property of the method
       rather than of the electorate.</p>
+
+    <h3>Turnout</h3>
+    <p>Turnout is ballots cast &mdash; valid votes plus rejected ballots &mdash; divided
+      by the electors on the list for that poll or voting area. Electors, votes and
+      rejected ballots are all counts, so they move through the crosswalk together, and
+      turnout on a common geography is simply the electors-weighted mean of the polls
+      that feed it.</p>
+    <ul>
+      <li><b>Election-day turnout is what the polls measure.</b> Advance polls, special
+        ballots and mail-in votes are reported against the whole riding or district, not
+        a boundary. Left out, they understate turnout everywhere, and most in the areas
+        whose residents vote early &mdash; typically older and wealthier neighbourhoods
+        &mdash; so an area-level correlation with income or age is biased downward.
+        Apportioning them back pro rata within each riding removes the average understatement
+        but assumes early voting is equally common across the riding, which it is not.
+        Both figures are shown; quote which one you used.</li>
+      <li><b>Elections BC's 2024 results by voting area</b> come from a vote-anywhere
+        system that may already credit every ballot to the voter's home voting area. If
+        the file's per-area totals include advance and absentee ballots, leave provincial
+        apportionment off.</li>
+      <li><b>Merged polls.</b> Elections Canada reports a merged poll's ballots under the
+        poll it was merged into. The atlas pools each merge group and spreads the ballots
+        back in proportion to each member's electors, so every member carries the same
+        turnout. A turnout above 100% on the map means a merge that was not marked, or
+        a poll whose electors were rolled elsewhere.</li>
+      <li><b>Electors include election-day registrants</b> in the federal count, so a
+        poll's turnout is not quite ballots over a fixed list; the effect is small and
+        uniform.</li>
+      <li><b>The aggregate</b> is a weighted mean of the two elections' turnout on the
+        chosen geography. Areas missing one side are shown but flagged. The
+        <i>minimum</i> of the two is the stricter "reliable turnout" measure; the
+        <i>delta</i> shows where one election drew people the other did not.</li>
+    </ul>
   </div>
 </section>
 </div>
@@ -2693,8 +2844,24 @@ const Analysis = (() => {
 
   /* --- Vote redistribution ----------------------------------------------- */
 
-  /* values: index -> { total, parties: Map }. Splits each source unit's votes
-     across the target units in proportion to shared area. */
+  /* Everything that moves through the crosswalk is a count -- votes, electors,
+     rejected ballots -- so all of it scales by the same share. Keeping electors
+     alongside votes is what makes turnout on a target unit come out as the
+     electors-weighted mean of its sources, with no separate bookkeeping. */
+  const COUNT_FIELDS = ['total', 'electors', 'rejected', 'apportioned'];
+  const emptyUnit = () => ({ total: 0, parties: new Map(), electors: 0, rejected: 0, apportioned: 0 });
+  function addScaled(acc, src, w) {
+    for (const f of COUNT_FIELDS) acc[f] += (src[f] || 0) * w;
+    for (const [party, votes] of src.parties) {
+      acc.parties.set(party, (acc.parties.get(party) || 0) + votes * w);
+    }
+    return acc;
+  }
+  const scaledUnit = (src, w) => addScaled(emptyUnit(), src, w);
+
+  /* values: index -> unit. Splits each source unit's counts across the target
+     units in proportion to shared area (or shared population, once the sample
+     carries weights). */
   function redistribute(pairs, values, { from }) {
     const shareKey = from === 'fed' ? 'shareOfFed' : 'shareOfProv';
     const sourceKey = from === 'fed' ? 'fi' : 'pi';
@@ -2706,11 +2873,8 @@ const Analysis = (() => {
       const w = pair[shareKey];
       if (!(w > 0)) continue;
       let acc = out.get(pair[targetKey]);
-      if (!acc) out.set(pair[targetKey], (acc = { total: 0, parties: new Map() }));
-      acc.total += src.total * w;
-      for (const [party, votes] of src.parties) {
-        acc.parties.set(party, (acc.parties.get(party) || 0) + votes * w);
-      }
+      if (!acc) out.set(pair[targetKey], (acc = emptyUnit()));
+      addScaled(acc, src, w);
     }
     return out;
   }
@@ -2792,10 +2956,8 @@ const Analysis = (() => {
       for (const pair of pairs) {
         const fedSrc = fedValues.get(pair.fi), provSrc = provValues.get(pair.pi);
         if (!fedSrc || !provSrc) continue;
-        const fedPart = { total: fedSrc.total * pair.shareOfFed, parties: new Map() };
-        for (const [p, v] of fedSrc.parties) fedPart.parties.set(p, v * pair.shareOfFed);
-        const provPart = { total: provSrc.total * pair.shareOfProv, parties: new Map() };
-        for (const [p, v] of provSrc.parties) provPart.parties.set(p, v * pair.shareOfProv);
+        const fedPart = scaledUnit(fedSrc, pair.shareOfFed);
+        const provPart = scaledUnit(provSrc, pair.shareOfProv);
         if (fedPart.total < minVotes || provPart.total < minVotes) continue;
         rows.push({
           key: `${pair.fi}|${pair.pi}`,
@@ -2826,14 +2988,8 @@ const Analysis = (() => {
     return rows;
   }
 
-  /* Turn comparison rows into plot points plus the statistics for one pairing. */
-  function correlate(rows, fedParty, provParty) {
-    const pts = [];
-    for (const row of rows) {
-      const x = shareOf(row.fed, fedParty), y = shareOf(row.prov, provParty);
-      if (x == null || y == null) continue;
-      pts.push({ x, y, weight: row.weight, label: row.label, key: row.key });
-    }
+  /* Statistics for any set of (x, y, weight) points. */
+  function correlateXY(pts) {
     const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y), ws = pts.map((p) => p.weight);
     const r = pearson(xs, ys);
     return {
@@ -2849,10 +3005,22 @@ const Analysis = (() => {
     };
   }
 
+  /* Turn comparison rows into plot points plus the statistics for one pairing. */
+  function correlate(rows, fedParty, provParty) {
+    const pts = [];
+    for (const row of rows) {
+      const x = shareOf(row.fed, fedParty), y = shareOf(row.prov, provParty);
+      if (x == null || y == null) continue;
+      pts.push({ x, y, weight: row.weight, label: row.label, key: row.key });
+    }
+    return correlateXY(pts);
+  }
+
   return {
     crosswalkRunner, crosswalkPairs, coverage, redistribute, repairSmallFeatures,
+    emptyUnit, addScaled, scaledUnit,
     pearson, spearman, rankOf, linearFit, pearsonCI,
-    comparisonRows, correlate, shareOf,
+    comparisonRows, correlate, correlateXY, shareOf,
   };
 })();
 
@@ -2913,10 +3081,19 @@ const Results = (() => {
             /appartenance politique/i, /\bparty\b/i, /affiliation/i, /candidate.*party/i],
     votes: [/candidate poll votes count/i, /votes du candidat/i,
             /\bvotes?\b.*\bcount\b/i, /\btotal votes\b/i, /\bvotes\b/i, /\bballots cast\b/i],
-    electors: [/electors for polling station/i, /\belectors\b/i, /électeurs/i, /registered voters/i],
-    rejected: [/rejected ballots/i, /bulletins rejet/i, /\brejected\b/i],
+    electors: [/electors for polling station/i, /\belectors\b/i, /électeurs/i,
+               /registered voters/i, /\bregistered\b/i],
+    rejected: [/rejected ballots/i, /bulletins rejet/i, /\brejected\b/i, /spoil/i],
     candidate: [/candidate.*family name/i, /nom de famille/i, /candidate/i],
+    /* Elections Canada bookkeeping columns. A merged poll reports its votes
+       under another poll; a void poll or a poll where no vote was held has
+       none at all. Turnout is wrong for all three unless they are recognised. */
+    mergeWith: [/merge with/i, /merged with/i, /fusionn/i],
+    voidPoll: [/void poll/i, /bureau supprim/i],
+    noPoll: [/no poll held/i, /sans scrutin/i],
   };
+
+  const isYes = (v) => /^(y|yes|1|true|o|oui|x)$/i.test(String(v == null ? '' : v).trim());
 
   function detectColumn(header, kind) {
     for (const re of PATTERNS[kind] || []) {
@@ -2958,6 +3135,9 @@ const Results = (() => {
         party, votes,
         electors: detectColumn(header, 'electors'),
         rejected: detectColumn(header, 'rejected'),
+        mergeWith: detectColumn(header, 'mergeWith'),
+        voidPoll: detectColumn(header, 'voidPoll'),
+        noPoll: detectColumn(header, 'noPoll'),
       };
     }
     return {
@@ -2967,6 +3147,9 @@ const Results = (() => {
       partyColumns: detectWideParties(header, rows),
       electors: detectColumn(header, 'electors'),
       rejected: detectColumn(header, 'rejected'),
+      mergeWith: detectColumn(header, 'mergeWith'),
+      voidPoll: detectColumn(header, 'voidPoll'),
+      noPoll: detectColumn(header, 'noPoll'),
     };
   }
 
@@ -2997,9 +3180,17 @@ const Results = (() => {
           total: 0, parties: new Map(), electors: 0, rejected: 0, rows: 0,
           district: mapping.district >= 0 ? String(get(row, mapping.district)).trim() : '',
           poll: String(get(row, mapping.poll)).trim(),
+          mergeWith: '', flags: { void: false, noPoll: false }, mergedGroup: null,
         }));
       }
       unit.rows++;
+      if (mapping.mergeWith >= 0) {
+        const m = String(get(row, mapping.mergeWith)).trim();
+        if (m && !/^(n|no|0|-)$/i.test(m)) unit.mergeWith = m;
+      }
+      if (mapping.voidPoll >= 0 && isYes(get(row, mapping.voidPoll))) unit.flags.void = true;
+      if (mapping.noPoll >= 0 && isYes(get(row, mapping.noPoll))) unit.flags.noPoll = true;
+      if (unit.flags.void || unit.flags.noPoll) continue;
       if (mapping.layout === 'long') {
         const party = String(get(row, mapping.party)).trim();
         const votes = toNumber(get(row, mapping.votes));
@@ -3023,6 +3214,54 @@ const Results = (() => {
       if (mapping.rejected >= 0) unit.rejected = Math.max(unit.rejected, toNumber(get(row, mapping.rejected)));
     }
     return { units: out, skipped, totalVotes };
+  }
+
+  /* Elections Canada reports a merged poll's ballots under the poll it was
+     merged into, so the receiving poll's votes cover two polls' electors and
+     its turnout comes out inflated while the absorbed poll shows none. Pool
+     each merge group and spread the pooled ballots back over the members in
+     proportion to their own electors: every member then carries the same
+     turnout, which is the only defensible figure for a poll counted as one.
+     A member whose elector count was itself rolled into the receiver (0 on its
+     own row) simply takes no votes, which handles both bookkeeping styles. */
+  function resolveMerges(units, keyOpts) {
+    const byKey = units;
+    const rootOf = (key, seen = new Set()) => {
+      const u = byKey.get(key);
+      if (!u || !u.mergeWith || seen.has(key)) return key;
+      seen.add(key);
+      for (const v of federalPollVariants(u.mergeWith)) {
+        const k = makeKey(u.district ? [u.district, v] : [v], keyOpts);
+        if (byKey.has(k) && k !== key) return rootOf(k, seen);
+      }
+      return null; // names a poll that is not in the table
+    };
+    const groups = new Map();
+    const unresolved = [];
+    for (const [key, u] of byKey) {
+      if (!u.mergeWith) continue;
+      const root = rootOf(key);
+      if (root === null) { unresolved.push({ key, mergeWith: u.mergeWith }); continue; }
+      if (!groups.has(root)) groups.set(root, new Set([root]));
+      groups.get(root).add(key);
+    }
+    for (const [root, members] of groups) {
+      const list = [...members].map((k) => byKey.get(k));
+      const electors = list.reduce((a, u) => a + u.electors, 0);
+      if (!(electors > 0)) continue;
+      const total = list.reduce((a, u) => a + u.total, 0);
+      const rejected = list.reduce((a, u) => a + u.rejected, 0);
+      const parties = new Map();
+      for (const u of list) for (const [p, v] of u.parties) parties.set(p, (parties.get(p) || 0) + v);
+      for (const u of list) {
+        const share = u.electors / electors;
+        u.total = total * share;
+        u.rejected = rejected * share;
+        u.parties = new Map([...parties].map(([p, v]) => [p, v * share]));
+        u.mergedGroup = root;
+      }
+    }
+    return { groups: groups.size, unresolved };
   }
 
   /* --- Joining results to a boundary layer ------------------------------- */
@@ -3055,6 +3294,8 @@ const Results = (() => {
     for (const ignoreLeadingZeros of [true, false]) {
       const keyOpts = { ignoreLeadingZeros, ignoreCase: true };
       const agg = aggregate(table, mapping, keyOpts);
+      agg.merges = mapping.mergeWith >= 0
+        ? resolveMerges(agg.units, keyOpts) : { groups: 0, unresolved: [] };
       const keys = featureKeys(features, keyDef, keyOpts);
       const values = new Map();
       const usedKeys = new Set();
@@ -3085,10 +3326,28 @@ const Results = (() => {
       if (best.values.has(i)) focusMatched++; else unmatchedFeatures.push(i);
     });
     const unmatchedRows = [];
+    /* Every unmatched row, by district, so the votes that have no polygon --
+       in practice advance polls and special ballots -- can be apportioned back
+       onto the district's mapped polls. Void and no-poll rows carry nothing. */
+    const unmatchedByDistrict = new Map();
+    let voidPolls = 0, noPollUnits = 0;
     for (const [k, unit] of best.agg.units) {
-      if (!best.usedKeys.has(k)) unmatchedRows.push({ key: k, unit });
+      if (unit.flags.void) voidPolls++;
+      if (unit.flags.noPoll) noPollUnits++;
+      if (best.usedKeys.has(k)) continue;
+      unmatchedRows.push({ key: k, unit });
+      if (unit.flags.void || unit.flags.noPoll) continue;
+      const d = normalizePart(unit.district, best.keyOpts);
+      let acc = unmatchedByDistrict.get(d);
+      if (!acc) unmatchedByDistrict.set(d, (acc = { total: 0, rejected: 0, parties: new Map(), units: 0 }));
+      acc.total += unit.total;
+      acc.rejected += unit.rejected;
+      acc.units++;
+      for (const [p, v] of unit.parties) acc.parties.set(p, (acc.parties.get(p) || 0) + v);
     }
     unmatchedRows.sort((a, b) => b.unit.total - a.unit.total);
+    let electorsMatched = 0;
+    for (const unit of new Set(best.values.values())) electorsMatched += unit.electors;
 
     const parties = new Map();
     for (const unit of best.values.values()) {
@@ -3112,6 +3371,13 @@ const Results = (() => {
         unmatchedRows: unmatchedRows.slice(0, 12),
         unmatchedRowCount: unmatchedRows.length,
         unmatchedVotes: best.agg.totalVotes - best.matchedVotes,
+        unmatchedByDistrict,
+        electorsMatched,
+        electorsColumn: mapping.electors >= 0,
+        mergedGroups: best.agg.merges.groups,
+        mergeUnresolved: best.agg.merges.unresolved,
+        voidPolls,
+        noPollUnits,
         ignoredLeadingZeros: best.keyOpts.ignoreLeadingZeros,
       },
     };
@@ -3151,8 +3417,221 @@ const Results = (() => {
 
   return {
     normalizePart, makeKey, federalPollVariants, detectColumn, detectLayout,
-    detectWideParties, aggregate, join, featureKeys, suggestKeyProperties, toNumber,
+    detectWideParties, aggregate, resolveMerges, join, featureKeys,
+    suggestKeyProperties, toNumber, isYes,
   };
+})();
+
+/* ---------------------------------------------------------------------------
+   Turnout: the rate itself, apportionment of the ballots that have no polygon,
+   comparison rows across any number of elections on a common geography, and
+   the ranking, cumulative curve and basket summaries the Turnout tab shows.
+
+   Turnout is never stored on a unit. It is always ballots / electors computed
+   on demand, so every derived unit -- redistributed, apportioned, pooled --
+   reports the figure its counts imply.
+--------------------------------------------------------------------------- */
+const Turnout = (() => {
+
+  const ballots = (u) => (u ? (u.total || 0) + (u.rejected || 0) : 0);
+  const rate = (u) => (u && u.electors > 0 ? ballots(u) / u.electors : null);
+
+  const cloneUnit = (u) => ({
+    ...u,
+    parties: new Map(u.parties),
+    flags: u.flags ? { ...u.flags } : undefined,
+    apportioned: u.apportioned || 0,
+  });
+
+  /* --- Apportionment ------------------------------------------------------
+
+     Advance polls and special ballots have no boundary, so the join leaves
+     them as unmatched rows. Spread each district's unmatched ballots over its
+     matched units, either in proportion to the ballots each already has
+     (which multiplies every turnout in the district by one constant) or to its
+     electors (which adds one constant). Both keep the within-district ranking;
+     both change cross-district comparisons; neither is a measurement, and the
+     Method tab says so. Electors are never touched: the advance-poll elector
+     counts overlap the ordinary polls' and must not be added. */
+  function apportionUnmatched(values, unmatchedByDistrict, { basis = 'votes', keyOpts } = {}) {
+    const clones = new Map();
+    const out = new Map();
+    for (const [idx, u] of values) {
+      if (!clones.has(u)) clones.set(u, cloneUnit(u));
+      out.set(idx, clones.get(u));
+    }
+    const byDistrict = new Map();
+    for (const c of clones.values()) {
+      const d = Results.normalizePart(c.district, keyOpts);
+      if (!byDistrict.has(d)) byDistrict.set(d, []);
+      byDistrict.get(d).push(c);
+    }
+    const weightOf = basis === 'electors' ? (u) => u.electors : (u) => ballots(u);
+    let apportioned = 0, districts = 0;
+    for (const [d, extra] of unmatchedByDistrict) {
+      const members = byDistrict.get(d);
+      const pool = extra.total + extra.rejected;
+      if (!members || !(pool > 0)) continue;
+      const sum = members.reduce((a, u) => a + weightOf(u), 0);
+      if (!(sum > 0)) continue;
+      for (const u of members) {
+        const s = weightOf(u) / sum;
+        u.total += extra.total * s;
+        u.rejected += extra.rejected * s;
+        u.apportioned += pool * s;
+        for (const [p, v] of extra.parties) u.parties.set(p, (u.parties.get(p) || 0) + v * s);
+      }
+      apportioned += pool;
+      districts++;
+    }
+    return { values: out, apportioned, districts };
+  }
+
+  /* --- Rows on a common geography ------------------------------------------
+
+     sources: [{ id: 'fed' | 'prov', values: Map<index, unit>, pairs }].
+     target:  'fed' | 'prov' | 'atom'. A source native to the target is used
+     as-is; any other is moved through its crosswalk pairs; a source with no
+     pairs is left out, so a federal-only ranking works before a provincial
+     layer exists. Each row carries `by[sourceId]` and a reference elector
+     count from the target's native source. */
+  function rowsOnUnit(target, sources, labels, { minElectors = 0 } = {}) {
+    const rows = new Map();
+    const ensure = (key, label) => {
+      let r = rows.get(key);
+      if (!r) rows.set(key, (r = { key, label, by: {} }));
+      return r;
+    };
+    if (target === 'atom') {
+      const withPairs = sources.find((s) => s.pairs);
+      if (!withPairs) return [];
+      for (const p of withPairs.pairs) {
+        const row = ensure(`${p.fi}|${p.pi}`, `${labels.fed(p.fi)} × ${labels.prov(p.pi)}`);
+        for (const s of sources) {
+          const u = s.values.get(s.id === 'fed' ? p.fi : p.pi);
+          if (u) row.by[s.id] = Analysis.scaledUnit(u, s.id === 'fed' ? p.shareOfFed : p.shareOfProv);
+        }
+      }
+    } else {
+      for (const s of sources) {
+        let onTarget;
+        if (s.id === target) onTarget = s.values;
+        else if (s.pairs) onTarget = Analysis.redistribute(s.pairs, s.values, { from: s.id });
+        else continue;
+        for (const [idx, u] of onTarget) ensure(String(idx), labels[target](idx)).by[s.id] = u;
+      }
+    }
+    const out = [];
+    for (const row of rows.values()) {
+      const ref = row.by[target] || row.by.fed || row.by.prov;
+      row.electors = ref ? ref.electors : 0;
+      if (row.electors < minElectors) continue;
+      out.push(row);
+    }
+    return out;
+  }
+
+  /* Combined turnout per row: a weighted mean over the sides that have a
+     rate, flagged partial when any configured side is missing. */
+  function score(rows, { weights = { fed: 0.5, prov: 0.5 } } = {}) {
+    const sides = Object.keys(weights);
+    for (const row of rows) {
+      const t = {}, present = [];
+      let num = 0, den = 0;
+      for (const s of sides) {
+        const r = rate(row.by[s]);
+        t[s] = r;
+        if (r != null && isFinite(r)) {
+          present.push(s);
+          num += (weights[s] || 0) * r;
+          den += weights[s] || 0;
+        }
+      }
+      row.t = t;
+      row.agg = den > 0 ? num / den : null;
+      row.partial = present.length < sides.length;
+      row.min = present.length ? Math.min(...present.map((s) => t[s])) : null;
+      row.delta = t.fed != null && t.prov != null ? t.fed - t.prov : null;
+      row.ballots = {};
+      for (const s of sides) row.ballots[s] = ballots(row.by[s]);
+      row.expected = row.agg != null ? row.agg * row.electors : null;
+    }
+    return rows;
+  }
+
+  const valueOf = (row, key) => (key.startsWith('t.') ? row.t[key.slice(2)] : row[key]);
+
+  /* Sorted copy with 1-based ranks; nulls sink to the bottom either way. */
+  function rank(rows, key = 'agg', dir = 'desc') {
+    const sorted = rows.slice().sort((a, b) => {
+      const x = valueOf(a, key), y = valueOf(b, key);
+      if (x == null && y == null) return 0;
+      if (x == null) return 1;
+      if (y == null) return -1;
+      return dir === 'desc' ? y - x : x - y;
+    });
+    sorted.forEach((r, i) => { r.rank = i + 1; });
+    return sorted;
+  }
+
+  /* "The top X% of areas hold Y% of electors" -- and of expected ballots. */
+  function cumulative(rows, key = 'agg') {
+    const sorted = rank(rows.filter((r) => valueOf(r, key) != null), key, 'desc');
+    const totalE = sorted.reduce((a, r) => a + r.electors, 0);
+    const totalX = sorted.reduce((a, r) => a + (r.expected || 0), 0);
+    let e = 0, x = 0;
+    return sorted.map((r, i) => {
+      e += r.electors;
+      x += r.expected || 0;
+      return {
+        key: r.key,
+        shareOfAreas: (i + 1) / sorted.length,
+        shareOfElectors: totalE > 0 ? e / totalE : 0,
+        shareOfExpected: totalX > 0 ? x / totalX : 0,
+      };
+    });
+  }
+
+  /* Pooled turnout of a chosen set of rows, per side and combined. */
+  function basketSummary(rows, keys, { weights = { fed: 0.5, prov: 0.5 } } = {}) {
+    const sel = rows.filter((r) => keys.has(r.key));
+    const per = {};
+    let num = 0, den = 0;
+    for (const s of Object.keys(weights)) {
+      let E = 0, B = 0;
+      for (const r of sel) {
+        const u = r.by[s];
+        if (u && u.electors > 0) { E += u.electors; B += ballots(u); }
+      }
+      per[s] = { electors: E, ballots: B, rate: E > 0 ? B / E : null };
+      if (per[s].rate != null) { num += weights[s] * per[s].rate; den += weights[s]; }
+    }
+    return {
+      count: sel.length,
+      electors: sel.reduce((a, r) => a + r.electors, 0),
+      expected: sel.reduce((a, r) => a + (r.expected || 0), 0),
+      per,
+      agg: den > 0 ? num / den : null,
+    };
+  }
+
+  function toCsv(rows, sides = ['fed', 'prov']) {
+    const f = (v, dp = 6) => (v == null || !isFinite(v) ? '' : Number(v).toFixed(dp));
+    const header = ['rank', 'unit_key', 'unit_label', 'electors',
+      ...sides.flatMap((s) => [`${s}_ballots`, `${s}_electors`, `${s}_apportioned`, `turnout_${s}`]),
+      'turnout_agg', 'turnout_min', 'turnout_delta', 'expected_ballots', 'partial'];
+    const out = [header];
+    for (const r of rows) {
+      out.push([r.rank ?? '', r.key, r.label, f(r.electors, 2),
+        ...sides.flatMap((s) => [f(r.ballots?.[s], 2), f(r.by[s]?.electors, 2),
+          f(r.by[s]?.apportioned, 2), f(r.t?.[s])]),
+        f(r.agg), f(r.min), f(r.delta), f(r.expected, 2), r.partial ? 'yes' : 'no']);
+    }
+    return out;
+  }
+
+  return { ballots, rate, cloneUnit, apportionUnmatched, rowsOnUnit, score, rank, cumulative,
+           basketSummary, toCsv };
 })();
 
 </script>
@@ -3262,7 +3741,24 @@ const state = {
   coverage: null,
   selection: { fed: null, prov: null },
   lastCorrelation: null,
+  turnout: { unit: 'fed', weight: 0.5, apportion: { fed: 'none', prov: 'none' },
+             minElectors: 50, rows: null, basket: new Set(), sortKey: 'agg', sortDir: 'desc' },
+  shadeDomain: {},
 };
+
+/* Results for one side, apportioned if the Turnout tab asked for it. Every
+   reader of results goes through these so the map, the readout and the tab
+   agree on which ballots are being counted. */
+function resultsFor(side) {
+  const store = side === 'fed' ? state.fedResults : state.provResults;
+  if (!store || !store.values) return null;
+  const mode = state.turnout.apportion[side];
+  if (mode === 'none') return store.values;
+  const ap = store.apportioned && store.apportioned[mode];
+  return ap ? ap.values : store.values;
+}
+const fedValues = () => resultsFor('fed');
+const provValues = () => resultsFor('prov');
 
 /* --- Party colours ---------------------------------------------------------
    Conventional Canadian party colours where the party is recognisable, and a
@@ -3367,51 +3863,112 @@ const zoom = d3.zoom().scaleExtent([1, 60]).on('zoom', (event) => {
 });
 svg.call(zoom).on('dblclick.zoom', null);
 
-function shadeValue(f) {
-  const mode = $('shade-by').value;
-  if (mode === 'none') return null;
-  if (mode === 'type') return null;
-  const fedParty = $('shade-party-fed').value;
-  const provParty = $('shade-party-prov').value;
-  const fedUnit = state.fedResults && state.fedResults.values.get(f.idx);
-  const fedShare = fedUnit && fedParty ? Analysis.shareOf(fedUnit, fedParty) : null;
-  if (mode === 'fed-party') return fedShare;
-  /* Provincial share needs the crosswalk to get onto a federal division. */
-  const provOnFed = state.provOnFed && state.provOnFed.get(f.idx);
-  const provShare = provOnFed && provParty ? Analysis.shareOf(provOnFed, provParty) : null;
-  if (mode === 'prov-party') return provShare;
-  if (mode === 'gap') {
-    return fedShare == null || provShare == null ? null : fedShare - provShare;
+/* The value a feature is shaded by, for one layer and one mode. Federal modes
+   read the 2025 results by feature index; the provincial-on-federal modes need
+   the crosswalk (state.provOnFed); the provincial layer's own modes read the
+   2024 results by f.__idx and need no crosswalk at all. */
+function shadeValue(layerKey, f, mode, fedParty, provParty) {
+  if (mode === 'none' || mode === 'type' || mode === 'flat') return null;
+  if (layerKey === 'prov') {
+    const u = provValues()?.get(f.__idx);
+    if (!u) return null;
+    if (mode === 'prov-party') return provParty ? Analysis.shareOf(u, provParty) : null;
+    if (mode === 'turnout-prov') return Turnout.rate(u);
+    return null;
   }
-  return null;
+  const fedUnit = fedValues()?.get(f.idx);
+  const provOnFed = state.provOnFed && state.provOnFed.get(f.idx);
+  const fedShare = fedUnit && fedParty ? Analysis.shareOf(fedUnit, fedParty) : null;
+  const provShare = provOnFed && provParty ? Analysis.shareOf(provOnFed, provParty) : null;
+  const tf = Turnout.rate(fedUnit), tp = Turnout.rate(provOnFed);
+  switch (mode) {
+    case 'fed-party': return fedShare;
+    case 'prov-party': return provShare;
+    case 'gap': return fedShare == null || provShare == null ? null : fedShare - provShare;
+    case 'turnout-fed': return tf;
+    case 'turnout-prov': return tp;
+    case 'turnout-agg': {
+      /* Same rule as Turnout.score: a weighted mean over the sides present. */
+      const w = state.turnout.weight;
+      let num = 0, den = 0;
+      if (tf != null) { num += w * tf; den += w; }
+      if (tp != null) { num += (1 - w) * tp; den += 1 - w; }
+      return den > 0 ? num / den : null;
+    }
+    case 'turnout-delta': return tf == null || tp == null ? null : tf - tp;
+    default: return null;
+  }
 }
 
 const TYPE_FILL = { N: 'var(--muted)', M: 'var(--viz-series-5)', S: 'var(--viz-series-6)' };
+const TURNOUT_MODES = new Set(['turnout-fed', 'turnout-prov', 'turnout-agg']);
 
-function applyFederalStyle(sel) {
-  const mode = $('shade-by').value;
+/* Turnout ramps are data-driven -- 5th to 95th percentile of what is on the
+   map -- because a fixed scale would either wash out or saturate depending on
+   the election. Party shares keep a fixed 60% saturation so a 40% share looks
+   the same in every riding. */
+function shadeDomain(layerKey, sel, mode, fedParty, provParty) {
+  const vals = [];
+  sel.each((f) => {
+    const v = shadeValue(layerKey, f, mode, fedParty, provParty);
+    if (v != null && isFinite(v)) vals.push(v);
+  });
+  if (!vals.length) return null;
+  vals.sort((a, b) => a - b);
+  const q = (p) => vals[Math.min(vals.length - 1, Math.floor(p * (vals.length - 1)))];
+  const lo = q(0.05), hi = q(0.95);
+  return { lo, hi: hi > lo ? hi : lo + 1e-9, n: vals.length };
+}
+
+function rampT(mode, v, domain) {
+  if (mode === 'gap') return Math.min(1, Math.abs(v) / 0.3);
+  if (mode === 'turnout-delta') return Math.min(1, Math.abs(v) / 0.15);
+  if (TURNOUT_MODES.has(mode) && domain) {
+    return Math.max(0, Math.min(1, (v - domain.lo) / (domain.hi - domain.lo)));
+  }
+  return Math.min(1, v / 0.6);
+}
+
+function fillColour(mode, v, fedParty, provParty) {
+  if (mode === 'gap') return v >= 0 ? partyColour(fedParty) : partyColour(provParty);
+  if (mode === 'turnout-delta') return v >= 0 ? 'var(--viz-series-1)' : 'var(--viz-series-2)';
+  if (TURNOUT_MODES.has(mode)) return 'var(--viz-series-1)';
+  if (mode === 'fed-party') return partyColour(fedParty);
+  if (mode === 'prov-party') return partyColour(provParty);
+  return 'var(--muted)';
+}
+
+/* Inline style, not a presentation attribute: the .poll / .va stylesheet rules
+   set default fills, and a stylesheet rule always beats an attribute in SVG.
+   A null value removes the inline style so the stylesheet applies again. */
+function styleLayer(layerKey, sel) {
   const fedParty = $('shade-party-fed').value;
   const provParty = $('shade-party-prov').value;
-  const diverging = mode === 'gap';
-  /* Inline style, not a presentation attribute: the .poll stylesheet rule sets
-     a default fill, and a stylesheet rule always beats an attribute in SVG. */
+  const mode = layerKey === 'fed' ? $('shade-by').value : $('shade-prov-by').value;
+  const domain = TURNOUT_MODES.has(mode) ? shadeDomain(layerKey, sel, mode, fedParty, provParty) : null;
+  state.shadeDomain[layerKey] = domain;
+  const base = layerKey === 'prov' ? parseFloat($('prov-opacity').value) : 1;
+  const isProv = layerKey === 'prov';
   sel.style('fill', (f) => {
+    if (isProv && mode === 'none') return null;
+    if (isProv && mode === 'flat') return 'var(--viz-series-2)';
     if (mode === 'type') return TYPE_FILL[f.pollType] || 'var(--muted)';
-    const v = shadeValue(f);
-    if (v == null) return 'var(--muted)';
-    if (diverging) return v >= 0 ? partyColour(fedParty) : partyColour(provParty);
-    return partyColour(mode === 'fed-party' ? fedParty : provParty);
+    const v = shadeValue(layerKey, f, mode, fedParty, provParty);
+    if (v == null) return isProv ? 'var(--viz-series-2)' : 'var(--muted)';
+    return fillColour(mode, v, fedParty, provParty);
   }).style('fill-opacity', (f) => {
+    if (isProv && mode === 'none') return null;
+    if (isProv && mode === 'flat') return base * 0.35;
     if (mode === 'none') return 0.28;
     if (mode === 'type') return f.pollType === 'N' ? 0.28 : 0.75;
-    const v = shadeValue(f);
-    if (v == null) return 0.06;
-    /* Shares above 60% and gaps above 30 points saturate. Capped below full
-       opacity so the polling-division outlines stay readable underneath. */
-    const t = diverging ? Math.min(1, Math.abs(v) / 0.3) : Math.min(1, v / 0.6);
-    return 0.10 + 0.68 * t;
+    const v = shadeValue(layerKey, f, mode, fedParty, provParty);
+    if (v == null) return isProv ? 0.04 : 0.06;
+    /* Capped below full opacity so the outlines stay readable underneath. */
+    return base * (0.10 + 0.68 * rampT(mode, v, domain));
   });
 }
+const applyFederalStyle = (sel) => styleLayer('fed', sel);
+const applyProvincialStyle = (sel) => styleLayer('prov', sel);
 
 function draw() {
   const box = root.querySelector('.map-wrap').getBoundingClientRect();
@@ -3449,11 +4006,12 @@ function draw() {
 
   const provSel = gProv.selectAll('path').data(state.prov.active, (f, i) => f.__key || i);
   provSel.exit().remove();
-  provSel.enter().append('path')
+  const provAll = provSel.enter().append('path')
     .attr('class', 'va')
     .on('click', (event, f) => { selectAt(null, null, f); })
     .merge(provSel)
     .attr('d', path);
+  applyProvincialStyle(provAll);
 
   updateLayerVisibility();
   renderLegend();
@@ -3463,27 +4021,45 @@ function draw() {
 function updateLayerVisibility() {
   gFed.attr('display', $('show-fed').checked ? null : 'none');
   gProv.attr('display', $('show-prov').checked ? null : 'none');
-  gProv.classed('filled', $('prov-fill').checked);
+  gProv.classed('filled', $('shade-prov-by').value !== 'none');
   root.style.setProperty('--va-weight', $('prov-weight').value);
 }
 
 function renderLegend() {
   const legend = $('map-legend');
   const mode = $('shade-by').value;
+  const provMode = $('shade-prov-by').value;
+  const fedParty = $('shade-party-fed').value, provParty = $('shade-party-prov').value;
   legend.textContent = '';
   const items = [];
+  const range = (d) => (d ? ` — ${fmtPct(d.lo, 0)} to ${fmtPct(d.hi, 0)}` : '');
   if (mode === 'type') {
     items.push(['var(--muted)', 'Ordinary poll'], ['var(--viz-series-5)', 'Mobile poll'],
                ['var(--viz-series-6)', 'Single building']);
-  } else if (mode === 'fed-party' && $('shade-party-fed').value) {
-    items.push([partyColour($('shade-party-fed').value), `${$('shade-party-fed').value} share — darker is higher`]);
-  } else if (mode === 'prov-party' && $('shade-party-prov').value) {
-    items.push([partyColour($('shade-party-prov').value), `${$('shade-party-prov').value} share — darker is higher`]);
+  } else if (mode === 'fed-party' && fedParty) {
+    items.push([partyColour(fedParty), `${fedParty} share, 2025 — darker is higher`]);
+  } else if (mode === 'prov-party' && provParty) {
+    items.push([partyColour(provParty), `${provParty} share, 2024, on federal polls — darker is higher`]);
   } else if (mode === 'gap') {
-    items.push([partyColour($('shade-party-fed').value), `${$('shade-party-fed').value} runs ahead federally`],
-               [partyColour($('shade-party-prov').value), `${$('shade-party-prov').value} runs ahead provincially`]);
+    items.push([partyColour(fedParty), `${fedParty} runs ahead federally`],
+               [partyColour(provParty), `${provParty} runs ahead provincially`]);
+  } else if (mode === 'turnout-fed') {
+    items.push(['var(--viz-series-1)', `2025 federal turnout${range(state.shadeDomain.fed)}`]);
+  } else if (mode === 'turnout-prov') {
+    items.push(['var(--viz-series-1)', `2024 provincial turnout on federal polls${range(state.shadeDomain.fed)}`]);
+  } else if (mode === 'turnout-agg') {
+    items.push(['var(--viz-series-1)', `Aggregate turnout${range(state.shadeDomain.fed)}`]);
+  } else if (mode === 'turnout-delta') {
+    items.push(['var(--viz-series-1)', 'Federal turnout higher'], ['var(--viz-series-2)', 'Provincial turnout higher']);
   }
-  if (state.prov.active.length) items.push(['outline', 'Provincial voting area']);
+  if (state.prov.active.length) {
+    if (provMode === 'prov-party' && provParty) {
+      items.push([partyColour(provParty), `${provParty} share, 2024, on voting areas`]);
+    } else if (provMode === 'turnout-prov') {
+      items.push(['var(--viz-series-1)', `2024 provincial turnout on voting areas${range(state.shadeDomain.prov)}`]);
+    }
+    items.push(['outline', 'Provincial (2024) voting area']);
+  }
   legend.hidden = items.length === 0;
   for (const [colour, text] of items) {
     const row = el('div', 'legend-item');
@@ -3552,17 +4128,18 @@ function renderReadout() {
   const grid = el('div', 'readout-grid');
 
   const fedCard = el('div', 'readout-card');
-  fedCard.append(el('h3', null, 'Federal'));
+  fedCard.append(el('h3', null, 'Federal (2025)'));
   if (fed) {
     fedCard.append(el('p', 'readout-name', fed.label));
     const bits = [`Riding ${fed.fedNum}`, `poll ${fed.poll}`,
       POLL_TYPE[fed.pollType] ? `${POLL_TYPE[fed.pollType]} poll` : null,
       fed.outsideCity ? 'UBC / UEL — outside the City of Vancouver' : null];
     fedCard.append(el('p', 'text-small text-muted', bits.filter(Boolean).join(' · ')));
-    const unit = state.fedResults && state.fedResults.values.get(fed.idx);
+    const unit = fedValues()?.get(fed.idx);
     if (unit) {
-      fedCard.append(el('p', 'text-small',
-        `${fmtInt(unit.total)} valid votes${unit.electors ? ` · ${fmtInt(unit.electors)} electors` : ''}`));
+      fedCard.append(el('p', 'text-small', `${fmtInt(unit.total)} valid votes`));
+      const tl = turnoutLine(unit);
+      if (tl) fedCard.append(el('p', 'text-small' + (Turnout.rate(unit) > 1 ? ' text-warning' : ''), tl));
       const list = resultsList(unit);
       if (list) fedCard.append(list);
     } else if (state.fedResults) {
@@ -3573,7 +4150,7 @@ function renderReadout() {
   }
 
   const provCard = el('div', 'readout-card');
-  provCard.append(el('h3', null, 'Provincial'));
+  provCard.append(el('h3', null, 'Provincial (2024)'));
   if (prov) {
     provCard.append(el('p', 'readout-name', provLabel(prov)));
     const k = state.prov.keyDef || {};
@@ -3582,9 +4159,11 @@ function renderReadout() {
       .slice(0, 4)
       .map(([key, v]) => `${key}: ${v}`);
     if (extras.length) provCard.append(el('p', 'text-small text-muted', extras.join(' · ')));
-    const unit = state.provResults && state.provResults.values.get(prov.__idx);
+    const unit = provValues()?.get(prov.__idx);
     if (unit) {
       provCard.append(el('p', 'text-small', `${fmtInt(unit.total)} valid votes`));
+      const tl = turnoutLine(unit);
+      if (tl) provCard.append(el('p', 'text-small' + (Turnout.rate(unit) > 1 ? ' text-warning' : ''), tl));
       const list = resultsList(unit);
       if (list) provCard.append(list);
     } else if (state.provResults) {
@@ -3598,6 +4177,15 @@ function renderReadout() {
 
   grid.append(fedCard, provCard);
   box.append(grid);
+
+  const bkey = basketKeyForSelection();
+  if (bkey && state.turnout.rows) {
+    const inBasket = state.turnout.basket.has(bkey);
+    const bk = el('button', 'btn btn-small', inBasket ? 'Remove from turnout basket' : 'Add to turnout basket');
+    bk.type = 'button';
+    bk.addEventListener('click', () => toggleBasket(bkey));
+    box.append(bk);
+  }
 
   if (fed && prov && state.pairs) {
     const fi = state.fed.all.indexOf(fed);
@@ -3614,6 +4202,17 @@ function renderReadout() {
   }
 }
 
+/* One line of ballots / electors / turnout for a readout card. */
+function turnoutLine(unit) {
+  const t = Turnout.rate(unit);
+  if (t == null) return unit.electors ? null : 'No elector count in this file — turnout unavailable.';
+  const bits = [`${fmtInt(Turnout.ballots(unit))} ballots`, `${fmtInt(unit.electors)} electors`,
+    `turnout ${fmtPct(t)}`];
+  if (unit.apportioned) bits.push(`incl. ${fmtInt(unit.apportioned)} apportioned`);
+  if (t > 1) bits.push('over 100% — merged or mis-keyed poll');
+  return bits.join(' · ');
+}
+
 svg.on('click', (event) => {
   if (event.defaultPrevented) return;
   if (!projection) return;
@@ -3622,6 +4221,11 @@ svg.on('click', (event) => {
   const [px, py] = t.invert([mx, my]);
   const lonlat = projection.invert([px, py]);
   if (lonlat) selectAt(lonlat);
+  /* Shift-click adds the unit under the cursor to the turnout basket. */
+  if (event.shiftKey) {
+    const key = basketKeyForSelection();
+    if (key) toggleBasket(key);
+  }
 });
 
 function zoomToFeature(feature) {
@@ -3789,7 +4393,7 @@ $('clear-fed-results').addEventListener('click', () => {
   $('map-fed-results').hidden = true;
   setStatus('status-fed-results', 'idle', []);
   refreshPartySelectors();
-  draw(); renderReadout(); refreshCorrelation();
+  draw(); renderReadout(); refreshCorrelation(); refreshTurnout();
 });
 $('clear-prov-results').addEventListener('click', () => {
   state.provResults = null; state.provOnFed = null;
@@ -3797,7 +4401,7 @@ $('clear-prov-results').addEventListener('click', () => {
   $('map-prov-results').hidden = true;
   setStatus('status-prov-results', 'idle', []);
   refreshPartySelectors();
-  draw(); renderReadout(); refreshCorrelation();
+  draw(); renderReadout(); refreshCorrelation(); refreshTurnout();
 });
 
 /* Column pickers, pre-set to whatever detection guessed, so a file with
@@ -3830,6 +4434,12 @@ function renderMappingUi(side) {
     head.append(picker('Votes column', 'votes', false));
   }
   host.append(head);
+  /* Turnout needs the denominator; merges and voids need recognising. */
+  const more = el('div', 'viz-controls');
+  more.append(picker('Electors / registered voters column', 'electors', true));
+  more.append(picker('Rejected ballots column', 'rejected', true));
+  more.append(picker('Merged-with column', 'mergeWith', true));
+  host.append(more);
 
   if (m.layout === 'wide') {
     const note = el('div', 'wide-parties');
@@ -3891,9 +4501,26 @@ function joinReportNode(report, subject) {
          pctFeatures > 0.95 ? 'good' : pctFeatures > 0.6 ? 'warn' : 'bad'),
     stat('votes located on the map', fmtPct(pctVotes),
          pctVotes > 0.9 ? 'good' : pctVotes > 0.5 ? 'warn' : 'bad'),
+    stat('electors located', report.electorsColumn ? fmtInt(report.electorsMatched) : '—',
+         report.electorsColumn && report.electorsMatched > 0 ? 'good' : 'warn'),
     stat('rows in file', fmtInt(report.tableUnits)),
   );
   frag.append(grid);
+  if (!report.electorsColumn) {
+    frag.append(el('p', 'text-warning',
+      'No electors column was found, so turnout cannot be computed from this file. '
+      + 'If it has one under another name, pick it below.'));
+  }
+  const notes = [];
+  if (report.mergedGroups) notes.push(`${fmtInt(report.mergedGroups)} merged poll group${report.mergedGroups > 1 ? 's' : ''} pooled and spread pro rata to electors`);
+  if (report.voidPolls) notes.push(`${fmtInt(report.voidPolls)} void poll${report.voidPolls > 1 ? 's' : ''}`);
+  if (report.noPollUnits) notes.push(`${fmtInt(report.noPollUnits)} with no poll held`);
+  if (notes.length) frag.append(el('p', 'text-small text-muted', notes.join(' · ') + '.'));
+  if (report.mergeUnresolved && report.mergeUnresolved.length) {
+    frag.append(el('p', 'text-warning',
+      `${fmtInt(report.mergeUnresolved.length)} rows name a merge target that is not in the file `
+      + `(e.g. poll ${report.mergeUnresolved[0].mergeWith}); they were left as reported.`));
+  }
 
   if (report.matchedOutsideFocus) {
     frag.append(el('p', 'text-small text-muted',
@@ -3937,11 +4564,23 @@ function rejoinFederalResults() {
   store.values = joined.values;
   store.parties = joined.parties;
   store.report = joined.report;
+  store.keyOpts = joined.keyOpts;
+  store.apportioned = buildApportioned(store);
   $('clear-fed-results').hidden = false;
   setStatus('status-fed-results', joined.report.matchedFeatures ? 'ok' : 'error',
     [joinReportNode(joined.report, 'Polling divisions')]);
   refreshPartySelectors();
-  draw(); renderReadout(); refreshCorrelation();
+  draw(); renderReadout(); refreshCorrelation(); refreshTurnout();
+}
+
+/* Both apportionment bases are computed once per join; the Turnout tab picks. */
+function buildApportioned(store) {
+  const out = {};
+  for (const basis of ['votes', 'electors']) {
+    out[basis] = Turnout.apportionUnmatched(store.values, store.report.unmatchedByDistrict,
+      { basis, keyOpts: store.keyOpts });
+  }
+  return out;
 }
 
 function rejoinProvincialResults() {
@@ -3954,12 +4593,14 @@ function rejoinProvincialResults() {
   store.values = joined.values;
   store.parties = joined.parties;
   store.report = joined.report;
+  store.keyOpts = joined.keyOpts;
+  store.apportioned = buildApportioned(store);
   $('clear-prov-results').hidden = false;
   setStatus('status-prov-results', joined.report.matchedFeatures ? 'ok' : 'error',
     [joinReportNode(joined.report, 'Voting areas')]);
   refreshPartySelectors();
   recomputeProvincialOnFederal();
-  draw(); renderReadout(); refreshCorrelation();
+  draw(); renderReadout(); refreshCorrelation(); refreshTurnout();
 }
 
 /* Party menus follow whatever parties actually appear in the loaded results. */
@@ -3979,8 +4620,8 @@ function refreshPartySelectors() {
       ({ value: name, label: `${name} (${fmtInt(votes)})` })));
     sel.value = parties.some(([n]) => n === previous) ? previous : parties[0][0];
   };
-  apply('shade-party-fed', fedParties, 'Load federal results');
-  apply('shade-party-prov', provParties, 'Load provincial results');
+  apply('shade-party-fed', fedParties, 'Load 2025 federal results');
+  apply('shade-party-prov', provParties, 'Load 2024 provincial results');
   if ($('corr-fed-party')) {
     apply('corr-fed-party', fedParties, 'Load federal results');
     apply('corr-prov-party', provParties, 'Load provincial results');
@@ -4069,6 +4710,7 @@ function buildCrosswalk() {
     recomputeProvincialOnFederal();
     $('corr-controls').hidden = false;
     refreshCorrelation();
+    refreshTurnout();
     draw();
   };
   setTimeout(step, 0);
@@ -4086,16 +4728,18 @@ $('min-overlap').addEventListener('change', () => {
   applyMinOverlap();
   recomputeProvincialOnFederal();
   refreshCorrelation();
+  refreshTurnout();
   draw();
 });
 
 /* Provincial votes pushed onto federal divisions, for map shading. */
 function recomputeProvincialOnFederal() {
   state.provOnFed = null;
-  if (!state.pairs || !state.provResults?.values) return;
+  const pv = provValues();
+  if (!state.pairs || !pv) return;
   const byIndex = new Map();
   state.crosswalkProv.forEach((f, i) => {
-    const unit = state.provResults.values.get(f.__idx);
+    const unit = pv.get(f.__idx);
     if (unit) byIndex.set(i, unit);
   });
   const onFed = Analysis.redistribute(state.pairs, byIndex, { from: 'prov' });
@@ -4251,11 +4895,16 @@ $('export-joined').addEventListener('click', () => {
   const fedParties = (state.fedResults?.parties || []).map(([p]) => p);
   const provParties = (state.provResults?.parties || []).map(([p]) => p);
   const header = ['unit_key', 'unit_label', 'federal_votes', 'provincial_votes',
+    'federal_electors', 'federal_rejected', 'turnout_fed',
+    'provincial_electors', 'provincial_rejected', 'turnout_prov',
     ...fedParties.map((p) => `fed_${p}`), ...fedParties.map((p) => `fed_share_${p}`),
     ...provParties.map((p) => `prov_${p}`), ...provParties.map((p) => `prov_share_${p}`)];
   const rows = [header];
+  const t6 = (v) => (v == null ? '' : v.toFixed(6));
   for (const row of c.rows) {
     rows.push([row.key, row.label, row.fed.total.toFixed(2), row.prov.total.toFixed(2),
+      (row.fed.electors || 0).toFixed(2), (row.fed.rejected || 0).toFixed(2), t6(Turnout.rate(row.fed)),
+      (row.prov.electors || 0).toFixed(2), (row.prov.rejected || 0).toFixed(2), t6(Turnout.rate(row.prov)),
       ...fedParties.map((p) => (row.fed.parties.get(p) || 0).toFixed(2)),
       ...fedParties.map((p) => { const s = Analysis.shareOf(row.fed, p); return s == null ? '' : s.toFixed(6); }),
       ...provParties.map((p) => (row.prov.parties.get(p) || 0).toFixed(2)),
@@ -4313,23 +4962,354 @@ $('zoom-reset').addEventListener('click', () => {
   svg.transition().duration(300).call(zoom.transform, d3.zoomIdentity);
 });
 
-for (const id of ['show-fed', 'show-prov', 'prov-fill', 'prov-weight']) {
+for (const id of ['show-fed', 'show-prov', 'prov-weight']) {
   $(id).addEventListener('input', updateLayerVisibility);
 }
 for (const id of ['area-filter', 'show-mobile']) {
   $(id).addEventListener('change', () => {
     state.crosswalk = null; state.pairs = null; state.provOnFed = null;
+    state.turnout.rows = null; state.turnout.basket.clear();
     $('corr-controls').hidden = true;
     refreshCrosswalkStatus();
-    draw(); populateFinders(); renderReadout();
+    draw(); populateFinders(); renderReadout(); refreshTurnout();
   });
 }
-for (const id of ['shade-by', 'shade-party-fed', 'shade-party-prov']) {
+for (const id of ['shade-by', 'shade-party-fed']) {
   $(id).addEventListener('change', () => {
     applyFederalStyle(gFed.selectAll('path'));
     renderLegend();
   });
 }
+/* The provincial party feeds both the cross-level modes on the federal layer
+   and the provincial layer's own shading. */
+for (const id of ['shade-prov-by', 'shade-party-prov']) {
+  $(id).addEventListener('change', () => {
+    applyFederalStyle(gFed.selectAll('path'));
+    applyProvincialStyle(gProv.selectAll('path'));
+    updateLayerVisibility();
+    renderLegend();
+  });
+}
+$('prov-opacity').addEventListener('input', () => applyProvincialStyle(gProv.selectAll('path')));
+
+/* --- Turnout tab -------------------------------------------------------------
+   Rows are rebuilt from the loaded results on every change. The maths lives in
+   f2-turnout.js; this file only wires controls, the table, the curve and the
+   basket, and keeps the map's turnout shading in step. */
+
+const UNIT_NAMES = { fed: 'federal (2025) polling divisions', prov: 'provincial (2024) voting areas',
+                     atom: 'overlap pieces' };
+
+/* Feature behind a row index, in whichever index space the sources used:
+   crosswalk-local once a crosswalk exists, otherwise the layer's own. */
+function turnoutFeature(side, i) {
+  if (state.pairs && state.crosswalkFed && state.crosswalkProv) {
+    return side === 'fed' ? state.crosswalkFed[i] : state.crosswalkProv[i];
+  }
+  return side === 'fed' ? state.fed.all[i] : state.prov.all[i];
+}
+
+function turnoutSources() {
+  const usePairs = Boolean(state.pairs && state.crosswalkFed && state.crosswalkProv);
+  const sources = [];
+  const fv = fedValues();
+  if (fv) {
+    const values = new Map();
+    if (usePairs) state.crosswalkFed.forEach((f, i) => { const u = fv.get(f.idx); if (u) values.set(i, u); });
+    else activeFederal().forEach((f) => { const u = fv.get(f.idx); if (u) values.set(f.idx, u); });
+    sources.push({ id: 'fed', values, pairs: usePairs ? state.pairs : null });
+  }
+  const pv = provValues();
+  if (pv) {
+    const values = new Map();
+    if (usePairs) state.crosswalkProv.forEach((f, i) => { const u = pv.get(f.__idx); if (u) values.set(i, u); });
+    else state.prov.active.forEach((f) => { const u = pv.get(f.__idx); if (u) values.set(f.__idx, u); });
+    sources.push({ id: 'prov', values, pairs: usePairs ? state.pairs : null });
+  }
+  return sources;
+}
+
+/* Basket membership is keyed by stable feature keys, not row indices, so it
+   survives a rebuild of the crosswalk. */
+function basketKeyFor(unit, row) {
+  if (unit === 'fed') return turnoutFeature('fed', +row.key)?.key ?? null;
+  if (unit === 'prov') return turnoutFeature('prov', +row.key)?.__key ?? null;
+  const [fi, pi] = row.key.split('|').map(Number);
+  const f = turnoutFeature('fed', fi), p = turnoutFeature('prov', pi);
+  return f && p ? `${f.key}|${p.__key}` : null;
+}
+function basketKeyForSelection() {
+  const unit = state.turnout.unit, { fed, prov } = state.selection;
+  if (unit === 'fed') return fed ? fed.key : null;
+  if (unit === 'prov') return prov ? prov.__key : null;
+  return fed && prov ? `${fed.key}|${prov.__key}` : null;
+}
+
+function refreshTurnout() {
+  const statsHost = $('turnout-stats');
+  if (!statsHost) return;
+  const t = state.turnout;
+  t.unit = $('turnout-unit').value;
+  t.weight = parseFloat($('turnout-weight').value);
+  t.apportion.fed = $('apportion-fed').value;
+  t.apportion.prov = $('apportion-prov').value;
+  t.minElectors = parseFloat($('turnout-min-electors').value);
+  $('turnout-weight-label').textContent =
+    `${Math.round(t.weight * 100)}% federal · ${Math.round((1 - t.weight) * 100)}% provincial`;
+
+  /* Apportionment changes which values every reader sees, so the provincial
+     votes pushed onto federal polls must follow. */
+  recomputeProvincialOnFederal();
+
+  const sources = turnoutSources();
+  statsHost.textContent = '';
+  const results = $('turnout-results'), basketCard = $('turnout-basket-card');
+  if (!sources.length) {
+    setStatus('turnout-status', 'idle',
+      ['Load federal or provincial results on the Data tab. Turnout needs an electors count in the file.']);
+    t.rows = null; results.hidden = true; basketCard.hidden = true;
+    restyleMapForTurnout();
+    return;
+  }
+  const labels = {
+    fed: (i) => turnoutFeature('fed', i)?.label ?? `poll ${i}`,
+    prov: (i) => provLabel(turnoutFeature('prov', i)),
+  };
+  let rows = Turnout.rowsOnUnit(t.unit, sources, labels, { minElectors: t.minElectors });
+  rows = Turnout.score(rows, { weights: { fed: t.weight, prov: 1 - t.weight } });
+  rows.forEach((r) => { r.basketKey = basketKeyFor(t.unit, r); });
+  const ranked = sortTurnoutRows(rows);
+  t.rows = ranked;
+
+  const withAgg = ranked.filter((r) => r.agg != null);
+  const both = ranked.filter((r) => !r.partial);
+  const electors = withAgg.reduce((a, r) => a + r.electors, 0);
+  const expected = withAgg.reduce((a, r) => a + (r.expected || 0), 0);
+  const curve = Turnout.cumulative(withAgg);
+  const at = (share) => curve.find((p) => p.shareOfAreas >= share) || curve[curve.length - 1];
+  const top20 = curve.length ? at(0.2) : null;
+
+  const stat = (label, value, note) => {
+    const box = el('div', 'viz-stat');
+    box.append(el('div', 'viz-stat-value', value), el('div', 'text-small text-muted', label));
+    if (note) box.append(el('div', 'text-small text-muted', note));
+    return box;
+  };
+  statsHost.append(
+    stat('areas ranked', fmtInt(withAgg.length), `${fmtInt(both.length)} with both elections`),
+    stat('electors in ranked areas', fmtInt(electors)),
+    stat('pooled aggregate turnout', fmtPct(electors > 0 ? expected / electors : null)),
+    stat('top 20% of areas hold', top20 ? fmtPct(top20.shareOfElectors) : '--', 'of electors'),
+  );
+
+  const lines = [];
+  lines.push(`${fmtInt(withAgg.length)} ${UNIT_NAMES[t.unit]} ranked`
+    + (state.pairs ? '.' : ' — without a crosswalk only the election native to this geography is included; build it on the Correlation tab to combine both.'));
+  const ap = [];
+  for (const side of ['fed', 'prov']) {
+    const mode = t.apportion[side];
+    const store = side === 'fed' ? state.fedResults : state.provResults;
+    if (mode === 'none' || !store?.apportioned) continue;
+    ap.push(`${side === 'fed' ? 'federal' : 'provincial'} advance and special ballots apportioned by ${mode} `
+      + `(${fmtInt(store.apportioned[mode].apportioned)} ballots across ${fmtInt(store.apportioned[mode].districts)} districts)`);
+  }
+  if (ap.length) lines.push(el('p', 'text-warning', ap.join('; ') + '. These are estimates, not measurements — see Method.'));
+  setStatus('turnout-status', 'ok', lines);
+
+  results.hidden = withAgg.length === 0;
+  basketCard.hidden = withAgg.length === 0;
+  renderTurnoutTable(ranked);
+  drawTurnoutCurve(curve, top20);
+  renderBasket();
+  restyleMapForTurnout();
+}
+
+function sortTurnoutRows(rows) {
+  const { sortKey, sortDir } = state.turnout;
+  if (sortKey === 'label') {
+    const sorted = rows.slice().sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+    if (sortDir === 'desc') sorted.reverse();
+    Turnout.rank(rows, 'agg');           // ranks always follow the aggregate
+    return sorted;
+  }
+  const byAgg = Turnout.rank(rows, 'agg');
+  if (sortKey === 'agg' && sortDir === 'desc') return byAgg;
+  return Turnout.rank(rows, sortKey, sortDir).map((r) => r); // rank numbers were set by agg above
+}
+
+const TURNOUT_COLUMNS = [
+  { key: 'rank', label: '#', get: (r) => r.rank, fmt: (v) => String(v) },
+  { key: 'label', label: 'Area', get: (r) => r.label, fmt: (v) => v, left: true },
+  { key: 't.fed', label: 'Federal 2025', get: (r) => r.t.fed, fmt: fmtPct },
+  { key: 't.prov', label: 'Provincial 2024', get: (r) => r.t.prov, fmt: fmtPct },
+  { key: 'agg', label: 'Aggregate', get: (r) => r.agg, fmt: fmtPct },
+  { key: 'min', label: 'Minimum', get: (r) => r.min, fmt: fmtPct },
+  { key: 'delta', label: 'Fed − prov', get: (r) => r.delta,
+    fmt: (v) => (v == null ? '--' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)} pt`) },
+  { key: 'electors', label: 'Electors', get: (r) => r.electors, fmt: fmtInt },
+  { key: 'expected', label: 'Expected ballots', get: (r) => r.expected, fmt: (v) => (v == null ? '--' : fmtInt(v)) },
+];
+
+function renderTurnoutTable(rows) {
+  const table = $('turnout-table');
+  table.textContent = '';
+  const thead = el('thead'), hr = el('tr');
+  hr.append(el('th', 'text-start', ''));
+  for (const c of TURNOUT_COLUMNS) {
+    const th = el('th', c.left ? 'text-start' : null, c.label);
+    if (c.key === state.turnout.sortKey) th.classList.add('sorted', state.turnout.sortDir);
+    th.dataset.key = c.key;
+    th.addEventListener('click', () => {
+      const t = state.turnout;
+      if (t.sortKey === c.key) t.sortDir = t.sortDir === 'desc' ? 'asc' : 'desc';
+      else { t.sortKey = c.key; t.sortDir = c.key === 'label' ? 'asc' : 'desc'; }
+      refreshTurnout();
+    });
+    hr.append(th);
+  }
+  thead.append(hr);
+  const tbody = el('tbody');
+  const frag = document.createDocumentFragment();
+  for (const r of rows) {
+    if (r.agg == null) continue;
+    const tr = el('tr');
+    tr.dataset.key = r.basketKey || '';
+    if (r.partial) tr.classList.add('partial');
+    if (r.basketKey && state.turnout.basket.has(r.basketKey)) tr.classList.add('in-basket');
+    const td0 = el('td', 'text-start');
+    const cb = el('input'); cb.type = 'checkbox'; cb.checked = tr.classList.contains('in-basket');
+    cb.disabled = !r.basketKey;
+    cb.setAttribute('aria-label', `Add ${r.label} to basket`);
+    cb.addEventListener('change', () => toggleBasket(r.basketKey));
+    td0.append(cb); tr.append(td0);
+    for (const c of TURNOUT_COLUMNS) {
+      const v = c.get(r);
+      tr.append(el('td', c.left ? 'text-start' : null, v == null ? '--' : c.fmt(v)));
+    }
+    frag.append(tr);
+  }
+  tbody.append(frag);
+  table.append(thead, tbody);
+  $('turnout-note').textContent = rows.some((r) => r.partial)
+    ? 'Italic rows have only one election; their aggregate is that election alone.' : '';
+}
+
+function drawTurnoutCurve(curve, top20) {
+  const node = $('turnout-curve');
+  const sel = d3.select(node);
+  sel.selectAll('*').remove();
+  const caption = $('turnout-curve-caption');
+  if (!curve.length) { caption.textContent = ''; return; }
+  const w = Math.max(320, node.getBoundingClientRect().width || 640);
+  const h = Math.max(200, Math.min(300, w * 0.42));
+  sel.attr('viewBox', `0 0 ${w} ${h}`).attr('height', h);
+  const m = { top: 12, right: 16, bottom: 40, left: 52 };
+  const x = d3.scaleLinear().domain([0, 1]).range([m.left, w - m.right]);
+  const y = d3.scaleLinear().domain([0, 1]).range([h - m.bottom, m.top]);
+  const pct = d3.format('.0%');
+  sel.append('g').attr('class', 'axis').attr('transform', `translate(0,${h - m.bottom})`)
+    .call(d3.axisBottom(x).ticks(5).tickFormat(pct));
+  sel.append('g').attr('class', 'axis').attr('transform', `translate(${m.left},0)`)
+    .call(d3.axisLeft(y).ticks(5).tickFormat(pct));
+  sel.append('text').attr('class', 'axis-label').attr('x', (m.left + w - m.right) / 2).attr('y', h - 6)
+    .attr('text-anchor', 'middle').text('share of areas, best turnout first');
+  sel.append('text').attr('class', 'axis-label').attr('transform', 'rotate(-90)')
+    .attr('x', -(m.top + h - m.bottom) / 2).attr('y', 14).attr('text-anchor', 'middle').text('share held');
+  sel.append('path').attr('class', 'diag').attr('d', `M${x(0)},${y(0)}L${x(1)},${y(1)}`);
+  const line = (k) => d3.line().x((p) => x(p.shareOfAreas)).y((p) => y(p[k]));
+  const pts = [{ shareOfAreas: 0, shareOfElectors: 0, shareOfExpected: 0 }, ...curve];
+  sel.append('path').attr('class', 'line-expected').attr('d', line('shareOfExpected')(pts));
+  sel.append('path').attr('class', 'line').attr('d', line('shareOfElectors')(pts));
+  caption.textContent = top20
+    ? `Solid: electors. Dashed: expected ballots. The top 20% of areas by aggregate turnout hold `
+      + `${fmtPct(top20.shareOfElectors)} of electors and ${fmtPct(top20.shareOfExpected)} of expected ballots.`
+    : '';
+}
+
+/* --- Basket ----------------------------------------------------------------- */
+
+function toggleBasket(key) {
+  if (!key) return;
+  const b = state.turnout.basket;
+  if (b.has(key)) b.delete(key); else b.add(key);
+  const row = $('turnout-table').querySelector(`tr[data-key="${CSS.escape(key)}"]`);
+  if (row) {
+    row.classList.toggle('in-basket', b.has(key));
+    const cb = row.querySelector('input[type=checkbox]');
+    if (cb) cb.checked = b.has(key);
+  }
+  renderBasket();
+  markBasketOnMap();
+  renderReadout();
+}
+
+function renderBasket() {
+  const host = $('turnout-basket');
+  if (!host) return;
+  host.textContent = '';
+  const rows = state.turnout.rows || [];
+  const keys = state.turnout.basket;
+  const summary = Turnout.basketSummary(rows.map((r) => ({ ...r, key: r.basketKey })), keys,
+    { weights: { fed: state.turnout.weight, prov: 1 - state.turnout.weight } });
+  const stat = (label, value) => {
+    const box = el('div', 'viz-stat');
+    box.append(el('div', 'viz-stat-value', value), el('div', 'text-small text-muted', label));
+    return box;
+  };
+  host.append(
+    stat('areas in basket', fmtInt(summary.count)),
+    stat('electors', fmtInt(summary.electors)),
+    stat('expected ballots', fmtInt(summary.expected)),
+    stat('federal 2025 turnout', fmtPct(summary.per.fed?.rate)),
+    stat('provincial 2024 turnout', fmtPct(summary.per.prov?.rate)),
+    stat('aggregate turnout', fmtPct(summary.agg)),
+  );
+}
+
+function markBasketOnMap() {
+  const b = state.turnout.basket, unit = state.turnout.unit;
+  const fedKeys = new Set(), provKeys = new Set();
+  for (const k of b) {
+    if (unit === 'fed') fedKeys.add(k);
+    else if (unit === 'prov') provKeys.add(k);
+    else { const [f, p] = k.split('|'); fedKeys.add(f); provKeys.add(p); }
+  }
+  gFed.selectAll('path').classed('basket', (f) => fedKeys.has(f.key));
+  gProv.selectAll('path').classed('basket', (f) => provKeys.has(f.__key));
+}
+
+function restyleMapForTurnout() {
+  applyFederalStyle(gFed.selectAll('path'));
+  applyProvincialStyle(gProv.selectAll('path'));
+  renderLegend();
+  markBasketOnMap();
+}
+
+for (const id of ['turnout-unit', 'turnout-weight', 'turnout-min-electors', 'apportion-fed', 'apportion-prov']) {
+  $(id).addEventListener('change', refreshTurnout);
+}
+$('turnout-weight').addEventListener('input', () => {
+  const w = parseFloat($('turnout-weight').value);
+  $('turnout-weight-label').textContent = `${Math.round(w * 100)}% federal · ${Math.round((1 - w) * 100)}% provincial`;
+});
+$('export-turnout').addEventListener('click', () => {
+  const rows = (state.turnout.rows || []).filter((r) => r.agg != null);
+  if (!rows.length) { $('turnout-note').textContent = 'Nothing to export yet.'; return; }
+  downloadCsv(`vancouver-turnout-${state.turnout.unit}.csv`, Turnout.toCsv(rows));
+  $('turnout-note').textContent = `Saved vancouver-turnout-${state.turnout.unit}.csv (${fmtInt(rows.length)} rows).`;
+});
+$('basket-add-top').addEventListener('click', () => {
+  const n = Math.max(1, parseInt($('basket-top-n').value, 10) || 50);
+  const rows = Turnout.rank((state.turnout.rows || []).filter((r) => r.agg != null), 'agg');
+  for (const r of rows.slice(0, n)) if (r.basketKey) state.turnout.basket.add(r.basketKey);
+  renderTurnoutTable(state.turnout.rows || []);
+  renderBasket(); markBasketOnMap(); renderReadout();
+});
+$('basket-clear').addEventListener('click', () => {
+  state.turnout.basket.clear();
+  renderTurnoutTable(state.turnout.rows || []);
+  renderBasket(); markBasketOnMap(); renderReadout();
+});
 
 /* --- Start ---------------------------------------------------------------
    Boot sequence and the close of the application IIFE opened in
@@ -4344,6 +5324,7 @@ draw();
 populateFinders();
 refreshCrosswalkStatus();
 refreshPartySelectors();
+refreshTurnout();
 
 let resizeTimer = null;
 new ResizeObserver(() => {

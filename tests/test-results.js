@@ -103,6 +103,20 @@ eq('wide join matched both areas', jw.report.matchedFeatures, 2);
 eq('votes summed across party columns', jw.values.get(0).total, 1100);
 eq('party votes read correctly', jw.values.get(1).parties.get('BC NDP'), 600);
 
+console.log('\n== Full 18-column Elections Canada header ==');
+const EC18 = ['Electoral District Number/Numéro de circonscription', 'Electoral District Name_English/Nom de circonscription_Anglais',
+  'Electoral District Name_French/Nom de circonscription_Français', 'Polling Station Number/Numéro du bureau de scrutin',
+  'Polling Station Name/Nom du bureau de scrutin', 'Void Poll Indicator/Indicateur de bureau supprimé',
+  'No Poll Held Indicator/Indicateur de bureau sans scrutin', 'Merge With/Fusionné avec',
+  'Rejected Ballots for Polling Station/Bulletins rejetés du bureau', 'Electors for Polling Station/Électeurs du bureau',
+  "Candidate's Family Name/Nom de famille du candidat", "Candidate's Middle Name/Second prénom du candidat",
+  "Candidate's First Name/Prénom du candidat", 'Political Affiliation Name_English/Appartenance politique_Anglais',
+  'Political Affiliation Name_French/Appartenance politique_Français', 'Candidate Poll Votes Count/Votes du candidat pour le bureau',
+  'Incumbent Indicator/Indicateur_Candidat sortant', 'Elected Candidate Indicator/Indicateur_Candidat élu'];
+const m18 = R.detectLayout(EC18, [EC18.map(() => '1')]);
+eq('18-column layout', [m18.layout, m18.district, m18.poll, m18.party, m18.votes, m18.electors, m18.rejected, m18.mergeWith, m18.voidPoll, m18.noPoll],
+   ['long', 0, 3, 13, 15, 9, 8, 7, 5, 6]);
+
 console.log('\n== Key property suggestion ==');
 const s = R.suggestKeyProperties(provFeatures);
 eq('district property suggested', s.district, 'ED_NAME');

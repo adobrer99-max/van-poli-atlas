@@ -108,3 +108,30 @@
   #atlas { padding: .75rem; }
   .map-legend { position: static; max-width: none; margin-top: .5rem; }
 }
+
+/* --- Turnout tab ----------------------------------------------------------- */
+.turnout-wrap { max-height: 520px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+.turnout-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-small);
+  font-variant-numeric: tabular-nums; }
+.turnout-table th { position: sticky; top: 0; background: var(--card); text-align: right;
+  cursor: pointer; user-select: none; white-space: nowrap; padding: .4rem .5rem;
+  border-bottom: 1px solid var(--border); font-weight: var(--font-weight-medium); }
+.turnout-table th.text-start, .turnout-table td.text-start { text-align: left; }
+.turnout-table th.sorted::after { content: ' \25BE'; color: var(--muted-foreground); }
+.turnout-table th.sorted.asc::after { content: ' \25B4'; }
+.turnout-table td { text-align: right; padding: .3rem .5rem; border-bottom: 1px solid var(--border);
+  white-space: nowrap; }
+.turnout-table td.text-start { max-width: 28ch; overflow: hidden; text-overflow: ellipsis; }
+.turnout-table tr.in-basket td { background: color-mix(in srgb, var(--viz-series-1) 12%, transparent); }
+.turnout-table tr.partial td { color: var(--muted-foreground); font-style: italic; }
+.turnout-table input[type="checkbox"] { margin: 0; }
+.poll.basket { stroke: var(--viz-series-1); stroke-width: 2.2; stroke-opacity: 1; stroke-dasharray: 4 2; }
+.va.basket { stroke: var(--viz-series-1); stroke-dasharray: 4 2; }
+.curve { display: block; width: 100%; margin: .4rem 0; }
+.curve .axis text { fill: var(--muted-foreground); font-size: var(--font-size-small); }
+.curve .axis path, .curve .axis line { stroke: var(--border); }
+.curve .axis-label { fill: var(--muted-foreground); font-size: var(--font-size-small); }
+.curve .line { fill: none; stroke: var(--viz-series-1); stroke-width: 2; }
+.curve .line-expected { fill: none; stroke: var(--viz-series-2); stroke-width: 1.5; stroke-dasharray: 5 3; }
+.curve .diag { fill: none; stroke: var(--border); stroke-dasharray: 3 3; }
+.btn-small { padding: .2rem .6rem; font-size: var(--font-size-small); margin-top: .5rem; }

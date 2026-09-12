@@ -181,8 +181,24 @@ const Analysis = (() => {
 
   /* --- Vote redistribution ----------------------------------------------- */
 
-  /* values: index -> { total, parties: Map }. Splits each source unit's votes
-     across the target units in proportion to shared area. */
+  /* Everything that moves through the crosswalk is a count -- votes, electors,
+     rejected ballots -- so all of it scales by the same share. Keeping electors
+     alongside votes is what makes turnout on a target unit come out as the
+     electors-weighted mean of its sources, with no separate bookkeeping. */
+  const COUNT_FIELDS = ['total', 'electors', 'rejected', 'apportioned'];
+  const emptyUnit = () => ({ total: 0, parties: new Map(), electors: 0, rejected: 0, apportioned: 0 });
+  function addScaled(acc, src, w) {
+    for (const f of COUNT_FIELDS) acc[f] += (src[f] || 0) * w;
+    for (const [party, votes] of src.parties) {
+      acc.parties.set(party, (acc.parties.get(party) || 0) + votes * w);
+    }
+    return acc;
+  }
+  const scaledUnit = (src, w) => addScaled(emptyUnit(), src, w);
+
+  /* values: index -> unit. Splits each source unit's counts across the target
+     units in proportion to shared area (or shared population, once the sample
+     carries weights). */
   function redistribute(pairs, values, { from }) {
     const shareKey = from === 'fed' ? 'shareOfFed' : 'shareOfProv';
     const sourceKey = from === 'fed' ? 'fi' : 'pi';
@@ -194,11 +210,8 @@ const Analysis = (() => {
       const w = pair[shareKey];
       if (!(w > 0)) continue;
       let acc = out.get(pair[targetKey]);
-      if (!acc) out.set(pair[targetKey], (acc = { total: 0, parties: new Map() }));
-      acc.total += src.total * w;
-      for (const [party, votes] of src.parties) {
-        acc.parties.set(party, (acc.parties.get(party) || 0) + votes * w);
-      }
+      if (!acc) out.set(pair[targetKey], (acc = emptyUnit()));
+      addScaled(acc, src, w);
     }
     return out;
   }
@@ -280,10 +293,8 @@ const Analysis = (() => {
       for (const pair of pairs) {
         const fedSrc = fedValues.get(pair.fi), provSrc = provValues.get(pair.pi);
         if (!fedSrc || !provSrc) continue;
-        const fedPart = { total: fedSrc.total * pair.shareOfFed, parties: new Map() };
-        for (const [p, v] of fedSrc.parties) fedPart.parties.set(p, v * pair.shareOfFed);
-        const provPart = { total: provSrc.total * pair.shareOfProv, parties: new Map() };
-        for (const [p, v] of provSrc.parties) provPart.parties.set(p, v * pair.shareOfProv);
+        const fedPart = scaledUnit(fedSrc, pair.shareOfFed);
+        const provPart = scaledUnit(provSrc, pair.shareOfProv);
         if (fedPart.total < minVotes || provPart.total < minVotes) continue;
         rows.push({
           key: `${pair.fi}|${pair.pi}`,
@@ -314,14 +325,8 @@ const Analysis = (() => {
     return rows;
   }
 
-  /* Turn comparison rows into plot points plus the statistics for one pairing. */
-  function correlate(rows, fedParty, provParty) {
-    const pts = [];
-    for (const row of rows) {
-      const x = shareOf(row.fed, fedParty), y = shareOf(row.prov, provParty);
-      if (x == null || y == null) continue;
-      pts.push({ x, y, weight: row.weight, label: row.label, key: row.key });
-    }
+  /* Statistics for any set of (x, y, weight) points. */
+  function correlateXY(pts) {
     const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y), ws = pts.map((p) => p.weight);
     const r = pearson(xs, ys);
     return {
@@ -337,9 +342,21 @@ const Analysis = (() => {
     };
   }
 
+  /* Turn comparison rows into plot points plus the statistics for one pairing. */
+  function correlate(rows, fedParty, provParty) {
+    const pts = [];
+    for (const row of rows) {
+      const x = shareOf(row.fed, fedParty), y = shareOf(row.prov, provParty);
+      if (x == null || y == null) continue;
+      pts.push({ x, y, weight: row.weight, label: row.label, key: row.key });
+    }
+    return correlateXY(pts);
+  }
+
   return {
     crosswalkRunner, crosswalkPairs, coverage, redistribute, repairSmallFeatures,
+    emptyUnit, addScaled, scaledUnit,
     pearson, spearman, rankOf, linearFit, pearsonCI,
-    comparisonRows, correlate, shareOf,
+    comparisonRows, correlate, correlateXY, shareOf,
   };
 })();

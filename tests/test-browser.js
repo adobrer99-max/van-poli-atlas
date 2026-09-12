@@ -151,6 +151,119 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
     ok(`unit=${unit}: ${n} points, r=${r}`, n > 50 && isFinite(r));
   }
 
+  console.log('\n== Turnout tab ==');
+  const expected = JSON.parse(require('fs').readFileSync('fixtures/e2e_expected.json', 'utf8'));
+  const setRange = (id, v) => page.evaluate(([id, v]) => {
+    const el = document.getElementById(id); el.value = v;
+    el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true }));
+  }, [id, v]);
+  const rowCells = (label) => page.evaluate((label) => {
+    const tr = [...document.querySelectorAll('#turnout-table tbody tr')].find((r) => r.children[2].textContent === label);
+    return tr ? [...tr.children].map((td) => td.textContent) : null;
+  }, label);
+  await page.locator('#tab-turnout').click();
+  await page.waitForTimeout(500);
+  // 100% federal weight makes the aggregate equal federal turnout, so the
+  // ranking is checkable against the fixture's hand computation.
+  await setRange('turnout-weight', '1');
+  await page.waitForTimeout(700);
+  ok('weight label follows the slider', (await page.locator('#turnout-weight-label').innerText()) === '100% federal · 0% provincial');
+  const tstatus = await page.locator('#turnout-status').innerText();
+  ok('status reports the ranking', /ranked/.test(tstatus), tstatus.slice(0, 120));
+  const nRows = await page.locator('#turnout-table tbody tr').count();
+  ok(`one row per ordinary poll with electors (${nRows}, expected ${expected.ordinary_polls}; void polls dropped)`, nRows === expected.ordinary_polls);
+  for (const n of expected.named) {
+    const c = await rowCells(n.label);
+    ok(`${n.label}: federal turnout ${c ? c[3] : 'missing'} vs ${(n.turnout_fed * 100).toFixed(1)}%`,
+       c && Math.abs(parseFloat(c[3]) - n.turnout_fed * 100) < 0.1);
+    ok(`${n.label}: aggregate equals federal at weight 1 and electors ${c ? c[8] : ''}`,
+       c && c[5] === c[3] && parseInt(c[8].replace(/,/g, ''), 10) === n.electors);
+  }
+  for (const m of expected.merged) {
+    const a = await rowCells(m.receiver), b = await rowCells(m.merged);
+    ok(`merged pair ${m.receiver} / ${m.merged} share pooled turnout ${(m.turnout_fed * 100).toFixed(1)}%`,
+       a && b && Math.abs(parseFloat(a[3]) - m.turnout_fed * 100) < 0.1 && Math.abs(parseFloat(b[3]) - m.turnout_fed * 100) < 0.1,
+       `got ${a && a[3]} / ${b && b[3]}`);
+  }
+  const top3 = await page.evaluate(() => [...document.querySelectorAll('#turnout-table tbody tr')].slice(0, 3).map((r) => r.children[2].textContent));
+  ok(`top three by turnout: ${top3.join(' | ')}`, JSON.stringify(top3) === JSON.stringify(expected.top3_by_federal_turnout),
+     `expected ${expected.top3_by_federal_turnout.join(' | ')}`);
+  ok('curve drawn with electors and expected-ballot lines', (await page.locator('#turnout-curve path.line').count()) === 1 && (await page.locator('#turnout-curve path.line-expected').count()) === 1);
+  ok('curve caption quotes the top-20% share', /top 20% of areas/.test(await page.locator('#turnout-curve-caption').innerText()));
+
+  // Sorting: the Federal column header, clicked twice, sorts ascending.
+  await page.locator('#turnout-table thead th', { hasText: 'Federal 2025' }).click();
+  await page.waitForTimeout(500);
+  await page.locator('#turnout-table thead th', { hasText: 'Federal 2025' }).click();
+  await page.waitForTimeout(500);
+  const firstTwo = await page.evaluate(() => [...document.querySelectorAll('#turnout-table tbody tr')].slice(0, 2).map((r) => parseFloat(r.children[3].textContent)));
+  ok(`header click sorts ascending (${firstTwo[0]}% ≤ ${firstTwo[1]}%)`, firstTwo[0] <= firstTwo[1]);
+  await page.locator('#turnout-table thead th', { hasText: 'Aggregate' }).click();
+  await page.waitForTimeout(500);
+
+  // Basket: two ticked rows pool to the sum of their electors.
+  const boxes = page.locator('#turnout-table tbody tr input[type=checkbox]');
+  await boxes.nth(0).check(); await boxes.nth(1).check();
+  await page.waitForTimeout(300);
+  const pooledElectors = await page.evaluate(() => [...document.querySelectorAll('#turnout-table tbody tr')].slice(0, 2)
+    .reduce((a, r) => a + parseInt(r.children[8].textContent.replace(/,/g, ''), 10), 0));
+  const basketText = (await page.locator('#turnout-basket').innerText()).replace(/\s+/g, ' ');
+  ok(`basket holds 2 areas and ${pooledElectors.toLocaleString()} electors`, /^2\s/.test(basketText) && basketText.includes(pooledElectors.toLocaleString()), basketText.slice(0, 120));
+  ok('basket rows highlighted on the map', (await page.locator('.layer-fed path.basket').count()) === 2);
+  await page.locator('#basket-clear').click();
+  await page.waitForTimeout(200);
+  ok('basket clears', (await page.locator('.layer-fed path.basket').count()) === 0);
+
+  // Apportionment changes ballots, never electors.
+  const before = await rowCells(expected.named[0].label);
+  await page.locator('#apportion-fed').selectOption('votes');
+  await page.waitForTimeout(700);
+  const after = await rowCells(expected.named[0].label);
+  ok(`apportioning advance ballots raises turnout (${before[3]} -> ${after[3]}) and leaves electors alone`,
+     parseFloat(after[3]) > parseFloat(before[3]) && after[8] === before[8]);
+  ok('status warns that apportioned figures are estimates', /estimates/.test(await page.locator('#turnout-status').innerText()));
+  await page.locator('#apportion-fed').selectOption('none');
+  await page.waitForTimeout(500);
+
+  const tdl = page.waitForEvent('download', { timeout: 15000 });
+  await page.locator('#export-turnout').click();
+  const tcsv = require('fs').readFileSync(await (await tdl).path(), 'utf8').trim().split(/\r?\n/);
+  ok(`turnout CSV exported (${tcsv.length - 1} rows) with turnout_agg and turnout_fed`, tcsv.length === expected.ordinary_polls + 1 && /turnout_agg/.test(tcsv[0]) && /turnout_fed/.test(tcsv[0]));
+
+  console.log('\n== Turnout and native provincial shading on the map ==');
+  await page.locator('#tab-map').click();
+  await page.waitForTimeout(400);
+  await page.locator('#shade-by').selectOption('turnout-fed');
+  await page.waitForTimeout(500);
+  const tShade = await page.evaluate(() => [...document.querySelectorAll('.layer-fed path')].slice(0, 400).map((n) => {
+    const cs = getComputedStyle(n); return { fill: cs.fill, op: parseFloat(cs.fillOpacity) }; }));
+  const blues = tShade.filter((v) => /rgb\(51,\s*156,\s*255\)/.test(v.fill)).length;
+  ok(`federal turnout shading uses the non-partisan ramp colour (${blues}/${tShade.length})`, blues > tShade.length * 0.9, tShade[0].fill);
+  ok(`turnout shading has graded opacities (${new Set(tShade.map((v) => v.op.toFixed(2))).size} distinct)`, new Set(tShade.map((v) => v.op.toFixed(2))).size > 20);
+  ok('legend shows the turnout range', /turnout/i.test(await page.locator('#map-legend').innerText()));
+  await page.locator('#shade-prov-by').selectOption('prov-party');
+  await page.waitForTimeout(500);
+  const provParty = await page.locator('#shade-party-prov').inputValue();
+  const pShade = await page.evaluate(() => [...document.querySelectorAll('.layer-prov path')].map((n) => {
+    const cs = getComputedStyle(n); return { fill: cs.fill, op: parseFloat(cs.fillOpacity) }; }));
+  const filled = pShade.filter((v) => v.fill !== 'none' && !/^rgba?\(0, 0, 0, 0\)/.test(v.fill)).length;
+  ok(`provincial layer shaded natively by ${provParty} (${filled}/${pShade.length} filled, ${new Set(pShade.map((v) => v.op.toFixed(2))).size} opacities)`,
+     filled > pShade.length * 0.95 && new Set(pShade.map((v) => v.op.toFixed(2))).size > 8);
+  ok('legend names the provincial shading', new RegExp(provParty.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).test(await page.locator('#map-legend').innerText()));
+  await page.locator('#shade-prov-by').selectOption('none');
+  await page.locator('#shade-by').selectOption('fed-party');
+  await page.waitForTimeout(300);
+  const provPlain = await page.evaluate(() => getComputedStyle(document.querySelector('.layer-prov path')).fill);
+  ok('provincial layer returns to outline only', provPlain === 'none', provPlain);
+  await page.mouse.click(box.x + box.width * 0.45, box.y + box.height * 0.5);
+  await page.waitForTimeout(250);
+  const readoutT = await page.locator('#readout').innerText();
+  ok('readout shows ballots, electors and turnout on both cards', (readoutT.match(/turnout \d/g) || []).length >= 2, readoutT.slice(0, 300));
+  ok('Method tab covers the Elections BC vote-anywhere caveat', /vote-anywhere/.test(await page.evaluate(() => document.querySelector('#panel-method').textContent)));
+  // The export checks that follow click controls on the Correlation tab.
+  await page.locator('#tab-corr').click();
+  await page.waitForTimeout(300);
+
   console.log('\n== Export ==');
   const dl = page.waitForEvent('download', { timeout: 15000 });
   await page.locator('#export-crosswalk').click();

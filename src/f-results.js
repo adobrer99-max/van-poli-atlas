@@ -55,10 +55,19 @@ const Results = (() => {
             /appartenance politique/i, /\bparty\b/i, /affiliation/i, /candidate.*party/i],
     votes: [/candidate poll votes count/i, /votes du candidat/i,
             /\bvotes?\b.*\bcount\b/i, /\btotal votes\b/i, /\bvotes\b/i, /\bballots cast\b/i],
-    electors: [/electors for polling station/i, /\belectors\b/i, /électeurs/i, /registered voters/i],
-    rejected: [/rejected ballots/i, /bulletins rejet/i, /\brejected\b/i],
+    electors: [/electors for polling station/i, /\belectors\b/i, /électeurs/i,
+               /registered voters/i, /\bregistered\b/i],
+    rejected: [/rejected ballots/i, /bulletins rejet/i, /\brejected\b/i, /spoil/i],
     candidate: [/candidate.*family name/i, /nom de famille/i, /candidate/i],
+    /* Elections Canada bookkeeping columns. A merged poll reports its votes
+       under another poll; a void poll or a poll where no vote was held has
+       none at all. Turnout is wrong for all three unless they are recognised. */
+    mergeWith: [/merge with/i, /merged with/i, /fusionn/i],
+    voidPoll: [/void poll/i, /bureau supprim/i],
+    noPoll: [/no poll held/i, /sans scrutin/i],
   };
+
+  const isYes = (v) => /^(y|yes|1|true|o|oui|x)$/i.test(String(v == null ? '' : v).trim());
 
   function detectColumn(header, kind) {
     for (const re of PATTERNS[kind] || []) {
@@ -100,6 +109,9 @@ const Results = (() => {
         party, votes,
         electors: detectColumn(header, 'electors'),
         rejected: detectColumn(header, 'rejected'),
+        mergeWith: detectColumn(header, 'mergeWith'),
+        voidPoll: detectColumn(header, 'voidPoll'),
+        noPoll: detectColumn(header, 'noPoll'),
       };
     }
     return {
@@ -109,6 +121,9 @@ const Results = (() => {
       partyColumns: detectWideParties(header, rows),
       electors: detectColumn(header, 'electors'),
       rejected: detectColumn(header, 'rejected'),
+      mergeWith: detectColumn(header, 'mergeWith'),
+      voidPoll: detectColumn(header, 'voidPoll'),
+      noPoll: detectColumn(header, 'noPoll'),
     };
   }
 
@@ -139,9 +154,17 @@ const Results = (() => {
           total: 0, parties: new Map(), electors: 0, rejected: 0, rows: 0,
           district: mapping.district >= 0 ? String(get(row, mapping.district)).trim() : '',
           poll: String(get(row, mapping.poll)).trim(),
+          mergeWith: '', flags: { void: false, noPoll: false }, mergedGroup: null,
         }));
       }
       unit.rows++;
+      if (mapping.mergeWith >= 0) {
+        const m = String(get(row, mapping.mergeWith)).trim();
+        if (m && !/^(n|no|0|-)$/i.test(m)) unit.mergeWith = m;
+      }
+      if (mapping.voidPoll >= 0 && isYes(get(row, mapping.voidPoll))) unit.flags.void = true;
+      if (mapping.noPoll >= 0 && isYes(get(row, mapping.noPoll))) unit.flags.noPoll = true;
+      if (unit.flags.void || unit.flags.noPoll) continue;
       if (mapping.layout === 'long') {
         const party = String(get(row, mapping.party)).trim();
         const votes = toNumber(get(row, mapping.votes));
@@ -165,6 +188,54 @@ const Results = (() => {
       if (mapping.rejected >= 0) unit.rejected = Math.max(unit.rejected, toNumber(get(row, mapping.rejected)));
     }
     return { units: out, skipped, totalVotes };
+  }
+
+  /* Elections Canada reports a merged poll's ballots under the poll it was
+     merged into, so the receiving poll's votes cover two polls' electors and
+     its turnout comes out inflated while the absorbed poll shows none. Pool
+     each merge group and spread the pooled ballots back over the members in
+     proportion to their own electors: every member then carries the same
+     turnout, which is the only defensible figure for a poll counted as one.
+     A member whose elector count was itself rolled into the receiver (0 on its
+     own row) simply takes no votes, which handles both bookkeeping styles. */
+  function resolveMerges(units, keyOpts) {
+    const byKey = units;
+    const rootOf = (key, seen = new Set()) => {
+      const u = byKey.get(key);
+      if (!u || !u.mergeWith || seen.has(key)) return key;
+      seen.add(key);
+      for (const v of federalPollVariants(u.mergeWith)) {
+        const k = makeKey(u.district ? [u.district, v] : [v], keyOpts);
+        if (byKey.has(k) && k !== key) return rootOf(k, seen);
+      }
+      return null; // names a poll that is not in the table
+    };
+    const groups = new Map();
+    const unresolved = [];
+    for (const [key, u] of byKey) {
+      if (!u.mergeWith) continue;
+      const root = rootOf(key);
+      if (root === null) { unresolved.push({ key, mergeWith: u.mergeWith }); continue; }
+      if (!groups.has(root)) groups.set(root, new Set([root]));
+      groups.get(root).add(key);
+    }
+    for (const [root, members] of groups) {
+      const list = [...members].map((k) => byKey.get(k));
+      const electors = list.reduce((a, u) => a + u.electors, 0);
+      if (!(electors > 0)) continue;
+      const total = list.reduce((a, u) => a + u.total, 0);
+      const rejected = list.reduce((a, u) => a + u.rejected, 0);
+      const parties = new Map();
+      for (const u of list) for (const [p, v] of u.parties) parties.set(p, (parties.get(p) || 0) + v);
+      for (const u of list) {
+        const share = u.electors / electors;
+        u.total = total * share;
+        u.rejected = rejected * share;
+        u.parties = new Map([...parties].map(([p, v]) => [p, v * share]));
+        u.mergedGroup = root;
+      }
+    }
+    return { groups: groups.size, unresolved };
   }
 
   /* --- Joining results to a boundary layer ------------------------------- */
@@ -197,6 +268,8 @@ const Results = (() => {
     for (const ignoreLeadingZeros of [true, false]) {
       const keyOpts = { ignoreLeadingZeros, ignoreCase: true };
       const agg = aggregate(table, mapping, keyOpts);
+      agg.merges = mapping.mergeWith >= 0
+        ? resolveMerges(agg.units, keyOpts) : { groups: 0, unresolved: [] };
       const keys = featureKeys(features, keyDef, keyOpts);
       const values = new Map();
       const usedKeys = new Set();
@@ -227,10 +300,28 @@ const Results = (() => {
       if (best.values.has(i)) focusMatched++; else unmatchedFeatures.push(i);
     });
     const unmatchedRows = [];
+    /* Every unmatched row, by district, so the votes that have no polygon --
+       in practice advance polls and special ballots -- can be apportioned back
+       onto the district's mapped polls. Void and no-poll rows carry nothing. */
+    const unmatchedByDistrict = new Map();
+    let voidPolls = 0, noPollUnits = 0;
     for (const [k, unit] of best.agg.units) {
-      if (!best.usedKeys.has(k)) unmatchedRows.push({ key: k, unit });
+      if (unit.flags.void) voidPolls++;
+      if (unit.flags.noPoll) noPollUnits++;
+      if (best.usedKeys.has(k)) continue;
+      unmatchedRows.push({ key: k, unit });
+      if (unit.flags.void || unit.flags.noPoll) continue;
+      const d = normalizePart(unit.district, best.keyOpts);
+      let acc = unmatchedByDistrict.get(d);
+      if (!acc) unmatchedByDistrict.set(d, (acc = { total: 0, rejected: 0, parties: new Map(), units: 0 }));
+      acc.total += unit.total;
+      acc.rejected += unit.rejected;
+      acc.units++;
+      for (const [p, v] of unit.parties) acc.parties.set(p, (acc.parties.get(p) || 0) + v);
     }
     unmatchedRows.sort((a, b) => b.unit.total - a.unit.total);
+    let electorsMatched = 0;
+    for (const unit of new Set(best.values.values())) electorsMatched += unit.electors;
 
     const parties = new Map();
     for (const unit of best.values.values()) {
@@ -254,6 +345,13 @@ const Results = (() => {
         unmatchedRows: unmatchedRows.slice(0, 12),
         unmatchedRowCount: unmatchedRows.length,
         unmatchedVotes: best.agg.totalVotes - best.matchedVotes,
+        unmatchedByDistrict,
+        electorsMatched,
+        electorsColumn: mapping.electors >= 0,
+        mergedGroups: best.agg.merges.groups,
+        mergeUnresolved: best.agg.merges.unresolved,
+        voidPolls,
+        noPollUnits,
         ignoredLeadingZeros: best.keyOpts.ignoreLeadingZeros,
       },
     };
@@ -293,6 +391,7 @@ const Results = (() => {
 
   return {
     normalizePart, makeKey, federalPollVariants, detectColumn, detectLayout,
-    detectWideParties, aggregate, join, featureKeys, suggestKeyProperties, toNumber,
+    detectWideParties, aggregate, resolveMerges, join, featureKeys,
+    suggestKeyProperties, toNumber, isYes,
   };
 })();

@@ -153,7 +153,7 @@ $('clear-fed-results').addEventListener('click', () => {
   $('map-fed-results').hidden = true;
   setStatus('status-fed-results', 'idle', []);
   refreshPartySelectors();
-  draw(); renderReadout(); refreshCorrelation();
+  draw(); renderReadout(); refreshCorrelation(); refreshTurnout();
 });
 $('clear-prov-results').addEventListener('click', () => {
   state.provResults = null; state.provOnFed = null;
@@ -161,7 +161,7 @@ $('clear-prov-results').addEventListener('click', () => {
   $('map-prov-results').hidden = true;
   setStatus('status-prov-results', 'idle', []);
   refreshPartySelectors();
-  draw(); renderReadout(); refreshCorrelation();
+  draw(); renderReadout(); refreshCorrelation(); refreshTurnout();
 });
 
 /* Column pickers, pre-set to whatever detection guessed, so a file with
@@ -194,6 +194,12 @@ function renderMappingUi(side) {
     head.append(picker('Votes column', 'votes', false));
   }
   host.append(head);
+  /* Turnout needs the denominator; merges and voids need recognising. */
+  const more = el('div', 'viz-controls');
+  more.append(picker('Electors / registered voters column', 'electors', true));
+  more.append(picker('Rejected ballots column', 'rejected', true));
+  more.append(picker('Merged-with column', 'mergeWith', true));
+  host.append(more);
 
   if (m.layout === 'wide') {
     const note = el('div', 'wide-parties');
@@ -255,9 +261,26 @@ function joinReportNode(report, subject) {
          pctFeatures > 0.95 ? 'good' : pctFeatures > 0.6 ? 'warn' : 'bad'),
     stat('votes located on the map', fmtPct(pctVotes),
          pctVotes > 0.9 ? 'good' : pctVotes > 0.5 ? 'warn' : 'bad'),
+    stat('electors located', report.electorsColumn ? fmtInt(report.electorsMatched) : '—',
+         report.electorsColumn && report.electorsMatched > 0 ? 'good' : 'warn'),
     stat('rows in file', fmtInt(report.tableUnits)),
   );
   frag.append(grid);
+  if (!report.electorsColumn) {
+    frag.append(el('p', 'text-warning',
+      'No electors column was found, so turnout cannot be computed from this file. '
+      + 'If it has one under another name, pick it below.'));
+  }
+  const notes = [];
+  if (report.mergedGroups) notes.push(`${fmtInt(report.mergedGroups)} merged poll group${report.mergedGroups > 1 ? 's' : ''} pooled and spread pro rata to electors`);
+  if (report.voidPolls) notes.push(`${fmtInt(report.voidPolls)} void poll${report.voidPolls > 1 ? 's' : ''}`);
+  if (report.noPollUnits) notes.push(`${fmtInt(report.noPollUnits)} with no poll held`);
+  if (notes.length) frag.append(el('p', 'text-small text-muted', notes.join(' · ') + '.'));
+  if (report.mergeUnresolved && report.mergeUnresolved.length) {
+    frag.append(el('p', 'text-warning',
+      `${fmtInt(report.mergeUnresolved.length)} rows name a merge target that is not in the file `
+      + `(e.g. poll ${report.mergeUnresolved[0].mergeWith}); they were left as reported.`));
+  }
 
   if (report.matchedOutsideFocus) {
     frag.append(el('p', 'text-small text-muted',
@@ -301,11 +324,23 @@ function rejoinFederalResults() {
   store.values = joined.values;
   store.parties = joined.parties;
   store.report = joined.report;
+  store.keyOpts = joined.keyOpts;
+  store.apportioned = buildApportioned(store);
   $('clear-fed-results').hidden = false;
   setStatus('status-fed-results', joined.report.matchedFeatures ? 'ok' : 'error',
     [joinReportNode(joined.report, 'Polling divisions')]);
   refreshPartySelectors();
-  draw(); renderReadout(); refreshCorrelation();
+  draw(); renderReadout(); refreshCorrelation(); refreshTurnout();
+}
+
+/* Both apportionment bases are computed once per join; the Turnout tab picks. */
+function buildApportioned(store) {
+  const out = {};
+  for (const basis of ['votes', 'electors']) {
+    out[basis] = Turnout.apportionUnmatched(store.values, store.report.unmatchedByDistrict,
+      { basis, keyOpts: store.keyOpts });
+  }
+  return out;
 }
 
 function rejoinProvincialResults() {
@@ -318,12 +353,14 @@ function rejoinProvincialResults() {
   store.values = joined.values;
   store.parties = joined.parties;
   store.report = joined.report;
+  store.keyOpts = joined.keyOpts;
+  store.apportioned = buildApportioned(store);
   $('clear-prov-results').hidden = false;
   setStatus('status-prov-results', joined.report.matchedFeatures ? 'ok' : 'error',
     [joinReportNode(joined.report, 'Voting areas')]);
   refreshPartySelectors();
   recomputeProvincialOnFederal();
-  draw(); renderReadout(); refreshCorrelation();
+  draw(); renderReadout(); refreshCorrelation(); refreshTurnout();
 }
 
 /* Party menus follow whatever parties actually appear in the loaded results. */
@@ -343,8 +380,8 @@ function refreshPartySelectors() {
       ({ value: name, label: `${name} (${fmtInt(votes)})` })));
     sel.value = parties.some(([n]) => n === previous) ? previous : parties[0][0];
   };
-  apply('shade-party-fed', fedParties, 'Load federal results');
-  apply('shade-party-prov', provParties, 'Load provincial results');
+  apply('shade-party-fed', fedParties, 'Load 2025 federal results');
+  apply('shade-party-prov', provParties, 'Load 2024 provincial results');
   if ($('corr-fed-party')) {
     apply('corr-fed-party', fedParties, 'Load federal results');
     apply('corr-prov-party', provParties, 'Load provincial results');

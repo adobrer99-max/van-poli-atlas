@@ -11,6 +11,7 @@ draw();
 populateFinders();
 refreshCrosswalkStatus();
 refreshPartySelectors();
+refreshTurnout();
 
 let resizeTimer = null;
 new ResizeObserver(() => {
