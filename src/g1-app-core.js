@@ -34,7 +34,24 @@ const state = {
   coverage: null,
   selection: { fed: null, prov: null },
   lastCorrelation: null,
+  turnout: { unit: 'fed', weight: 0.5, apportion: { fed: 'none', prov: 'none' },
+             minElectors: 50, rows: null, basket: new Set(), sortKey: 'agg', sortDir: 'desc' },
+  shadeDomain: {},
 };
+
+/* Results for one side, apportioned if the Turnout tab asked for it. Every
+   reader of results goes through these so the map, the readout and the tab
+   agree on which ballots are being counted. */
+function resultsFor(side) {
+  const store = side === 'fed' ? state.fedResults : state.provResults;
+  if (!store || !store.values) return null;
+  const mode = state.turnout.apportion[side];
+  if (mode === 'none') return store.values;
+  const ap = store.apportioned && store.apportioned[mode];
+  return ap ? ap.values : store.values;
+}
+const fedValues = () => resultsFor('fed');
+const provValues = () => resultsFor('prov');
 
 /* --- Party colours ---------------------------------------------------------
    Conventional Canadian party colours where the party is recognisable, and a
@@ -139,51 +156,112 @@ const zoom = d3.zoom().scaleExtent([1, 60]).on('zoom', (event) => {
 });
 svg.call(zoom).on('dblclick.zoom', null);
 
-function shadeValue(f) {
-  const mode = $('shade-by').value;
-  if (mode === 'none') return null;
-  if (mode === 'type') return null;
-  const fedParty = $('shade-party-fed').value;
-  const provParty = $('shade-party-prov').value;
-  const fedUnit = state.fedResults && state.fedResults.values.get(f.idx);
-  const fedShare = fedUnit && fedParty ? Analysis.shareOf(fedUnit, fedParty) : null;
-  if (mode === 'fed-party') return fedShare;
-  /* Provincial share needs the crosswalk to get onto a federal division. */
-  const provOnFed = state.provOnFed && state.provOnFed.get(f.idx);
-  const provShare = provOnFed && provParty ? Analysis.shareOf(provOnFed, provParty) : null;
-  if (mode === 'prov-party') return provShare;
-  if (mode === 'gap') {
-    return fedShare == null || provShare == null ? null : fedShare - provShare;
+/* The value a feature is shaded by, for one layer and one mode. Federal modes
+   read the 2025 results by feature index; the provincial-on-federal modes need
+   the crosswalk (state.provOnFed); the provincial layer's own modes read the
+   2024 results by f.__idx and need no crosswalk at all. */
+function shadeValue(layerKey, f, mode, fedParty, provParty) {
+  if (mode === 'none' || mode === 'type' || mode === 'flat') return null;
+  if (layerKey === 'prov') {
+    const u = provValues()?.get(f.__idx);
+    if (!u) return null;
+    if (mode === 'prov-party') return provParty ? Analysis.shareOf(u, provParty) : null;
+    if (mode === 'turnout-prov') return Turnout.rate(u);
+    return null;
   }
-  return null;
+  const fedUnit = fedValues()?.get(f.idx);
+  const provOnFed = state.provOnFed && state.provOnFed.get(f.idx);
+  const fedShare = fedUnit && fedParty ? Analysis.shareOf(fedUnit, fedParty) : null;
+  const provShare = provOnFed && provParty ? Analysis.shareOf(provOnFed, provParty) : null;
+  const tf = Turnout.rate(fedUnit), tp = Turnout.rate(provOnFed);
+  switch (mode) {
+    case 'fed-party': return fedShare;
+    case 'prov-party': return provShare;
+    case 'gap': return fedShare == null || provShare == null ? null : fedShare - provShare;
+    case 'turnout-fed': return tf;
+    case 'turnout-prov': return tp;
+    case 'turnout-agg': {
+      /* Same rule as Turnout.score: a weighted mean over the sides present. */
+      const w = state.turnout.weight;
+      let num = 0, den = 0;
+      if (tf != null) { num += w * tf; den += w; }
+      if (tp != null) { num += (1 - w) * tp; den += 1 - w; }
+      return den > 0 ? num / den : null;
+    }
+    case 'turnout-delta': return tf == null || tp == null ? null : tf - tp;
+    default: return null;
+  }
 }
 
 const TYPE_FILL = { N: 'var(--muted)', M: 'var(--viz-series-5)', S: 'var(--viz-series-6)' };
+const TURNOUT_MODES = new Set(['turnout-fed', 'turnout-prov', 'turnout-agg']);
 
-function applyFederalStyle(sel) {
-  const mode = $('shade-by').value;
+/* Turnout ramps are data-driven -- 5th to 95th percentile of what is on the
+   map -- because a fixed scale would either wash out or saturate depending on
+   the election. Party shares keep a fixed 60% saturation so a 40% share looks
+   the same in every riding. */
+function shadeDomain(layerKey, sel, mode, fedParty, provParty) {
+  const vals = [];
+  sel.each((f) => {
+    const v = shadeValue(layerKey, f, mode, fedParty, provParty);
+    if (v != null && isFinite(v)) vals.push(v);
+  });
+  if (!vals.length) return null;
+  vals.sort((a, b) => a - b);
+  const q = (p) => vals[Math.min(vals.length - 1, Math.floor(p * (vals.length - 1)))];
+  const lo = q(0.05), hi = q(0.95);
+  return { lo, hi: hi > lo ? hi : lo + 1e-9, n: vals.length };
+}
+
+function rampT(mode, v, domain) {
+  if (mode === 'gap') return Math.min(1, Math.abs(v) / 0.3);
+  if (mode === 'turnout-delta') return Math.min(1, Math.abs(v) / 0.15);
+  if (TURNOUT_MODES.has(mode) && domain) {
+    return Math.max(0, Math.min(1, (v - domain.lo) / (domain.hi - domain.lo)));
+  }
+  return Math.min(1, v / 0.6);
+}
+
+function fillColour(mode, v, fedParty, provParty) {
+  if (mode === 'gap') return v >= 0 ? partyColour(fedParty) : partyColour(provParty);
+  if (mode === 'turnout-delta') return v >= 0 ? 'var(--viz-series-1)' : 'var(--viz-series-2)';
+  if (TURNOUT_MODES.has(mode)) return 'var(--viz-series-1)';
+  if (mode === 'fed-party') return partyColour(fedParty);
+  if (mode === 'prov-party') return partyColour(provParty);
+  return 'var(--muted)';
+}
+
+/* Inline style, not a presentation attribute: the .poll / .va stylesheet rules
+   set default fills, and a stylesheet rule always beats an attribute in SVG.
+   A null value removes the inline style so the stylesheet applies again. */
+function styleLayer(layerKey, sel) {
   const fedParty = $('shade-party-fed').value;
   const provParty = $('shade-party-prov').value;
-  const diverging = mode === 'gap';
-  /* Inline style, not a presentation attribute: the .poll stylesheet rule sets
-     a default fill, and a stylesheet rule always beats an attribute in SVG. */
+  const mode = layerKey === 'fed' ? $('shade-by').value : $('shade-prov-by').value;
+  const domain = TURNOUT_MODES.has(mode) ? shadeDomain(layerKey, sel, mode, fedParty, provParty) : null;
+  state.shadeDomain[layerKey] = domain;
+  const base = layerKey === 'prov' ? parseFloat($('prov-opacity').value) : 1;
+  const isProv = layerKey === 'prov';
   sel.style('fill', (f) => {
+    if (isProv && mode === 'none') return null;
+    if (isProv && mode === 'flat') return 'var(--viz-series-2)';
     if (mode === 'type') return TYPE_FILL[f.pollType] || 'var(--muted)';
-    const v = shadeValue(f);
-    if (v == null) return 'var(--muted)';
-    if (diverging) return v >= 0 ? partyColour(fedParty) : partyColour(provParty);
-    return partyColour(mode === 'fed-party' ? fedParty : provParty);
+    const v = shadeValue(layerKey, f, mode, fedParty, provParty);
+    if (v == null) return isProv ? 'var(--viz-series-2)' : 'var(--muted)';
+    return fillColour(mode, v, fedParty, provParty);
   }).style('fill-opacity', (f) => {
+    if (isProv && mode === 'none') return null;
+    if (isProv && mode === 'flat') return base * 0.35;
     if (mode === 'none') return 0.28;
     if (mode === 'type') return f.pollType === 'N' ? 0.28 : 0.75;
-    const v = shadeValue(f);
-    if (v == null) return 0.06;
-    /* Shares above 60% and gaps above 30 points saturate. Capped below full
-       opacity so the polling-division outlines stay readable underneath. */
-    const t = diverging ? Math.min(1, Math.abs(v) / 0.3) : Math.min(1, v / 0.6);
-    return 0.10 + 0.68 * t;
+    const v = shadeValue(layerKey, f, mode, fedParty, provParty);
+    if (v == null) return isProv ? 0.04 : 0.06;
+    /* Capped below full opacity so the outlines stay readable underneath. */
+    return base * (0.10 + 0.68 * rampT(mode, v, domain));
   });
 }
+const applyFederalStyle = (sel) => styleLayer('fed', sel);
+const applyProvincialStyle = (sel) => styleLayer('prov', sel);
 
 function draw() {
   const box = root.querySelector('.map-wrap').getBoundingClientRect();
@@ -221,11 +299,12 @@ function draw() {
 
   const provSel = gProv.selectAll('path').data(state.prov.active, (f, i) => f.__key || i);
   provSel.exit().remove();
-  provSel.enter().append('path')
+  const provAll = provSel.enter().append('path')
     .attr('class', 'va')
     .on('click', (event, f) => { selectAt(null, null, f); })
     .merge(provSel)
     .attr('d', path);
+  applyProvincialStyle(provAll);
 
   updateLayerVisibility();
   renderLegend();
@@ -235,27 +314,45 @@ function draw() {
 function updateLayerVisibility() {
   gFed.attr('display', $('show-fed').checked ? null : 'none');
   gProv.attr('display', $('show-prov').checked ? null : 'none');
-  gProv.classed('filled', $('prov-fill').checked);
+  gProv.classed('filled', $('shade-prov-by').value !== 'none');
   root.style.setProperty('--va-weight', $('prov-weight').value);
 }
 
 function renderLegend() {
   const legend = $('map-legend');
   const mode = $('shade-by').value;
+  const provMode = $('shade-prov-by').value;
+  const fedParty = $('shade-party-fed').value, provParty = $('shade-party-prov').value;
   legend.textContent = '';
   const items = [];
+  const range = (d) => (d ? ` — ${fmtPct(d.lo, 0)} to ${fmtPct(d.hi, 0)}` : '');
   if (mode === 'type') {
     items.push(['var(--muted)', 'Ordinary poll'], ['var(--viz-series-5)', 'Mobile poll'],
                ['var(--viz-series-6)', 'Single building']);
-  } else if (mode === 'fed-party' && $('shade-party-fed').value) {
-    items.push([partyColour($('shade-party-fed').value), `${$('shade-party-fed').value} share — darker is higher`]);
-  } else if (mode === 'prov-party' && $('shade-party-prov').value) {
-    items.push([partyColour($('shade-party-prov').value), `${$('shade-party-prov').value} share — darker is higher`]);
+  } else if (mode === 'fed-party' && fedParty) {
+    items.push([partyColour(fedParty), `${fedParty} share, 2025 — darker is higher`]);
+  } else if (mode === 'prov-party' && provParty) {
+    items.push([partyColour(provParty), `${provParty} share, 2024, on federal polls — darker is higher`]);
   } else if (mode === 'gap') {
-    items.push([partyColour($('shade-party-fed').value), `${$('shade-party-fed').value} runs ahead federally`],
-               [partyColour($('shade-party-prov').value), `${$('shade-party-prov').value} runs ahead provincially`]);
+    items.push([partyColour(fedParty), `${fedParty} runs ahead federally`],
+               [partyColour(provParty), `${provParty} runs ahead provincially`]);
+  } else if (mode === 'turnout-fed') {
+    items.push(['var(--viz-series-1)', `2025 federal turnout${range(state.shadeDomain.fed)}`]);
+  } else if (mode === 'turnout-prov') {
+    items.push(['var(--viz-series-1)', `2024 provincial turnout on federal polls${range(state.shadeDomain.fed)}`]);
+  } else if (mode === 'turnout-agg') {
+    items.push(['var(--viz-series-1)', `Aggregate turnout${range(state.shadeDomain.fed)}`]);
+  } else if (mode === 'turnout-delta') {
+    items.push(['var(--viz-series-1)', 'Federal turnout higher'], ['var(--viz-series-2)', 'Provincial turnout higher']);
   }
-  if (state.prov.active.length) items.push(['outline', 'Provincial voting area']);
+  if (state.prov.active.length) {
+    if (provMode === 'prov-party' && provParty) {
+      items.push([partyColour(provParty), `${provParty} share, 2024, on voting areas`]);
+    } else if (provMode === 'turnout-prov') {
+      items.push(['var(--viz-series-1)', `2024 provincial turnout on voting areas${range(state.shadeDomain.prov)}`]);
+    }
+    items.push(['outline', 'Provincial (2024) voting area']);
+  }
   legend.hidden = items.length === 0;
   for (const [colour, text] of items) {
     const row = el('div', 'legend-item');
@@ -324,17 +421,18 @@ function renderReadout() {
   const grid = el('div', 'readout-grid');
 
   const fedCard = el('div', 'readout-card');
-  fedCard.append(el('h3', null, 'Federal'));
+  fedCard.append(el('h3', null, 'Federal (2025)'));
   if (fed) {
     fedCard.append(el('p', 'readout-name', fed.label));
     const bits = [`Riding ${fed.fedNum}`, `poll ${fed.poll}`,
       POLL_TYPE[fed.pollType] ? `${POLL_TYPE[fed.pollType]} poll` : null,
       fed.outsideCity ? 'UBC / UEL — outside the City of Vancouver' : null];
     fedCard.append(el('p', 'text-small text-muted', bits.filter(Boolean).join(' · ')));
-    const unit = state.fedResults && state.fedResults.values.get(fed.idx);
+    const unit = fedValues()?.get(fed.idx);
     if (unit) {
-      fedCard.append(el('p', 'text-small',
-        `${fmtInt(unit.total)} valid votes${unit.electors ? ` · ${fmtInt(unit.electors)} electors` : ''}`));
+      fedCard.append(el('p', 'text-small', `${fmtInt(unit.total)} valid votes`));
+      const tl = turnoutLine(unit);
+      if (tl) fedCard.append(el('p', 'text-small' + (Turnout.rate(unit) > 1 ? ' text-warning' : ''), tl));
       const list = resultsList(unit);
       if (list) fedCard.append(list);
     } else if (state.fedResults) {
@@ -345,7 +443,7 @@ function renderReadout() {
   }
 
   const provCard = el('div', 'readout-card');
-  provCard.append(el('h3', null, 'Provincial'));
+  provCard.append(el('h3', null, 'Provincial (2024)'));
   if (prov) {
     provCard.append(el('p', 'readout-name', provLabel(prov)));
     const k = state.prov.keyDef || {};
@@ -354,9 +452,11 @@ function renderReadout() {
       .slice(0, 4)
       .map(([key, v]) => `${key}: ${v}`);
     if (extras.length) provCard.append(el('p', 'text-small text-muted', extras.join(' · ')));
-    const unit = state.provResults && state.provResults.values.get(prov.__idx);
+    const unit = provValues()?.get(prov.__idx);
     if (unit) {
       provCard.append(el('p', 'text-small', `${fmtInt(unit.total)} valid votes`));
+      const tl = turnoutLine(unit);
+      if (tl) provCard.append(el('p', 'text-small' + (Turnout.rate(unit) > 1 ? ' text-warning' : ''), tl));
       const list = resultsList(unit);
       if (list) provCard.append(list);
     } else if (state.provResults) {
@@ -370,6 +470,15 @@ function renderReadout() {
 
   grid.append(fedCard, provCard);
   box.append(grid);
+
+  const bkey = basketKeyForSelection();
+  if (bkey && state.turnout.rows) {
+    const inBasket = state.turnout.basket.has(bkey);
+    const bk = el('button', 'btn btn-small', inBasket ? 'Remove from turnout basket' : 'Add to turnout basket');
+    bk.type = 'button';
+    bk.addEventListener('click', () => toggleBasket(bkey));
+    box.append(bk);
+  }
 
   if (fed && prov && state.pairs) {
     const fi = state.fed.all.indexOf(fed);
@@ -386,6 +495,17 @@ function renderReadout() {
   }
 }
 
+/* One line of ballots / electors / turnout for a readout card. */
+function turnoutLine(unit) {
+  const t = Turnout.rate(unit);
+  if (t == null) return unit.electors ? null : 'No elector count in this file — turnout unavailable.';
+  const bits = [`${fmtInt(Turnout.ballots(unit))} ballots`, `${fmtInt(unit.electors)} electors`,
+    `turnout ${fmtPct(t)}`];
+  if (unit.apportioned) bits.push(`incl. ${fmtInt(unit.apportioned)} apportioned`);
+  if (t > 1) bits.push('over 100% — merged or mis-keyed poll');
+  return bits.join(' · ');
+}
+
 svg.on('click', (event) => {
   if (event.defaultPrevented) return;
   if (!projection) return;
@@ -394,6 +514,11 @@ svg.on('click', (event) => {
   const [px, py] = t.invert([mx, my]);
   const lonlat = projection.invert([px, py]);
   if (lonlat) selectAt(lonlat);
+  /* Shift-click adds the unit under the cursor to the turnout basket. */
+  if (event.shiftKey) {
+    const key = basketKeyForSelection();
+    if (key) toggleBasket(key);
+  }
 });
 
 function zoomToFeature(feature) {

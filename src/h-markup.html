@@ -11,6 +11,7 @@
   <button class="nav-link active" role="tab" id="tab-map" aria-controls="panel-map" aria-selected="true" type="button">Map</button>
   <button class="nav-link" role="tab" id="tab-data" aria-controls="panel-data" aria-selected="false" type="button">Data</button>
   <button class="nav-link" role="tab" id="tab-corr" aria-controls="panel-corr" aria-selected="false" type="button">Correlation</button>
+  <button class="nav-link" role="tab" id="tab-turnout" aria-controls="panel-turnout" aria-selected="false" type="button">Turnout</button>
   <button class="nav-link" role="tab" id="tab-method" aria-controls="panel-method" aria-selected="false" type="button">Method</button>
 </nav>
 
@@ -34,35 +35,49 @@
         <option value="all">Everything in the file (Metro Vancouver)</option>
       </select>
     </label>
-    <label class="form-label grow" for="shade-by">Shade federal polls by
+    <label class="form-label grow" for="shade-by">Shade federal (2025) polls by
       <select class="form-select" id="shade-by">
         <option value="none">Nothing (plain boundaries)</option>
         <option value="type">Poll type</option>
         <option value="fed-party">Federal party share</option>
-        <option value="prov-party">Provincial party share (redistributed)</option>
-        <option value="gap">Federal minus provincial share</option>
+        <option value="turnout-fed">Federal turnout</option>
+        <option value="prov-party">Provincial party share (redistributed onto polls)</option>
+        <option value="turnout-prov">Provincial turnout (redistributed onto polls)</option>
+        <option value="turnout-agg">Aggregate turnout, both elections</option>
+        <option value="turnout-delta">Federal minus provincial turnout</option>
+        <option value="gap">Federal minus provincial party share</option>
       </select>
     </label>
-    <label class="form-label grow" for="shade-party-fed">Federal party
-      <select class="form-select" id="shade-party-fed" disabled><option>Load federal results</option></select>
+    <label class="form-label grow" for="shade-party-fed">Federal (2025) party
+      <select class="form-select" id="shade-party-fed" disabled><option>Load 2025 federal results</option></select>
     </label>
-    <label class="form-label grow" for="shade-party-prov">Provincial party
-      <select class="form-select" id="shade-party-prov" disabled><option>Load provincial results</option></select>
+    <label class="form-label grow" for="shade-party-prov">Provincial (2024) party
+      <select class="form-select" id="shade-party-prov" disabled><option>Load 2024 provincial results</option></select>
+    </label>
+  </div>
+
+  <div class="viz-controls">
+    <label class="form-label grow" for="shade-prov-by">Shade provincial (2024) voting areas by
+      <select class="form-select" id="shade-prov-by">
+        <option value="none">Nothing (outline only)</option>
+        <option value="flat">Flat fill</option>
+        <option value="prov-party">Provincial party share</option>
+        <option value="turnout-prov">Provincial turnout</option>
+      </select>
+    </label>
+    <label class="form-label" for="prov-opacity">Provincial fill strength
+      <input class="form-range" type="range" id="prov-opacity" min="0.1" max="1" step="0.05" value="0.7">
     </label>
   </div>
 
   <div class="viz-controls">
     <label class="form-check form-switch">
       <input class="form-check-input" type="checkbox" id="show-fed" checked>
-      <span class="form-check-label">Federal polling divisions</span>
+      <span class="form-check-label">Federal (2025) polling divisions</span>
     </label>
     <label class="form-check form-switch">
       <input class="form-check-input" type="checkbox" id="show-prov" checked>
-      <span class="form-check-label">Provincial voting areas</span>
-    </label>
-    <label class="form-check form-switch">
-      <input class="form-check-input" type="checkbox" id="prov-fill">
-      <span class="form-check-label">Fill provincial areas</span>
+      <span class="form-check-label">Provincial (2024) voting areas</span>
     </label>
     <label class="form-check form-switch">
       <input class="form-check-input" type="checkbox" id="show-mobile">
@@ -74,10 +89,10 @@
   </div>
 
   <div class="viz-controls">
-    <label class="form-label grow" for="find-poll">Find a federal polling division
+    <label class="form-label grow" for="find-poll">Find a federal (2025) polling division
       <select class="form-select" id="find-poll"><option value="">Select a division&hellip;</option></select>
     </label>
-    <label class="form-label grow" for="find-va">Find a provincial voting area
+    <label class="form-label grow" for="find-va">Find a provincial (2024) voting area
       <select class="form-select" id="find-va" disabled><option value="">No provincial layer loaded</option></select>
     </label>
     <button type="button" class="btn" id="zoom-in" aria-label="Zoom in">Zoom +</button>
@@ -107,7 +122,7 @@
 <!-- ----------------------------------------------------------------- DATA -->
 <section id="panel-data" role="tabpanel" aria-labelledby="tab-data" hidden>
   <div class="card">
-    <h2>1. Provincial voting-area boundaries</h2>
+    <h2>1. Provincial (2024) voting-area boundaries</h2>
     <p class="text-small text-muted">
       Get these from Elections BC's
       <a href="https://elections.bc.ca/resources/maps/gis-spatial-data/" target="_blank" rel="noopener">GIS spatial data</a>
@@ -134,7 +149,7 @@
   </div>
 
   <div class="card">
-    <h2>2. Federal poll-by-poll results</h2>
+    <h2>2. Federal (2025) poll-by-poll results</h2>
     <p class="text-small text-muted">
       Elections Canada publishes one <code>pollresults_resultatsbureau&lt;riding&gt;.csv</code>
       per electoral district. Load them one at a time or as a <code>.zip</code>;
@@ -149,7 +164,7 @@
   </div>
 
   <div class="card">
-    <h2>3. Provincial results by voting area</h2>
+    <h2>3. Provincial (2024) results by voting area</h2>
     <p class="text-small text-muted">
       Elections BC publishes results by voting area for each electoral district.
       Long files (one row per candidate) and wide files (one column per party) are both read.
@@ -233,6 +248,82 @@
   </div>
 </section>
 
+<!-- -------------------------------------------------------------- TURNOUT -->
+<section id="panel-turnout" role="tabpanel" aria-labelledby="tab-turnout" hidden>
+  <div class="card">
+    <h2>Turnout by area, across both elections</h2>
+    <p class="text-small text-muted">
+      Turnout is ballots cast (valid plus rejected) over electors, for each area, in
+      each election. The aggregate combines the two with the weight below. Advance
+      polls and special ballots have no boundary; by default they are left out, which
+      understates turnout in areas where people vote early. Read the <b>Method</b> tab
+      before quoting a figure.
+    </p>
+    <div class="viz-controls">
+      <label class="form-label grow" for="turnout-unit">Common geography
+        <select class="form-select" id="turnout-unit">
+          <option value="fed">Federal (2025) polling divisions</option>
+          <option value="prov">Provincial (2024) voting areas</option>
+          <option value="atom">Overlap pieces (finest)</option>
+        </select>
+      </label>
+      <label class="form-label grow" for="turnout-weight">Weight <span id="turnout-weight-label">50% federal · 50% provincial</span>
+        <input class="form-range" type="range" id="turnout-weight" min="0" max="1" step="0.05" value="0.5">
+      </label>
+      <label class="form-label grow" for="turnout-min-electors">Drop areas under
+        <select class="form-select" id="turnout-min-electors">
+          <option value="0">No minimum</option>
+          <option value="25">25 electors</option>
+          <option value="50" selected>50 electors</option>
+          <option value="100">100 electors</option>
+        </select>
+      </label>
+    </div>
+    <div class="viz-controls">
+      <label class="form-label grow" for="apportion-fed">Federal advance &amp; special ballots
+        <select class="form-select" id="apportion-fed">
+          <option value="none">Leave out (election-day turnout)</option>
+          <option value="votes">Apportion by ballots (scales each turnout)</option>
+          <option value="electors">Apportion by electors (shifts each turnout)</option>
+        </select>
+      </label>
+      <label class="form-label grow" for="apportion-prov">Provincial advance &amp; absentee ballots
+        <select class="form-select" id="apportion-prov">
+          <option value="none">Leave out (as reported by voting area)</option>
+          <option value="votes">Apportion by ballots</option>
+          <option value="electors">Apportion by electors</option>
+        </select>
+      </label>
+    </div>
+    <div id="turnout-status" class="status"></div>
+    <div class="viz-grid" id="turnout-stats"></div>
+  </div>
+
+  <div class="card" id="turnout-results" hidden>
+    <h2>Ranked areas</h2>
+    <p class="text-small text-muted">Click a column heading to sort. Tick areas, or shift-click them on the map, to pool them in the basket.</p>
+    <svg class="curve" id="turnout-curve" role="img" aria-label="Cumulative share of electors held by the top-ranked areas"></svg>
+    <div id="turnout-curve-caption" class="text-small text-muted"></div>
+    <div class="turnout-wrap"><table class="turnout-table" id="turnout-table"></table></div>
+    <div class="viz-controls">
+      <button type="button" class="btn" id="export-turnout">Download ranking (CSV)</button>
+      <span id="turnout-note" class="text-small text-muted"></span>
+    </div>
+  </div>
+
+  <div class="card" id="turnout-basket-card" hidden>
+    <h2>Basket</h2>
+    <div class="viz-controls">
+      <label class="form-label" for="basket-top-n">Add the top
+        <input class="form-control" type="number" id="basket-top-n" min="1" max="2000" value="50" style="width:6em">
+      </label>
+      <button type="button" class="btn" id="basket-add-top">Add top areas</button>
+      <button type="button" class="btn" id="basket-clear">Clear basket</button>
+    </div>
+    <div class="viz-grid" id="turnout-basket"></div>
+  </div>
+</section>
+
 <!-- --------------------------------------------------------------- METHOD -->
 <section id="panel-method" role="tabpanel" aria-labelledby="tab-method" hidden>
   <div class="card">
@@ -292,6 +383,39 @@
       pieces move both and give the most units, but each is smaller and noisier.
       If a result only holds on one of the three, it is a property of the method
       rather than of the electorate.</p>
+
+    <h3>Turnout</h3>
+    <p>Turnout is ballots cast &mdash; valid votes plus rejected ballots &mdash; divided
+      by the electors on the list for that poll or voting area. Electors, votes and
+      rejected ballots are all counts, so they move through the crosswalk together, and
+      turnout on a common geography is simply the electors-weighted mean of the polls
+      that feed it.</p>
+    <ul>
+      <li><b>Election-day turnout is what the polls measure.</b> Advance polls, special
+        ballots and mail-in votes are reported against the whole riding or district, not
+        a boundary. Left out, they understate turnout everywhere, and most in the areas
+        whose residents vote early &mdash; typically older and wealthier neighbourhoods
+        &mdash; so an area-level correlation with income or age is biased downward.
+        Apportioning them back pro rata within each riding removes the average understatement
+        but assumes early voting is equally common across the riding, which it is not.
+        Both figures are shown; quote which one you used.</li>
+      <li><b>Elections BC's 2024 results by voting area</b> come from a vote-anywhere
+        system that may already credit every ballot to the voter's home voting area. If
+        the file's per-area totals include advance and absentee ballots, leave provincial
+        apportionment off.</li>
+      <li><b>Merged polls.</b> Elections Canada reports a merged poll's ballots under the
+        poll it was merged into. The atlas pools each merge group and spreads the ballots
+        back in proportion to each member's electors, so every member carries the same
+        turnout. A turnout above 100% on the map means a merge that was not marked, or
+        a poll whose electors were rolled elsewhere.</li>
+      <li><b>Electors include election-day registrants</b> in the federal count, so a
+        poll's turnout is not quite ballots over a fixed list; the effect is small and
+        uniform.</li>
+      <li><b>The aggregate</b> is a weighted mean of the two elections' turnout on the
+        chosen geography. Areas missing one side are shown but flagged. The
+        <i>minimum</i> of the two is the stricter "reliable turnout" measure; the
+        <i>delta</i> shows where one election drew people the other did not.</li>
+    </ul>
   </div>
 </section>
 </div>

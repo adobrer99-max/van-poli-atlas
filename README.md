@@ -25,10 +25,30 @@ Open the file in a browser, then work through the **Data** tab:
 Files are read in the browser tab. Nothing is uploaded anywhere.
 
 The **Map** tab overlays the two geographies and reads out the federal polling
-division and the provincial voting area at whatever point you click. The
-**Correlation** tab builds the crosswalk and plots one vote share against the
-other. The **Method** tab states the assumptions; read it before quoting a
-coefficient.
+division and the provincial voting area at whatever point you click. Each layer
+is shaded by its own election's results — party share or turnout — and the
+federal layer can also carry provincial results redistributed through the
+crosswalk. The **Correlation** tab builds the crosswalk and plots one vote share
+against the other. The **Turnout** tab ranks every area by turnout combined
+across both elections, draws the "top X % of areas hold Y % of electors" curve,
+pools any set of areas into a basket, and exports the ranking. The **Method**
+tab states the assumptions; read it before quoting a coefficient.
+
+## Turnout
+
+Turnout is ballots cast (valid plus rejected) over electors, per poll or voting
+area, computed on demand from counts that move through the crosswalk together —
+so turnout on any common geography is the electors-weighted mean of the polls
+that feed it. Three things Elections Canada's files do that the reader handles:
+
+- **Merged polls** report both polls' ballots under the receiving poll. The
+  merge group is pooled and spread back pro rata to each member's electors.
+- **Void polls** and polls where no vote was held carry nothing and are
+  excluded.
+- **Advance polls and special ballots** have no boundary. By default they are
+  left out (election-day turnout, which understates areas whose residents vote
+  early). Optionally they are apportioned back onto each district's mapped polls,
+  by ballots or by electors; both are labelled as estimates.
 
 ## Why there is a crosswalk
 
@@ -74,12 +94,12 @@ plus the vendored d3 v7 bundle and the shared stylesheet.
 python3 tests/make-fixtures.py       # builds real SHP/DBF/PRJ/KMZ fixtures
 python3 tests/make-e2e-fixtures.py
 node tests/test-geo.js               # and text, binary, ingest, analysis,
-                                     # slivers, repair, results
+                                     # slivers, repair, results, turnout
 node tests/test-browser.js           # needs playwright + chromium
 node tests/test-variants.js
 ```
 
-232 assertions. The browser suites drive the real page in Chromium through
+300+ assertions. The browser suites drive the real page in Chromium through
 Playwright: loading each boundary format, joining results, building the
 crosswalk, exporting CSV, dark mode, and phone-width layout.
 

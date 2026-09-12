@@ -14,8 +14,9 @@ tabs_js    = read(SRC + "/tabs.js")
 markup     = read(SRC + "/h-markup.html")
 
 modules = ["a-geo.js", "b-text.js", "c-binary.js", "d-ingest.js",
-           "e-analysis.js", "f-results.js"]
-app     = ["g1-app-core.js", "g2-app-data.js", "g3-app-corr.js"]
+           "e-analysis.js", "f-results.js", "f2-turnout.js"]
+app     = ["g1-app-core.js", "g2-app-data.js", "g3-app-corr.js",
+           "g4-app-turnout.js", "g9-app-start.js"]
 
 # The federal boundaries, exactly as they came out of the original file.
 geo = read("boundaries/fed_polls.geojson").strip()
