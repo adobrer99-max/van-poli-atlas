@@ -1,0 +1,65 @@
+van-poli-atlas — licence and attribution notice
+===============================================
+
+The GPL v3 text in LICENSE covers the original code in this repository. It does
+not cover the third-party library or the government data distributed alongside
+it, both of which carry their own terms. This file records what applies to what.
+
+
+1. Original code — GPL v3
+-------------------------
+   src/a-geo.js, src/b-text.js, src/c-binary.js, src/d-ingest.js,
+   src/e-analysis.js, src/f-results.js, src/g1-app-core.js, src/g2-app-data.js,
+   src/g3-app-corr.js, src/h-markup.html, src/i-atlas.css, src/design.css,
+   src/tabs.js, build.py, tests/*
+
+   Licensed under the GNU General Public License version 3, as set out in
+   LICENSE.
+
+
+2. D3 — ISC licence
+-------------------
+   src/d3.js, and the corresponding inlined block of
+   vancouver-boundary-atlas.html
+
+   D3 v7.9.0. Copyright 2010-2023 Mike Bostock.
+
+   Permission to use, copy, modify, and/or distribute this software for any
+   purpose with or without fee is hereby granted, provided that the above
+   copyright notice and this permission notice appear in all copies.
+
+   THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+   WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+   MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
+   SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+   WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+   OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+   CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+   The bundle is vendored unmodified. Its copyright line is the first line of
+   src/d3.js and is carried through into the built HTML by build.py; do not
+   strip it.
+
+
+3. Federal polling-division boundaries — Open Government Licence – Canada
+------------------------------------------------------------------------
+   boundaries/fed_polls.geojson, and the corresponding inlined block of
+   vancouver-boundary-atlas.html
+
+   Contains information licensed under the Open Government Licence – Canada.
+   Derived from Elections Canada, Polling Division Boundaries 2025 (Metro
+   Vancouver). Coordinates have been rounded to five decimal places and a
+   locality annotation added for UBC and the University Endowment Lands.
+
+   https://open.canada.ca/en/open-government-licence-canada
+
+   Elections Canada has not endorsed this work and is not responsible for it.
+
+
+4. Data not distributed here
+----------------------------
+   Provincial voting-area boundaries, federal poll-by-poll results and
+   provincial results by voting area are never redistributed in this
+   repository. The atlas reads them at runtime from files the user downloads,
+   and they remain subject to whatever terms Elections BC and Elections Canada
+   attach to them.

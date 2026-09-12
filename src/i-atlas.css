@@ -1,0 +1,110 @@
+/* --- Atlas-specific styling, on top of the shared design tokens ----------- */
+/* The design system sets display on .progress, .nav and friends, which outranks
+   the user-agent [hidden] rule. Restore it so hiding an element actually does. */
+#atlas [hidden] { display: none !important; }
+#atlas { --va-weight: 1.75; max-width: 1180px; margin: 0 auto; padding: 1rem; }
+#atlas h1 { font-size: var(--font-size-h1); margin: 0 0 .25rem; }
+#atlas h2 { font-size: var(--font-size-h2); margin: 0 0 .5rem; }
+#atlas h3 { font-size: var(--font-size-h3); margin: 1.1rem 0 .35rem; }
+#atlas p { margin: .4rem 0; }
+.atlas-header { margin-bottom: .9rem; }
+#atlas .nav { margin-bottom: 1rem; }
+#atlas section { animation: fade .18s ease-out; }
+@keyframes fade { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+#atlas .card { padding: 1rem; margin-bottom: 1rem; }
+#atlas .viz-controls { align-items: flex-end; gap: .6rem; margin-bottom: .6rem; flex-wrap: wrap; }
+#atlas .form-label.grow { flex: 1 1 190px; min-width: 0; }
+#atlas .form-label.grow select { width: 100%; }
+#atlas code { font-family: var(--font-mono); font-size: .92em;
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+  padding: .05em .35em; border-radius: var(--radius-sm); }
+
+.callout { border-left: 3px solid var(--viz-series-2); }
+
+/* --- Map ------------------------------------------------------------------ */
+.map-wrap { position: relative; }
+.atlas-map { display: block; width: 100%; touch-action: none; cursor: crosshair;
+  overflow: hidden; background: color-mix(in srgb, var(--foreground) 3%, transparent);
+  border-radius: var(--radius); }
+.atlas-map:active { cursor: grabbing; }
+.poll { fill: var(--muted); stroke: var(--foreground); stroke-opacity: .34;
+  stroke-width: .6; vector-effect: non-scaling-stroke; cursor: pointer; }
+.poll.outside-cov { stroke-dasharray: 3 2; }
+.poll.point-like { stroke-opacity: .8; stroke-width: 1; }
+.poll:hover { stroke-opacity: .9; stroke-width: 1.4; }
+.poll.selected { stroke: var(--viz-series-1); stroke-opacity: 1; stroke-width: 2.6; }
+.va { fill: none; stroke: var(--viz-series-2); stroke-opacity: .95;
+  stroke-width: var(--va-weight); vector-effect: non-scaling-stroke;
+  pointer-events: stroke; cursor: pointer; }
+.layer-prov.filled .va { fill: var(--viz-series-2); fill-opacity: .08; pointer-events: all; }
+.va:hover { stroke-width: calc(var(--va-weight) + 1.4); }
+.va.selected { stroke: var(--orange); stroke-width: calc(var(--va-weight) + 2);
+  stroke-opacity: 1; filter: drop-shadow(0 0 2px var(--orange)); }
+
+.map-legend { position: absolute; right: .6rem; bottom: .6rem; display: flex;
+  flex-direction: column; gap: .25rem; padding: .5rem .6rem; border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--background) 88%, transparent);
+  border: 1px solid var(--border); font-size: var(--font-size-small); max-width: 60%; }
+.legend-item { display: flex; align-items: center; gap: .4rem; }
+.swatch { width: 12px; height: 12px; border-radius: 3px; flex: none;
+  border: 1px solid color-mix(in srgb, var(--foreground) 25%, transparent); }
+.swatch-outline { background: none; border: 2px solid var(--viz-series-2); }
+
+/* --- Readout -------------------------------------------------------------- */
+.readout { margin: .8rem 0; min-height: 4.5rem; }
+.readout-grid { display: grid; gap: .8rem; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+.readout-card { border: 1px solid var(--border); border-radius: var(--radius);
+  padding: .7rem .85rem; background: var(--card); }
+.readout-card h3 { margin: 0 0 .3rem; font-size: var(--font-size-small);
+  text-transform: uppercase; letter-spacing: .04em; color: var(--muted-foreground); }
+.readout-name { font-weight: var(--font-weight-medium); margin: 0 0 .2rem; }
+.result-list { list-style: none; margin: .5rem 0 0; padding: 0; display: flex;
+  flex-direction: column; gap: .2rem; font-size: var(--font-size-small); }
+.result-list li { display: flex; align-items: center; gap: .45rem; }
+.result-list .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.result-list .party { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.result-list .votes { color: var(--muted-foreground); white-space: nowrap; }
+
+/* --- Status and mapping --------------------------------------------------- */
+.status:empty { display: none; }
+.status { margin-top: .6rem; font-size: var(--font-size-small); }
+.status-error { color: var(--destructive); }
+.status-busy { color: var(--muted-foreground); }
+.status details { margin-top: .5rem; }
+.status summary { cursor: pointer; color: var(--muted-foreground); }
+.status ul { margin: .4rem 0 0 1rem; padding: 0; }
+#atlas .viz-grid { display: grid; gap: .6rem; margin: .6rem 0;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+#atlas .viz-stat { border: 1px solid var(--border); border-radius: var(--radius);
+  padding: .55rem .7rem; background: var(--card); }
+#atlas .viz-stat-value { font-size: var(--font-size-h2); font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums; }
+.viz-stat.good .viz-stat-value { color: var(--green); }
+.viz-stat.warn .viz-stat-value { color: var(--orange); }
+.viz-stat.bad .viz-stat-value { color: var(--destructive); }
+.mapping { margin-top: .8rem; border-top: 1px solid var(--border); padding-top: .8rem; }
+.wide-parties { margin: .5rem 0; }
+.preview { margin-top: .6rem; font-size: var(--font-size-small); }
+.preview summary { cursor: pointer; color: var(--muted-foreground); }
+.preview td, .preview th { white-space: nowrap; max-width: 18ch;
+  overflow: hidden; text-overflow: ellipsis; }
+#atlas .progress { margin: .5rem 0; }
+#atlas input[type="file"].form-control { flex: 1 1 260px; padding: .4rem; }
+
+/* --- Scatter -------------------------------------------------------------- */
+.scatter { display: block; width: 100%; margin-top: .4rem; }
+.scatter .axis text { fill: var(--muted-foreground); font-size: var(--font-size-small); }
+.scatter .axis path, .scatter .axis line { stroke: var(--border); }
+.scatter .axis-label { fill: var(--muted-foreground); font-size: var(--font-size-small); }
+.scatter .dot { fill-opacity: .55; stroke: var(--background); stroke-width: .5; }
+.scatter .fit-line { fill: none; stroke: var(--foreground); stroke-opacity: .65;
+  stroke-width: 1.5; stroke-dasharray: 5 3; }
+
+#atlas ul { margin: .4rem 0 .4rem 1.1rem; padding: 0; }
+#atlas li { margin: .2rem 0; }
+
+@media (max-width: 640px) {
+  #atlas { padding: .75rem; }
+  .map-legend { position: static; max-width: none; margin-top: .5rem; }
+}

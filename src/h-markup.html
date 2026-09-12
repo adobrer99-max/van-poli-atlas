@@ -1,0 +1,297 @@
+<div id="atlas">
+<header class="atlas-header">
+  <h1>Vancouver federal &amp; provincial poll atlas</h1>
+  <p class="text-small text-muted">
+    2025 federal polling divisions with provincial voting areas overlaid, for comparing
+    federal and provincial voting poll by poll in the City of Vancouver.
+  </p>
+</header>
+
+<nav class="nav nav-pills" role="tablist" aria-label="Atlas sections">
+  <button class="nav-link active" role="tab" id="tab-map" aria-controls="panel-map" aria-selected="true" type="button">Map</button>
+  <button class="nav-link" role="tab" id="tab-data" aria-controls="panel-data" aria-selected="false" type="button">Data</button>
+  <button class="nav-link" role="tab" id="tab-corr" aria-controls="panel-corr" aria-selected="false" type="button">Correlation</button>
+  <button class="nav-link" role="tab" id="tab-method" aria-controls="panel-method" aria-selected="false" type="button">Method</button>
+</nav>
+
+<!-- ------------------------------------------------------------------ MAP -->
+<section id="panel-map" role="tabpanel" aria-labelledby="tab-map">
+  <div id="prov-missing" class="card callout">
+    <strong>The provincial layer is empty.</strong>
+    <p class="text-small">
+      Provincial boundaries are not bundled here because Elections BC publishes them
+      under their own licence. Open the <b>Data</b> tab and load a voting-area file to
+      draw the overlay &mdash; a zipped shapefile, KML, KMZ or GeoJSON all work, in
+      BC Albers or lon/lat.
+    </p>
+  </div>
+
+  <div class="viz-controls">
+    <label class="form-label grow" for="area-filter">Area
+      <select class="form-select" id="area-filter">
+        <option value="van">City of Vancouver (6 ridings)</option>
+        <option value="van-ubc">City of Vancouver + UBC / UEL</option>
+        <option value="all">Everything in the file (Metro Vancouver)</option>
+      </select>
+    </label>
+    <label class="form-label grow" for="shade-by">Shade federal polls by
+      <select class="form-select" id="shade-by">
+        <option value="none">Nothing (plain boundaries)</option>
+        <option value="type">Poll type</option>
+        <option value="fed-party">Federal party share</option>
+        <option value="prov-party">Provincial party share (redistributed)</option>
+        <option value="gap">Federal minus provincial share</option>
+      </select>
+    </label>
+    <label class="form-label grow" for="shade-party-fed">Federal party
+      <select class="form-select" id="shade-party-fed" disabled><option>Load federal results</option></select>
+    </label>
+    <label class="form-label grow" for="shade-party-prov">Provincial party
+      <select class="form-select" id="shade-party-prov" disabled><option>Load provincial results</option></select>
+    </label>
+  </div>
+
+  <div class="viz-controls">
+    <label class="form-check form-switch">
+      <input class="form-check-input" type="checkbox" id="show-fed" checked>
+      <span class="form-check-label">Federal polling divisions</span>
+    </label>
+    <label class="form-check form-switch">
+      <input class="form-check-input" type="checkbox" id="show-prov" checked>
+      <span class="form-check-label">Provincial voting areas</span>
+    </label>
+    <label class="form-check form-switch">
+      <input class="form-check-input" type="checkbox" id="prov-fill">
+      <span class="form-check-label">Fill provincial areas</span>
+    </label>
+    <label class="form-check form-switch">
+      <input class="form-check-input" type="checkbox" id="show-mobile">
+      <span class="form-check-label">Mobile &amp; single-building polls</span>
+    </label>
+    <label class="form-label" for="prov-weight">Overlay line weight
+      <input class="form-range" type="range" id="prov-weight" min="0.5" max="4" step="0.25" value="1.75">
+    </label>
+  </div>
+
+  <div class="viz-controls">
+    <label class="form-label grow" for="find-poll">Find a federal polling division
+      <select class="form-select" id="find-poll"><option value="">Select a division&hellip;</option></select>
+    </label>
+    <label class="form-label grow" for="find-va">Find a provincial voting area
+      <select class="form-select" id="find-va" disabled><option value="">No provincial layer loaded</option></select>
+    </label>
+    <button type="button" class="btn" id="zoom-in" aria-label="Zoom in">Zoom +</button>
+    <button type="button" class="btn" id="zoom-out" aria-label="Zoom out">Zoom &minus;</button>
+    <button type="button" class="btn" id="zoom-reset">Full view</button>
+  </div>
+
+  <div class="map-wrap">
+    <svg class="atlas-map" role="img" aria-label="Map of 2025 federal polling divisions with provincial voting areas overlaid. Use the two find menus for keyboard access.">
+      <title>Vancouver federal polling divisions and provincial voting areas</title>
+      <desc>Drag to pan, scroll or use the zoom buttons to zoom, and click a polygon to read the federal polling division and provincial voting area at that point.</desc>
+    </svg>
+    <div class="map-legend" id="map-legend" hidden></div>
+  </div>
+
+  <div class="readout" id="readout" aria-live="polite">
+    <p class="text-muted">Click anywhere on the map to read the federal polling division and the provincial voting area covering that point.</p>
+  </div>
+
+  <p class="text-small text-muted">
+    North is up. Boundary coordinates are rounded to five decimals.
+    Federal source: Elections Canada, Polling Division Boundaries 2025 (Metro Vancouver KMZ).
+    UBC and UEL sit in Electoral Area A, outside the City of Vancouver.
+  </p>
+</section>
+
+<!-- ----------------------------------------------------------------- DATA -->
+<section id="panel-data" role="tabpanel" aria-labelledby="tab-data" hidden>
+  <div class="card">
+    <h2>1. Provincial voting-area boundaries</h2>
+    <p class="text-small text-muted">
+      Get these from Elections BC's
+      <a href="https://elections.bc.ca/resources/maps/gis-spatial-data/" target="_blank" rel="noopener">GIS spatial data</a>
+      page or the <a href="https://catalogue.data.gov.bc.ca/" target="_blank" rel="noopener">BC Data Catalogue</a>,
+      and load the voting-area file for the election you are comparing against.
+      A zipped shapefile (<code>.shp</code> + <code>.dbf</code> + <code>.prj</code>),
+      <code>.kml</code>, <code>.kmz</code> or <code>.geojson</code> all work.
+      BC Albers, UTM zone 10N and lon/lat are converted automatically.
+      Nothing is uploaded anywhere &mdash; the file is read in this browser tab.
+    </p>
+    <div class="viz-controls">
+      <input class="form-control" type="file" id="file-prov-geo" accept=".zip,.kml,.kmz,.geojson,.json">
+      <button type="button" class="btn" id="clear-prov-geo" hidden>Remove layer</button>
+    </div>
+    <div id="status-prov-geo" class="status"></div>
+    <div class="viz-controls" id="prov-key-row" hidden>
+      <label class="form-label grow" for="prov-key-district">Electoral district field
+        <select class="form-select" id="prov-key-district"></select>
+      </label>
+      <label class="form-label grow" for="prov-key-va">Voting area field
+        <select class="form-select" id="prov-key-va"></select>
+      </label>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>2. Federal poll-by-poll results</h2>
+    <p class="text-small text-muted">
+      Elections Canada publishes one <code>pollresults_resultatsbureau&lt;riding&gt;.csv</code>
+      per electoral district. Load them one at a time or as a <code>.zip</code>;
+      each file adds to what is already loaded.
+    </p>
+    <div class="viz-controls">
+      <input class="form-control" type="file" id="file-fed-results" accept=".csv,.tsv,.txt,.zip" multiple>
+      <button type="button" class="btn" id="clear-fed-results" hidden>Clear federal results</button>
+    </div>
+    <div id="status-fed-results" class="status"></div>
+    <div id="map-fed-results" class="mapping" hidden></div>
+  </div>
+
+  <div class="card">
+    <h2>3. Provincial results by voting area</h2>
+    <p class="text-small text-muted">
+      Elections BC publishes results by voting area for each electoral district.
+      Long files (one row per candidate) and wide files (one column per party) are both read.
+    </p>
+    <div class="viz-controls">
+      <input class="form-control" type="file" id="file-prov-results" accept=".csv,.tsv,.txt,.zip" multiple>
+      <button type="button" class="btn" id="clear-prov-results" hidden>Clear provincial results</button>
+    </div>
+    <div id="status-prov-results" class="status"></div>
+    <div id="map-prov-results" class="mapping" hidden></div>
+  </div>
+</section>
+
+<!-- ---------------------------------------------------------- CORRELATION -->
+<section id="panel-corr" role="tabpanel" aria-labelledby="tab-corr" hidden>
+  <div class="card">
+    <h2>Build the crosswalk</h2>
+    <p class="text-small text-muted">
+      Federal polling divisions and provincial voting areas are drawn by different
+      agencies and share no boundaries, so results cannot be joined on a key.
+      This measures how much of each federal division falls inside each voting area
+      and splits votes in those proportions. Read the <b>Method</b> tab before quoting
+      any number from here.
+    </p>
+    <div class="viz-controls">
+      <label class="form-label grow" for="lattice">Sampling resolution
+        <select class="form-select" id="lattice">
+          <option value="60">Coarse &mdash; 60 m (fastest)</option>
+          <option value="40">Medium &mdash; 40 m</option>
+          <option value="25" selected>Fine &mdash; 25 m (recommended)</option>
+          <option value="15">Very fine &mdash; 15 m (slowest)</option>
+        </select>
+      </label>
+      <label class="form-label grow" for="min-overlap">Ignore overlaps smaller than
+        <select class="form-select" id="min-overlap">
+          <option value="0">Keep every overlap</option>
+          <option value="0.005">0.5% of a unit</option>
+          <option value="0.02" selected>2% of a unit</option>
+          <option value="0.05">5% of a unit</option>
+        </select>
+      </label>
+      <button type="button" class="btn btn-primary" id="build-crosswalk" disabled>Build crosswalk</button>
+    </div>
+    <div class="progress" id="crosswalk-progress" hidden><div class="progress-bar" id="crosswalk-bar"></div></div>
+    <div id="status-crosswalk" class="status"></div>
+  </div>
+
+  <div class="card" id="corr-controls" hidden>
+    <h2>Compare</h2>
+    <div class="viz-controls">
+      <label class="form-label grow" for="corr-unit">Common geography
+        <select class="form-select" id="corr-unit">
+          <option value="prov">Provincial voting areas</option>
+          <option value="fed">Federal polling divisions</option>
+          <option value="atom">Overlap pieces (finest)</option>
+        </select>
+      </label>
+      <label class="form-label grow" for="corr-fed-party">Federal party (x)
+        <select class="form-select" id="corr-fed-party"></select>
+      </label>
+      <label class="form-label grow" for="corr-prov-party">Provincial party (y)
+        <select class="form-select" id="corr-prov-party"></select>
+      </label>
+      <label class="form-label grow" for="corr-min-votes">Drop units under
+        <select class="form-select" id="corr-min-votes">
+          <option value="0">No minimum</option>
+          <option value="25">25 votes</option>
+          <option value="50" selected>50 votes</option>
+          <option value="100">100 votes</option>
+        </select>
+      </label>
+    </div>
+    <div class="viz-grid" id="corr-stats"></div>
+    <svg class="scatter" id="scatter" role="img" aria-label="Scatter plot of federal party vote share against provincial party vote share"></svg>
+    <div id="scatter-caption" class="text-small text-muted"></div>
+    <div class="viz-controls">
+      <button type="button" class="btn" id="export-joined">Download joined table (CSV)</button>
+      <button type="button" class="btn" id="export-crosswalk">Download crosswalk (CSV)</button>
+    </div>
+    <div id="export-note" class="text-small text-muted"></div>
+  </div>
+</section>
+
+<!-- --------------------------------------------------------------- METHOD -->
+<section id="panel-method" role="tabpanel" aria-labelledby="tab-method" hidden>
+  <div class="card">
+    <h2>How the two geographies are reconciled</h2>
+    <p>Federal polling divisions and provincial voting areas are drawn independently
+      and share almost no boundaries. There is no key to join them on, so this atlas
+      estimates the overlap directly: it lays a lattice of equally spaced points over
+      the area, records which federal division and which voting area each point falls
+      in, and treats the counts as areas. The share of a federal division lying inside
+      a given voting area becomes the fraction of that division's votes assigned to it.</p>
+
+    <h3>What that assumes</h3>
+    <ul>
+      <li><b>Votes are spread evenly within a poll.</b> This is the standard
+        areal-interpolation assumption and the main caveat on every number here.
+        Where a poll mixes a tower block with a park, the even-spreading assumption
+        is wrong, and no amount of extra sampling resolution fixes it.</li>
+      <li><b>Area is a stand-in for voters.</b> Weighting by population would be
+        better. If you can get dissemination-block counts, weighting the lattice by
+        block population would be the natural next step.</li>
+      <li><b>Small overlaps are discarded.</b> Two agencies digitise the same street
+        slightly differently, so nearly every boundary pair produces hairline slivers
+        that hold no voters. Overlaps below the chosen threshold are dropped and the
+        remaining shares are rescaled to carry exactly the vote mass the slivers held.</li>
+    </ul>
+
+    <h3>Polls with no real boundary</h3>
+    <p>Elections Canada marks mobile polls (type M, numbered from 500) and
+      single-building polls (type S, numbered from 400). Mobile polls serve care homes
+      and similar institutions; their polygons are token markers a few metres across,
+      not catchments. They are excluded from the map by default. Because the lattice
+      can miss polygons that small, any polygon the lattice barely sees is instead
+      assigned whole to the unit containing an interior point of it, so its votes are
+      never silently lost.</p>
+
+    <h3>The coverage problem you cannot sample your way out of</h3>
+    <p>Advance polls, special ballots and mail-in votes have no boundary in either
+      agency's geography. They are a large and growing share of the vote, and they are
+      not distributed like election-day votes. Whenever results are loaded, the Data
+      tab reports what fraction of the votes in the file landed in a mapped poll.
+      Treat any correlation here as a statement about election-day ordinary votes, and
+      quote that coverage figure alongside it.</p>
+
+    <h3>Reading the correlation</h3>
+    <p>Both the unweighted and the vote-weighted Pearson coefficient are shown.
+      They differ because small polls are numerous and noisy; the weighted figure is
+      usually the more honest summary of how the electorate actually behaved, while the
+      unweighted one describes how the polls behave as units. Spearman's rank
+      coefficient is given as a check against a handful of outliers driving the fit.
+      Note that units are not independent observations &mdash; neighbouring polls
+      resemble each other &mdash; so the confidence interval is narrower than the
+      spatial autocorrelation really warrants.</p>
+
+    <h3>Choosing the common geography</h3>
+    <p>Redistributing onto provincial voting areas moves federal votes and leaves
+      provincial votes untouched; onto federal divisions it does the reverse. Overlap
+      pieces move both and give the most units, but each is smaller and noisier.
+      If a result only holds on one of the three, it is a property of the method
+      rather than of the electorate.</p>
+  </div>
+</section>
+</div>

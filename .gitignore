@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- Vancouver poll atlas ---
+# Test fixtures — regenerate with the two scripts in tests/
+fixtures/
+# Playwright screenshots from the browser suites
+shot-*.png
