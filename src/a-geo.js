@@ -79,6 +79,45 @@ const Geo = (() => {
     };
   }
 
+  /* Lambert Conformal Conic inverse (Snyder 15-1 to 15-11, ellipsoidal, two
+     standard parallels; one when they coincide). Statistics Canada publishes
+     every census boundary file in this projection (EPSG:3347). */
+  function lccInverse(opts) {
+    const { lat1, lat2, lat0, lon0, x0, y0 } = opts;
+    const tOf = (phi) => {
+      const s = Math.sin(phi);
+      return Math.tan(Math.PI / 4 - phi / 2) / Math.pow((1 - E * s) / (1 + E * s), E / 2);
+    };
+    const p1 = lat1 * D2R, p2 = lat2 * D2R, p0 = lat0 * D2R;
+    const m1 = mOf(Math.sin(p1), Math.cos(p1)), m2 = mOf(Math.sin(p2), Math.cos(p2));
+    const t1 = tOf(p1), t2 = tOf(p2), t0 = tOf(p0);
+    const n = Math.abs(p1 - p2) < 1e-10
+      ? Math.sin(p1)
+      : (Math.log(m1) - Math.log(m2)) / (Math.log(t1) - Math.log(t2));
+    const F = m1 / (n * Math.pow(t1, n));
+    const rho0 = A * F * Math.pow(t0, n);
+    return (x, y) => {
+      const xs = x - x0, ys = rho0 - (y - y0);
+      const sign = n < 0 ? -1 : 1;
+      const rho = sign * Math.hypot(xs, ys);
+      const theta = Math.atan2(sign * xs, sign * ys);
+      const t = Math.pow(rho / (A * F), 1 / n);
+      let phi = Math.PI / 2 - 2 * Math.atan(t);
+      for (let i = 0; i < 15; i++) {
+        const s = Math.sin(phi);
+        const next = Math.PI / 2 - 2 * Math.atan(t * Math.pow((1 - E * s) / (1 + E * s), E / 2));
+        const step = Math.abs(next - phi);
+        phi = next;
+        if (step < 1e-13) break;
+      }
+      return [lon0 + (theta / n) * R2D, phi * R2D];
+    };
+  }
+
+  /* EPSG:3347 -- central meridian 91 deg 52 min west. */
+  const STATCAN_LAMBERT = { lat1: 49, lat2: 77, lat0: 63.390675, lon0: -(91 + 52 / 60),
+                            x0: 6200000, y0: 3000000 };
+
   const webMercatorInverse = (x, y) => [
     (x / 20037508.342789244) * 180,
     R2D * (2 * Math.atan(Math.exp((y / 20037508.342789244) * Math.PI)) - Math.PI / 2),
@@ -106,6 +145,14 @@ const Geo = (() => {
       name: 'NAD83 / UTM zone 11N',
       inverse: tmInverse({ lon0: -117, k0: 0.9996, x0: 500000, y0: 0 }),
     },
+    'EPSG:3347': {
+      name: 'NAD83 / Statistics Canada Lambert (EPSG:3347)',
+      inverse: lccInverse(STATCAN_LAMBERT),
+    },
+    'EPSG:3348': {
+      name: 'NAD83(CSRS) / Statistics Canada Lambert (EPSG:3348)',
+      inverse: lccInverse(STATCAN_LAMBERT),
+    },
     'EPSG:3857': { name: 'Web Mercator (EPSG:3857)', inverse: webMercatorInverse },
   };
 
@@ -117,11 +164,11 @@ const Geo = (() => {
     const epsg = /AUTHORITY\s*\[\s*"EPSG"\s*,\s*"(\d+)"\s*\]\s*\]\s*$/i.exec(w);
     if (epsg && CRS['EPSG:' + epsg[1]]) return 'EPSG:' + epsg[1];
     if (!/PROJCS/i.test(up)) return 'EPSG:4326';
+    const num = (key) => {
+      const m = new RegExp('PARAMETER\\s*\\[\\s*"' + key + '"\\s*,\\s*(-?[\\d.]+)', 'i').exec(w);
+      return m ? parseFloat(m[1]) : null;
+    };
     if (/ALBERS/.test(up)) {
-      const num = (key) => {
-        const m = new RegExp('PARAMETER\\s*\\[\\s*"' + key + '"\\s*,\\s*(-?[\\d.]+)', 'i').exec(w);
-        return m ? parseFloat(m[1]) : null;
-      };
       const lat1 = num('standard_parallel_1'), lat2 = num('standard_parallel_2');
       const lat0 = num('latitude_of_center') ?? num('latitude_of_origin');
       const lon0 = num('longitude_of_center') ?? num('central_meridian');
@@ -135,6 +182,31 @@ const Geo = (() => {
         return key;
       }
       return 'EPSG:3005';
+    }
+    /* Statistics Canada's .prj is Esri-style: PROJECTION["Lambert_Conformal_Conic"]
+       with Standard_Parallel_1/2, Latitude_Of_Origin, Central_Meridian and no
+       AUTHORITY, so the parameters are what identify it. */
+    if (/LAMBERT_CONFORMAL_CONIC/.test(up)) {
+      const lat1 = num('standard_parallel_1');
+      const lat2 = num('standard_parallel_2') ?? lat1;
+      const lat0 = num('latitude_of_origin') ?? num('latitude_of_center');
+      const lon0 = num('central_meridian') ?? num('longitude_of_center');
+      const x0 = num('false_easting') ?? 0, y0 = num('false_northing') ?? 0;
+      if ([lat1, lat0, lon0].every((v) => v != null)) {
+        const sc = STATCAN_LAMBERT;
+        const same = (a, b) => Math.abs(a - b) < 1e-6;
+        if (same(lat1, sc.lat1) && same(lat2, sc.lat2) && same(lat0, sc.lat0)
+            && same(lon0, sc.lon0) && same(x0, sc.x0) && same(y0, sc.y0)) {
+          return 'EPSG:3347';
+        }
+        const key = 'WKT:LCC';
+        CRS[key] = {
+          name: `Lambert Conformal Conic (${lat1}/${lat2}, ${lon0})`,
+          inverse: lccInverse({ lat1, lat2, lat0, lon0, x0, y0 }),
+        };
+        return key;
+      }
+      return 'EPSG:3347';
     }
     if (/MERCATOR_AUXILIARY_SPHERE|POPULAR VISUALISATION|WEB[ _]MERCATOR|PSEUDO-MERCATOR/.test(up)) {
       return 'EPSG:3857';
@@ -153,6 +225,11 @@ const Geo = (() => {
     if (maxX <= 180 && minX >= -180 && maxY <= 90 && minY >= -90) return 'EPSG:4326';
     if (minX > 2e5 && maxX < 2.0e6 && minY > 3e5 && maxY < 1.9e6) return 'EPSG:3005';
     if (minX > 1.6e5 && maxX < 8.4e5 && minY > 4.5e6 && maxY < 7.0e6) return 'EPSG:26910';
+    /* Statistics Canada Lambert: Canada spans roughly x 3.0e6-9.5e6, y 0.5e6-5.5e6
+       (Vancouver is near 4.02e6, 2.00e6). A Web Mercator file inside this box
+       would lie in Asia or Africa, not Canada, so this check comes before the
+       Mercator catch-all. */
+    if (minX > 3.0e6 && maxX < 9.5e6 && minY > 0.5e6 && maxY < 5.5e6) return 'EPSG:3347';
     if (Math.abs(maxX) <= 20037509 && Math.abs(maxY) <= 20037509) return 'EPSG:3857';
     return null;
   }
@@ -352,7 +429,7 @@ const Geo = (() => {
   }
 
   return {
-    CRS, crsFromWkt, crsFromExtent, project, crsName, R_AUTHALIC,
+    CRS, crsFromWkt, crsFromExtent, project, crsName, R_AUTHALIC, lccInverse, STATCAN_LAMBERT,
     inRing, inPolygon, inGeometry, bboxOf, areaM2, buildIndex, representativePoint,
     normalizeWinding, signedArea2,
   };

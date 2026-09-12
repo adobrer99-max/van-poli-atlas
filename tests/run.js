@@ -13,9 +13,11 @@ const fs = require('fs');
 const path = require('path');
 
 const root = path.join(__dirname, '..');
-const NODE_SUITES = ['test-geo', 'test-text', 'test-binary', 'test-ingest', 'test-analysis',
-  'test-slivers', 'test-repair', 'test-results', 'test-turnout', 'test-perf'];
+const NODE_SUITES = ['test-geo', 'test-lcc', 'test-text', 'test-binary', 'test-ingest', 'test-analysis',
+  'test-sample', 'test-slivers', 'test-repair', 'test-results', 'test-turnout', 'test-census', 'test-perf'];
 const BROWSER_SUITES = ['test-browser', 'test-variants'];
+/* Python suites cover the local tools in tools/; they run with the node ones. */
+const PYTHON_SUITES = ['test-shp-tools', 'test-filter-census'];
 
 const args = new Set(process.argv.slice(2));
 const suites = args.has('--all') ? NODE_SUITES.concat(BROWSER_SUITES)
@@ -41,13 +43,16 @@ if (suites.some((s) => BROWSER_SUITES.includes(s))) {
 }
 
 const started = Date.now();
-for (const suite of suites) {
+const run = (suite, cmd, file) => {
   console.log(`\n### ${suite}`);
-  const result = spawnSync(process.execPath, [path.join(__dirname, suite + '.js')],
-    { cwd: root, stdio: 'inherit' });
+  const result = spawnSync(cmd, [file], { cwd: root, stdio: 'inherit' });
   if (result.status !== 0) {
-    console.error(`\n${suite} failed (${result.status == null ? result.signal : 'exit ' + result.status}).`);
+    console.error(`\n${suite} failed (${result.status == null ? result.signal || result.error : 'exit ' + result.status}).`);
     process.exit(result.status || 1);
   }
-}
-console.log(`\nAll ${suites.length} suites passed in ${((Date.now() - started) / 1000).toFixed(0)} s.`);
+};
+for (const suite of suites) run(suite, process.execPath, path.join(__dirname, suite + '.js'));
+const python = !args.has('--browser');
+if (python) for (const suite of PYTHON_SUITES) run(suite, process.platform === 'win32' ? 'python' : 'python3', path.join(__dirname, suite + '.py'));
+const total = suites.length + (python ? PYTHON_SUITES.length : 0);
+console.log(`\nAll ${total} suites passed in ${((Date.now() - started) / 1000).toFixed(0)} s.`);

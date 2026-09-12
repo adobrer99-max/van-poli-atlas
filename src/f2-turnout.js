@@ -65,12 +65,17 @@ const Turnout = (() => {
 
   /* --- Rows on a common geography ------------------------------------------
 
-     sources: [{ id: 'fed' | 'prov', values: Map<index, unit>, pairs }].
-     target:  'fed' | 'prov' | 'atom'. A source native to the target is used
-     as-is; any other is moved through its crosswalk pairs; a source with no
-     pairs is left out, so a federal-only ranking works before a provincial
-     layer exists. Each row carries `by[sourceId]` and a reference elector
-     count from the target's native source. */
+     sources: [{ id, values: Map<index, unit>, pairs, side }].
+     target:  a source id ('fed' | 'prov' | 'da' ...) or 'atom'. A source native
+     to the target is used as-is; any other is moved through its crosswalk
+     pairs, from the side it sits on ('a' or 'b'; a source without a side is
+     'a' when its id is 'fed' and 'b' otherwise, which is the federal-provincial
+     crosswalk's convention); a source with no pairs is left out, so a
+     federal-only ranking works before a provincial layer exists. Each row
+     carries `by[sourceId]` and a reference elector count from the target's
+     native source, or the first source present. */
+  const sideOf = (s) => s.side || (s.id === 'fed' ? 'a' : 'b');
+
   function rowsOnUnit(target, sources, labels, { minElectors = 0 } = {}) {
     const rows = new Map();
     const ensure = (key, label) => {
@@ -81,25 +86,31 @@ const Turnout = (() => {
     if (target === 'atom') {
       const withPairs = sources.find((s) => s.pairs);
       if (!withPairs) return [];
+      const aSrc = sources.find((s) => s.pairs && sideOf(s) === 'a');
+      const bSrc = sources.find((s) => s.pairs && sideOf(s) === 'b');
+      const labelA = (aSrc && labels[aSrc.id]) || labels.fed;
+      const labelB = (bSrc && labels[bSrc.id]) || labels.prov;
       for (const p of withPairs.pairs) {
-        const row = ensure(`${p.fi}|${p.pi}`, `${labels.fed(p.fi)} × ${labels.prov(p.pi)}`);
+        const ai = Analysis.pairIndex(p, 'a'), bi = Analysis.pairIndex(p, 'b');
+        const row = ensure(`${ai}|${bi}`, `${labelA(ai)} × ${labelB(bi)}`);
         for (const s of sources) {
-          const u = s.values.get(s.id === 'fed' ? p.fi : p.pi);
-          if (u) row.by[s.id] = Analysis.scaledUnit(u, s.id === 'fed' ? p.shareOfFed : p.shareOfProv);
+          const side = sideOf(s);
+          const u = s.values.get(Analysis.pairIndex(p, side));
+          if (u) row.by[s.id] = Analysis.scaledUnit(u, Analysis.pairShare(p, side));
         }
       }
     } else {
       for (const s of sources) {
         let onTarget;
         if (s.id === target) onTarget = s.values;
-        else if (s.pairs) onTarget = Analysis.redistribute(s.pairs, s.values, { from: s.id });
+        else if (s.pairs) onTarget = Analysis.redistribute(s.pairs, s.values, { from: sideOf(s) });
         else continue;
         for (const [idx, u] of onTarget) ensure(String(idx), labels[target](idx)).by[s.id] = u;
       }
     }
     const out = [];
     for (const row of rows.values()) {
-      const ref = row.by[target] || row.by.fed || row.by.prov;
+      const ref = row.by[target] || row.by.fed || row.by.prov || Object.values(row.by)[0];
       row.electors = ref ? ref.electors : 0;
       if (row.electors < minElectors) continue;
       out.push(row);

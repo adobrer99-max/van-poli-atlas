@@ -12,69 +12,200 @@
 --------------------------------------------------------------------------- */
 const Analysis = (() => {
 
-  /* --- Crosswalk --------------------------------------------------------- */
+  /* --- Lattice sample ------------------------------------------------------
 
-  /* Runs as a generator so the caller can keep the page responsive; each
-     next() processes one band of lattice rows and reports progress. */
-  function* crosswalkRunner(fedFeatures, provFeatures, options = {}) {
+     One equal-area lattice is laid over the study area and every point is
+     hit-tested against every loaded layer once. The per-point hits are kept,
+     so any pair of layers can be crossed afterwards in one pass over the
+     sample, and the same sample can be re-weighted -- by block population,
+     say -- without sampling again.
+
+     Runs as a generator so the caller can keep the page responsive; each
+     next() processes one band of lattice rows and reports progress in (0, 1].
+
+     layers:  [{ features, index? }]   (indexes are built when absent)
+     options: { spacingM, extent }     extent defaults to the first layer's,
+              which is the anchor of the study (the active federal polls).
+     Returns  { spacingM, extent, rows, points, n, hits, nFeatures, layers,
+                indexes } where hits[k] is an Int32Array of length n holding
+              the feature index in layer k for each stored point (-1 = miss);
+              only points that hit at least one layer are stored. */
+  function* sampleLattice(layers, options = {}) {
     const spacingM = options.spacingM || 40;
-    const fedIndex = options.fedIndex || Geo.buildIndex(fedFeatures);
-    const provIndex = options.provIndex || Geo.buildIndex(provFeatures);
-    if (!fedIndex.extent || !provIndex.extent) {
-      return { cells: new Map(), fedCount: [], provCount: [], spacingM, points: 0, hits: 0 };
+    const indexes = layers.map((l) => l.index || Geo.buildIndex(l.features));
+    const nFeatures = layers.map((l) => l.features.length);
+    const features = layers.map((l) => l.features);
+    const ext = options.extent || indexes[0].extent;
+    if (!ext || !(ext[2] > ext[0] && ext[3] > ext[1])) {
+      return { spacingM, extent: null, rows: 0, points: 0, n: 0,
+               hits: layers.map(() => new Int32Array(0)), nFeatures, layers: features, indexes };
     }
-    /* Only the overlap of the two layers can contribute. */
-    const minX = Math.max(fedIndex.extent[0], provIndex.extent[0]);
-    const minY = Math.max(fedIndex.extent[1], provIndex.extent[1]);
-    const maxX = Math.min(fedIndex.extent[2], provIndex.extent[2]);
-    const maxY = Math.min(fedIndex.extent[3], provIndex.extent[3]);
-    const cells = new Map();
-    const fedCount = new Float64Array(fedFeatures.length);
-    const provCount = new Float64Array(provFeatures.length);
-    /* Points that landed in both layers, so a poll only partly covered by the
-       other geography can be flagged rather than silently extrapolated. */
-    const fedBoth = new Float64Array(fedFeatures.length);
-    const provBoth = new Float64Array(provFeatures.length);
-    let points = 0, hits = 0, bothHits = 0;
-
-    if (!(maxX > minX && maxY > minY)) {
-      return { cells, fedCount, provCount, fedBoth, provBoth, spacingM,
-               points, hits, bothHits, overlap: false, extent: null,
-               nProv: provFeatures.length };
-    }
+    const [minX, minY, maxX, maxY] = ext;
     const dLat = spacingM / 110574;
     const rows = Math.max(1, Math.ceil((maxY - minY) / dLat));
     const rowsPerStep = Math.max(1, Math.ceil(rows / 60));
+    /* Widen the longitude step with latitude so every sample point stands
+       for the same ground area. */
+    const dLonOf = (r) => spacingM / (111320 * Math.cos((minY + (r + 0.5) * dLat) * Math.PI / 180));
+    /* Column counts are known up front, so the hit arrays are allocated once
+       at (a little over) the size they can need. */
+    let capacity = 0;
+    for (let r = 0; r < rows; r++) {
+      const dLon = dLonOf(r);
+      capacity += Math.max(0, Math.floor((maxX - (minX + dLon / 2)) / dLon) + 2);
+    }
+    const hits = layers.map(() => new Int32Array(capacity));
+    const tmp = new Int32Array(layers.length);
+    let points = 0, n = 0;
 
     for (let r0 = 0; r0 < rows; r0 += rowsPerStep) {
       for (let r = r0; r < Math.min(rows, r0 + rowsPerStep); r++) {
         const lat = minY + (r + 0.5) * dLat;
-        /* Widen the longitude step with latitude so every sample point stands
-           for the same ground area. */
-        const dLon = spacingM / (111320 * Math.cos(lat * Math.PI / 180));
+        const dLon = dLonOf(r);
         for (let x = minX + dLon / 2; x <= maxX; x += dLon) {
           points++;
-          const fi = fedIndex.hit(x, lat);
-          const pi = provIndex.hit(x, lat);
-          if (fi < 0 && pi < 0) continue;
-          hits++;
-          if (fi >= 0) fedCount[fi]++;
-          if (pi >= 0) provCount[pi]++;
-          if (fi >= 0 && pi >= 0) {
-            bothHits++;
-            fedBoth[fi]++;
-            provBoth[pi]++;
-            const key = fi * provFeatures.length + pi;
-            cells.set(key, (cells.get(key) || 0) + 1);
+          let any = false;
+          for (let k = 0; k < layers.length; k++) {
+            const h = indexes[k].hit(x, lat);
+            tmp[k] = h;
+            if (h >= 0) any = true;
           }
+          if (!any) continue;
+          for (let k = 0; k < layers.length; k++) hits[k][n] = tmp[k];
+          n++;
         }
       }
       yield Math.min(1, (r0 + rowsPerStep) / rows);
     }
-    return { cells, fedCount, provCount, fedBoth, provBoth, spacingM,
-             points, hits, bothHits, overlap: true,
-             extent: [minX, minY, maxX, maxY], nProv: provFeatures.length };
+    return { spacingM, extent: [minX, minY, maxX, maxY], rows, points, n,
+             hits: hits.map((h) => h.subarray(0, n)), nFeatures, layers: features, indexes };
   }
+
+  /* Per-point weights from a population layer: each feature's population is
+     spread evenly over the lattice points inside it, so a point stands for
+     people rather than ground. A point outside every populated feature takes
+     the fallback weight -- another layer's weights, or 1 (plain area). */
+  function pointWeights(sample, layerIdx, popByFeature, fallback = null) {
+    const h = sample.hits[layerIdx];
+    const count = new Float64Array(sample.nFeatures[layerIdx]);
+    for (let p = 0; p < sample.n; p++) if (h[p] >= 0) count[h[p]]++;
+    const pop = (i) => {
+      const v = popByFeature instanceof Map ? popByFeature.get(i) : popByFeature[i];
+      return v != null && isFinite(v) && v >= 0 ? v : null;
+    };
+    const w = new Float64Array(sample.n);
+    for (let p = 0; p < sample.n; p++) {
+      const i = h[p];
+      const v = i >= 0 ? pop(i) : null;
+      w[p] = v != null ? v / count[i] : (fallback ? fallback[p] : 1);
+    }
+    return w;
+  }
+
+  /* --- Crosswalk between two sampled layers ------------------------------
+
+     Unweighted, every point counts one and the shares are shares of area;
+     with weights they are shares of whatever the weights carry. A feature the
+     lattice saw but whose weight sums to zero -- a park under population
+     weights -- would have its votes zeroed by any share computed from it, so
+     its points take the mean point weight instead and the feature is listed
+     in areaFallback for the status line. */
+  function crosswalkBetween(sample, ai, bi, options = {}) {
+    const weights = options.weights || null;
+    const ha = sample.hits[ai], hb = sample.hits[bi];
+    const nA = sample.nFeatures[ai], nB = sample.nFeatures[bi];
+    const cw = {
+      spacingM: sample.spacingM, extent: sample.extent, points: sample.points,
+      nA, nB,
+      aPoints: new Float64Array(nA), bPoints: new Float64Array(nB),   // raw point counts
+      aCount: new Float64Array(nA), bCount: new Float64Array(nB),     // weighted mass
+      aBoth: new Float64Array(nA), bBoth: new Float64Array(nB),       // mass also inside the other layer
+      cells: new Map(),                                               // ai * nB + bi -> mass
+      weighted: Boolean(weights), areaFallback: { a: [], b: [] },
+      hits: 0, bothHits: 0, overlap: Boolean(sample.extent),
+    };
+    if (!sample.n) return cw;
+
+    /* Pass 1: raw counts and mass, to find zero-mass features. */
+    let wSum = 0, wN = 0;
+    for (let p = 0; p < sample.n; p++) {
+      const fa = ha[p], fb = hb[p];
+      if (fa < 0 && fb < 0) continue;
+      const w = weights ? weights[p] : 1;
+      if (fa >= 0) { cw.aPoints[fa]++; cw.aCount[fa] += w; }
+      if (fb >= 0) { cw.bPoints[fb]++; cw.bCount[fb] += w; }
+      wSum += w; wN++;
+    }
+    let fixA = null, fixB = null;
+    if (weights) {
+      const meanW = wN ? wSum / wN : 1;
+      for (let i = 0; i < nA; i++) if (cw.aPoints[i] > 0 && !(cw.aCount[i] > 0)) { (fixA ||= new Set()).add(i); cw.areaFallback.a.push(i); }
+      for (let i = 0; i < nB; i++) if (cw.bPoints[i] > 0 && !(cw.bCount[i] > 0)) { (fixB ||= new Set()).add(i); cw.areaFallback.b.push(i); }
+      if (fixA || fixB) { cw.aCount.fill(0); cw.bCount.fill(0); cw.fallbackWeight = meanW; }
+      else { weightsApplied(cw, sample, ha, hb, weights, null, null, 0); return cw; }
+      weightsApplied(cw, sample, ha, hb, weights, fixA, fixB, meanW);
+      return cw;
+    }
+    weightsApplied(cw, sample, ha, hb, null, null, null, 0);
+    return cw;
+  }
+
+  /* Pass 2 of crosswalkBetween: accumulate cells and "both" masses, with the
+     zero-mass fallback applied. Counts are re-accumulated only when a fallback
+     changed some weights; otherwise pass 1's counts stand. */
+  function weightsApplied(cw, sample, ha, hb, weights, fixA, fixB, meanW) {
+    const recount = Boolean(fixA || fixB);
+    let hits = 0, bothHits = 0;
+    for (let p = 0; p < sample.n; p++) {
+      const fa = ha[p], fb = hb[p];
+      if (fa < 0 && fb < 0) continue;
+      let w = weights ? weights[p] : 1;
+      if ((fixA && fa >= 0 && fixA.has(fa)) || (fixB && fb >= 0 && fixB.has(fb))) w = meanW;
+      hits++;
+      if (recount) {
+        if (fa >= 0) cw.aCount[fa] += w;
+        if (fb >= 0) cw.bCount[fb] += w;
+      }
+      if (fa >= 0 && fb >= 0) {
+        bothHits++;
+        cw.aBoth[fa] += w;
+        cw.bBoth[fb] += w;
+        const key = fa * cw.nB + fb;
+        cw.cells.set(key, (cw.cells.get(key) || 0) + w);
+      }
+    }
+    cw.hits = hits;
+    cw.bothHits = bothHits;
+  }
+
+  /* The two-layer runner every existing caller uses: samples the overlap of
+     the federal and provincial extents (exactly the lattice it always laid)
+     and crosses the pair. The result carries both the a/b names and the
+     older fed/prov aliases, which point at the same arrays. */
+  function* crosswalkRunner(fedFeatures, provFeatures, options = {}) {
+    const spacingM = options.spacingM || 40;
+    const fedIndex = options.fedIndex || Geo.buildIndex(fedFeatures);
+    const provIndex = options.provIndex || Geo.buildIndex(provFeatures);
+    let extent = null;
+    if (fedIndex.extent && provIndex.extent) {
+      /* Only the overlap of the two layers can contribute. */
+      const minX = Math.max(fedIndex.extent[0], provIndex.extent[0]);
+      const minY = Math.max(fedIndex.extent[1], provIndex.extent[1]);
+      const maxX = Math.min(fedIndex.extent[2], provIndex.extent[2]);
+      const maxY = Math.min(fedIndex.extent[3], provIndex.extent[3]);
+      if (maxX > minX && maxY > minY) extent = [minX, minY, maxX, maxY];
+    }
+    const sample = yield* sampleLattice(
+      [{ features: fedFeatures, index: fedIndex }, { features: provFeatures, index: provIndex }],
+      { spacingM, extent });
+    if (!extent) sample.extent = null;
+    return legacyNames(crosswalkBetween(sample, 0, 1));
+  }
+
+  const legacyNames = (cw) => Object.assign(cw, {
+    fedCount: cw.aCount, provCount: cw.bCount, fedBoth: cw.aBoth, provBoth: cw.bBoth,
+    fedPoints: cw.aPoints, provPoints: cw.bPoints, nProv: cw.nB,
+  });
 
   /* Lattice sampling breaks down for very small polygons. Elections Canada
      mobile polls (type M) and single-building polls (type S) are only metres
@@ -82,11 +213,18 @@ const Analysis = (() => {
      vanish from the analysis -- exactly the dense downtown and care-home polls
      that matter most. Any feature the lattice barely saw is instead assigned
      whole to the unit containing its representative interior point, with its
-     true area as the weight so the other layer's shares stay proportional. */
-  function repairSmallFeatures(cw, fedFeatures, provFeatures, indexes, minSamples = 6) {
-    if (!cw.overlap) return { fed: [], prov: [] };
+     true area as the weight (times the local point weight, when the sample is
+     weighted) so the other layer's shares stay proportional.
+
+     indexes: { a, b } or the older { fed, prov }. */
+  function repairSmallFeatures(cw, aFeatures, bFeatures, indexes, minSamples = 6) {
+    const repaired = { a: [], b: [] };
+    repaired.fed = repaired.a; repaired.prov = repaired.b;
+    if (!cw.overlap) return repaired;
+    const idxA = indexes.a || indexes.fed, idxB = indexes.b || indexes.prov;
     const unit = cw.spacingM * cw.spacingM;
-    const repaired = { fed: [], prov: [] };
+    const nB = cw.nB;
+    const localWeight = (count, points, i) => (points[i] > 0 && count[i] > 0 ? count[i] / points[i] : 1);
 
     const cellsFor = (matches) => {
       const out = [];
@@ -94,35 +232,37 @@ const Analysis = (() => {
       return out;
     };
 
-    fedFeatures.forEach((feature, fi) => {
-      if (cw.fedCount[fi] >= minSamples) return;
+    aFeatures.forEach((feature, ai) => {
+      if (cw.aPoints[ai] >= minSamples) return;
       const pt = Geo.representativePoint(feature.geometry);
       if (!pt) return;
-      const mass = Math.max(Geo.areaM2(feature.geometry) / unit, 1e-6);
-      for (const key of cellsFor((k) => Math.floor(k / cw.nProv) === fi)) cw.cells.delete(key);
-      const pi = indexes.prov.hit(pt[0], pt[1]);
-      cw.fedCount[fi] = mass;
-      cw.fedBoth[fi] = pi >= 0 ? mass : 0;
-      if (pi >= 0) {
-        cw.cells.set(fi * cw.nProv + pi, mass);
-        if (cw.provCount[pi] < minSamples) cw.provCount[pi] = Math.max(cw.provCount[pi], mass);
+      const bi = idxB.hit(pt[0], pt[1]);
+      const mass = Math.max(Geo.areaM2(feature.geometry) / unit, 1e-6)
+        * (bi >= 0 ? localWeight(cw.bCount, cw.bPoints, bi) : 1);
+      for (const key of cellsFor((k) => Math.floor(k / nB) === ai)) cw.cells.delete(key);
+      cw.aCount[ai] = mass;
+      cw.aBoth[ai] = bi >= 0 ? mass : 0;
+      if (bi >= 0) {
+        cw.cells.set(ai * nB + bi, mass);
+        if (cw.bPoints[bi] < minSamples) cw.bCount[bi] = Math.max(cw.bCount[bi], mass);
       }
-      repaired.fed.push(fi);
+      repaired.a.push(ai);
     });
 
-    provFeatures.forEach((feature, pi) => {
-      if (cw.provCount[pi] >= minSamples) return;
+    bFeatures.forEach((feature, bi) => {
+      if (cw.bPoints[bi] >= minSamples) return;
       const pt = Geo.representativePoint(feature.geometry);
       if (!pt) return;
-      const mass = Math.max(Geo.areaM2(feature.geometry) / unit, 1e-6);
-      const fi = indexes.fed.hit(pt[0], pt[1]);
-      /* Leave alone anything the federal pass already pinned here. */
-      if (fi >= 0 && repaired.fed.includes(fi)) return;
-      for (const key of cellsFor((k) => k % cw.nProv === pi)) cw.cells.delete(key);
-      cw.provCount[pi] = mass;
-      cw.provBoth[pi] = fi >= 0 ? mass : 0;
-      if (fi >= 0) cw.cells.set(fi * cw.nProv + pi, mass);
-      repaired.prov.push(pi);
+      const ai = idxA.hit(pt[0], pt[1]);
+      /* Leave alone anything the first pass already pinned here. */
+      if (ai >= 0 && repaired.a.includes(ai)) return;
+      const mass = Math.max(Geo.areaM2(feature.geometry) / unit, 1e-6)
+        * (ai >= 0 ? localWeight(cw.aCount, cw.aPoints, ai) : 1);
+      for (const key of cellsFor((k) => k % nB === bi)) cw.cells.delete(key);
+      cw.bCount[bi] = mass;
+      cw.bBoth[bi] = ai >= 0 ? mass : 0;
+      if (ai >= 0) cw.cells.set(ai * nB + bi, mass);
+      repaired.b.push(bi);
     });
 
     return repaired;
@@ -140,17 +280,20 @@ const Analysis = (() => {
      The shares that remain are rescaled to recover exactly the mass that the
      dropped slivers were carrying -- not to 1. A poll lying partly outside the
      other layer keeps its true coverage instead of having its votes pushed
-     inside. */
+     inside.
+
+     Every pair carries both namings: ai/bi/shareOfA/shareOfB and the older
+     fi/pi/shareOfFed/shareOfProv, which are the same numbers. */
   function crosswalkPairs(cw, options = {}) {
     const minShare = options.minShare || 0;
+    const nB = cw.nB;
     const raw = [];
     for (const [key, count] of cw.cells) {
-      const fi = Math.floor(key / cw.nProv), pi = key % cw.nProv;
-      raw.push({
-        fi, pi, count,
-        shareOfFed: cw.fedCount[fi] ? count / cw.fedCount[fi] : 0,
-        shareOfProv: cw.provCount[pi] ? count / cw.provCount[pi] : 0,
-      });
+      const ai = Math.floor(key / nB), bi = key % nB;
+      const shareOfA = cw.aCount[ai] ? count / cw.aCount[ai] : 0;
+      const shareOfB = cw.bCount[bi] ? count / cw.bCount[bi] : 0;
+      raw.push({ ai, bi, fi: ai, pi: bi, count, shareOfA, shareOfB,
+                 shareOfFed: shareOfA, shareOfProv: shareOfB });
     }
     if (!minShare) return raw;
 
@@ -159,25 +302,28 @@ const Analysis = (() => {
       for (const p of list) totals.set(p[idx], (totals.get(p[idx]) || 0) + p[key]);
       return totals;
     };
-    const fedBefore = sum(raw, 'shareOfFed', 'fi');
-    const provBefore = sum(raw, 'shareOfProv', 'pi');
-    const kept = raw.filter((p) => p.shareOfFed >= minShare || p.shareOfProv >= minShare);
-    const fedAfter = sum(kept, 'shareOfFed', 'fi');
-    const provAfter = sum(kept, 'shareOfProv', 'pi');
+    const aBefore = sum(raw, 'shareOfA', 'ai');
+    const bBefore = sum(raw, 'shareOfB', 'bi');
+    const kept = raw.filter((p) => p.shareOfA >= minShare || p.shareOfB >= minShare);
+    const aAfter = sum(kept, 'shareOfA', 'ai');
+    const bAfter = sum(kept, 'shareOfB', 'bi');
     for (const p of kept) {
-      const fScale = fedAfter.get(p.fi) > 0 ? fedBefore.get(p.fi) / fedAfter.get(p.fi) : 1;
-      const pScale = provAfter.get(p.pi) > 0 ? provBefore.get(p.pi) / provAfter.get(p.pi) : 1;
-      p.shareOfFed *= fScale;
-      p.shareOfProv *= pScale;
+      const aScale = aAfter.get(p.ai) > 0 ? aBefore.get(p.ai) / aAfter.get(p.ai) : 1;
+      const bScale = bAfter.get(p.bi) > 0 ? bBefore.get(p.bi) / bAfter.get(p.bi) : 1;
+      p.shareOfA *= aScale;
+      p.shareOfB *= bScale;
+      p.shareOfFed = p.shareOfA;
+      p.shareOfProv = p.shareOfB;
     }
     return kept;
   }
 
   /* Fraction of each feature that lies inside the other layer at all. */
-  const coverage = (cw) => ({
-    fed: Array.from(cw.fedCount, (n, i) => (n ? cw.fedBoth[i] / n : 0)),
-    prov: Array.from(cw.provCount, (n, i) => (n ? cw.provBoth[i] / n : 0)),
-  });
+  const coverage = (cw) => {
+    const a = Array.from(cw.aCount, (n, i) => (n ? cw.aBoth[i] / n : 0));
+    const b = Array.from(cw.bCount, (n, i) => (n ? cw.bBoth[i] / n : 0));
+    return { a, b, fed: a, prov: b };
+  };
 
   /* --- Vote redistribution ----------------------------------------------- */
 
@@ -196,22 +342,25 @@ const Analysis = (() => {
   }
   const scaledUnit = (src, w) => addScaled(emptyUnit(), src, w);
 
-  /* values: index -> unit. Splits each source unit's counts across the target
-     units in proportion to shared area (or shared population, once the sample
-     carries weights). */
+  /* values: index -> unit on the source side. Splits each source unit's counts
+     across the target units in proportion to shared area (or shared
+     population, once the sample carries weights).
+     from: 'a' | 'b', or the older 'fed' (= a) | 'prov' (= b). */
+  const fromA = (from) => from === 'a' || from === 'fed';
+  const pairShare = (p, side) => (side === 'a' ? (p.shareOfA ?? p.shareOfFed) : (p.shareOfB ?? p.shareOfProv));
+  const pairIndex = (p, side) => (side === 'a' ? (p.ai ?? p.fi) : (p.bi ?? p.pi));
   function redistribute(pairs, values, { from }) {
-    const shareKey = from === 'fed' ? 'shareOfFed' : 'shareOfProv';
-    const sourceKey = from === 'fed' ? 'fi' : 'pi';
-    const targetKey = from === 'fed' ? 'pi' : 'fi';
+    const src = fromA(from) ? 'a' : 'b', dst = fromA(from) ? 'b' : 'a';
     const out = new Map();
     for (const pair of pairs) {
-      const src = values.get(pair[sourceKey]);
-      if (!src) continue;
-      const w = pair[shareKey];
+      const unit = values.get(pairIndex(pair, src));
+      if (!unit) continue;
+      const w = pairShare(pair, src);
       if (!(w > 0)) continue;
-      let acc = out.get(pair[targetKey]);
-      if (!acc) out.set(pair[targetKey], (acc = emptyUnit()));
-      addScaled(acc, src, w);
+      const target = pairIndex(pair, dst);
+      let acc = out.get(target);
+      if (!acc) out.set(target, (acc = emptyUnit()));
+      addScaled(acc, unit, w);
     }
     return out;
   }
@@ -354,6 +503,7 @@ const Analysis = (() => {
   }
 
   return {
+    sampleLattice, pointWeights, crosswalkBetween, pairShare, pairIndex,
     crosswalkRunner, crosswalkPairs, coverage, redistribute, repairSmallFeatures,
     emptyUnit, addScaled, scaledUnit,
     pearson, spearman, rankOf, linearFit, pearsonCI,

@@ -5,8 +5,8 @@ const fs = require('fs'), path = require('path'), vm = require('vm');
 const dir = path.join(__dirname, '..', 'src');
 function load(files, names) {
   const ctx = vm.createContext({
-    console, TextDecoder, TextEncoder, DecompressionStream, Response, ReadableStream,
-    Uint8Array, Uint16Array, Uint32Array, Int32Array, Float64Array, DataView,
+    console, TextDecoder, TextEncoder, DecompressionStream, Response, ReadableStream, Blob,
+    Uint8Array, Uint16Array, Uint32Array, Int32Array, Float32Array, Float64Array, DataView,
     Math, JSON, Map, Set, Date, Promise, Array, Object, String, Number, RegExp, Error,
     isFinite, isNaN, parseFloat, parseInt, globalThis: undefined,
   });

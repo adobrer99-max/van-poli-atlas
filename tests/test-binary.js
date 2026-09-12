@@ -34,6 +34,51 @@ const decode = (b) => T.decodeBytes(b);
   eq('VA code keeps its leading zero', dbf.rows[0].VA_CODE, '015');
   eq('numeric field parsed as number', dbf.rows[1].ELECTORS, 437);
 
+  console.log('\n== Filtered and streamed reads ==');
+  const shpBytes = read('fixtures/e2e_va.shp'), dbfBytes = read('fixtures/e2e_va.dbf');
+  const all = B.readShp(shpBytes);
+  const hb = B.shpHeaderBox(shpBytes);
+  const mid = [(hb[0] + hb[2]) / 2, (hb[1] + hb[3]) / 2];
+  const box = [mid[0] - 3000, mid[1] - 3000, mid[0] + 3000, mid[1] + 3000];   // metres, BC Albers
+  const keep = (b) => b[2] >= box[0] && b[0] <= box[2] && b[3] >= box[1] && b[1] <= box[3];
+  const some = B.readShp(shpBytes, { keep });
+  eq('a filtered read keeps every record slot', some.length, all.length);
+  const keptIdx = some.map((g, i) => (g ? i : -1)).filter((i) => i >= 0);
+  const brute = all.map((g, i) => (g && keep(Geo.bboxOf(g)) ? i : -1)).filter((i) => i >= 0);
+  eq(`kept exactly the records whose box touches the window (${keptIdx.length} of ${all.length})`, keptIdx, brute);
+  ok('kept geometries are identical', keptIdx.every((i) => JSON.stringify(some[i]) === JSON.stringify(all[i])));
+  const rowsAll = B.readDbf(dbfBytes, decode).rows;
+  const rowsSome = B.readDbf(dbfBytes, decode, { keep: (i) => some[i] != null }).rows;
+  ok('dbf rows filtered in step with the shapes', rowsSome.length === rowsAll.length
+     && rowsSome.every((r, i) => (r == null) === (some[i] == null))
+     && keptIdx.every((i) => JSON.stringify(rowsSome[i]) === JSON.stringify(rowsAll[i])));
+  const chunked = (bytes, size) => new ReadableStream({ start(c) {
+    for (let o = 0; o < bytes.byteLength; o += size) c.enqueue(bytes.subarray(o, Math.min(bytes.byteLength, o + size)));
+    c.close();
+  } });
+  const streamed = await B.readShpStream(chunked(shpBytes, 777), { keep });
+  eq('streamed .shp equals the whole-file read', JSON.stringify(streamed), JSON.stringify(some));
+  eq('streamed .shp reports the header box', streamed.headerBox.map((v) => +v.toFixed(3)), hb.map((v) => +v.toFixed(3)));
+  const streamedRows = (await B.readDbfStream(chunked(dbfBytes, 501), decode, { keep: (i) => some[i] != null })).rows;
+  eq('streamed .dbf equals the whole-file read', JSON.stringify(streamedRows), JSON.stringify(rowsSome));
+
+  console.log('\n== ZIP from a Blob ==');
+  for (const name of ['va_shapefile.zip', 'va_stored.zip']) {
+    const zbytes = read('fixtures/' + name);
+    const a = B.readZip(zbytes), b = await B.readZipBlob(new Blob([zbytes]));
+    eq(`${name}: same entries`, [...b.keys()].sort(), [...a.keys()].sort());
+    for (const [n, open] of a) {
+      const x = await open(), y = await b.get(n)();
+      ok(`${name}: ${n} bytes equal (${x.byteLength})`, x.byteLength === y.byteLength && x.every((v, i) => v === y[i]) && b.get(n).size === x.byteLength);
+      const r = (await b.get(n).stream()).getReader();
+      const chunks = []; let t;
+      while (!(t = await r.read()).done) chunks.push(t.value);
+      const joined = new Uint8Array(chunks.reduce((sum, c) => sum + c.byteLength, 0));
+      let o = 0; for (const c of chunks) { joined.set(c, o); o += c.byteLength; }
+      ok(`${name}: ${n} streams the same bytes`, joined.byteLength === x.byteLength && joined.every((v, i) => v === x[i]));
+    }
+  }
+
   console.log('\n== ZIP (deflate) ==');
   const zip = B.readZip(read('fixtures/va_shapefile.zip'));
   eq('entries listed', [...zip.keys()].sort(), ['VotingAreas/va.dbf', 'VotingAreas/va.prj', 'VotingAreas/va.shp']);

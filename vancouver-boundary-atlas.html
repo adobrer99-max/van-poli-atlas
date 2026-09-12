@@ -2384,6 +2384,45 @@ const Geo = (() => {
     };
   }
 
+  /* Lambert Conformal Conic inverse (Snyder 15-1 to 15-11, ellipsoidal, two
+     standard parallels; one when they coincide). Statistics Canada publishes
+     every census boundary file in this projection (EPSG:3347). */
+  function lccInverse(opts) {
+    const { lat1, lat2, lat0, lon0, x0, y0 } = opts;
+    const tOf = (phi) => {
+      const s = Math.sin(phi);
+      return Math.tan(Math.PI / 4 - phi / 2) / Math.pow((1 - E * s) / (1 + E * s), E / 2);
+    };
+    const p1 = lat1 * D2R, p2 = lat2 * D2R, p0 = lat0 * D2R;
+    const m1 = mOf(Math.sin(p1), Math.cos(p1)), m2 = mOf(Math.sin(p2), Math.cos(p2));
+    const t1 = tOf(p1), t2 = tOf(p2), t0 = tOf(p0);
+    const n = Math.abs(p1 - p2) < 1e-10
+      ? Math.sin(p1)
+      : (Math.log(m1) - Math.log(m2)) / (Math.log(t1) - Math.log(t2));
+    const F = m1 / (n * Math.pow(t1, n));
+    const rho0 = A * F * Math.pow(t0, n);
+    return (x, y) => {
+      const xs = x - x0, ys = rho0 - (y - y0);
+      const sign = n < 0 ? -1 : 1;
+      const rho = sign * Math.hypot(xs, ys);
+      const theta = Math.atan2(sign * xs, sign * ys);
+      const t = Math.pow(rho / (A * F), 1 / n);
+      let phi = Math.PI / 2 - 2 * Math.atan(t);
+      for (let i = 0; i < 15; i++) {
+        const s = Math.sin(phi);
+        const next = Math.PI / 2 - 2 * Math.atan(t * Math.pow((1 - E * s) / (1 + E * s), E / 2));
+        const step = Math.abs(next - phi);
+        phi = next;
+        if (step < 1e-13) break;
+      }
+      return [lon0 + (theta / n) * R2D, phi * R2D];
+    };
+  }
+
+  /* EPSG:3347 -- central meridian 91 deg 52 min west. */
+  const STATCAN_LAMBERT = { lat1: 49, lat2: 77, lat0: 63.390675, lon0: -(91 + 52 / 60),
+                            x0: 6200000, y0: 3000000 };
+
   const webMercatorInverse = (x, y) => [
     (x / 20037508.342789244) * 180,
     R2D * (2 * Math.atan(Math.exp((y / 20037508.342789244) * Math.PI)) - Math.PI / 2),
@@ -2411,6 +2450,14 @@ const Geo = (() => {
       name: 'NAD83 / UTM zone 11N',
       inverse: tmInverse({ lon0: -117, k0: 0.9996, x0: 500000, y0: 0 }),
     },
+    'EPSG:3347': {
+      name: 'NAD83 / Statistics Canada Lambert (EPSG:3347)',
+      inverse: lccInverse(STATCAN_LAMBERT),
+    },
+    'EPSG:3348': {
+      name: 'NAD83(CSRS) / Statistics Canada Lambert (EPSG:3348)',
+      inverse: lccInverse(STATCAN_LAMBERT),
+    },
     'EPSG:3857': { name: 'Web Mercator (EPSG:3857)', inverse: webMercatorInverse },
   };
 
@@ -2422,11 +2469,11 @@ const Geo = (() => {
     const epsg = /AUTHORITY\s*\[\s*"EPSG"\s*,\s*"(\d+)"\s*\]\s*\]\s*$/i.exec(w);
     if (epsg && CRS['EPSG:' + epsg[1]]) return 'EPSG:' + epsg[1];
     if (!/PROJCS/i.test(up)) return 'EPSG:4326';
+    const num = (key) => {
+      const m = new RegExp('PARAMETER\\s*\\[\\s*"' + key + '"\\s*,\\s*(-?[\\d.]+)', 'i').exec(w);
+      return m ? parseFloat(m[1]) : null;
+    };
     if (/ALBERS/.test(up)) {
-      const num = (key) => {
-        const m = new RegExp('PARAMETER\\s*\\[\\s*"' + key + '"\\s*,\\s*(-?[\\d.]+)', 'i').exec(w);
-        return m ? parseFloat(m[1]) : null;
-      };
       const lat1 = num('standard_parallel_1'), lat2 = num('standard_parallel_2');
       const lat0 = num('latitude_of_center') ?? num('latitude_of_origin');
       const lon0 = num('longitude_of_center') ?? num('central_meridian');
@@ -2440,6 +2487,31 @@ const Geo = (() => {
         return key;
       }
       return 'EPSG:3005';
+    }
+    /* Statistics Canada's .prj is Esri-style: PROJECTION["Lambert_Conformal_Conic"]
+       with Standard_Parallel_1/2, Latitude_Of_Origin, Central_Meridian and no
+       AUTHORITY, so the parameters are what identify it. */
+    if (/LAMBERT_CONFORMAL_CONIC/.test(up)) {
+      const lat1 = num('standard_parallel_1');
+      const lat2 = num('standard_parallel_2') ?? lat1;
+      const lat0 = num('latitude_of_origin') ?? num('latitude_of_center');
+      const lon0 = num('central_meridian') ?? num('longitude_of_center');
+      const x0 = num('false_easting') ?? 0, y0 = num('false_northing') ?? 0;
+      if ([lat1, lat0, lon0].every((v) => v != null)) {
+        const sc = STATCAN_LAMBERT;
+        const same = (a, b) => Math.abs(a - b) < 1e-6;
+        if (same(lat1, sc.lat1) && same(lat2, sc.lat2) && same(lat0, sc.lat0)
+            && same(lon0, sc.lon0) && same(x0, sc.x0) && same(y0, sc.y0)) {
+          return 'EPSG:3347';
+        }
+        const key = 'WKT:LCC';
+        CRS[key] = {
+          name: `Lambert Conformal Conic (${lat1}/${lat2}, ${lon0})`,
+          inverse: lccInverse({ lat1, lat2, lat0, lon0, x0, y0 }),
+        };
+        return key;
+      }
+      return 'EPSG:3347';
     }
     if (/MERCATOR_AUXILIARY_SPHERE|POPULAR VISUALISATION|WEB[ _]MERCATOR|PSEUDO-MERCATOR/.test(up)) {
       return 'EPSG:3857';
@@ -2458,6 +2530,11 @@ const Geo = (() => {
     if (maxX <= 180 && minX >= -180 && maxY <= 90 && minY >= -90) return 'EPSG:4326';
     if (minX > 2e5 && maxX < 2.0e6 && minY > 3e5 && maxY < 1.9e6) return 'EPSG:3005';
     if (minX > 1.6e5 && maxX < 8.4e5 && minY > 4.5e6 && maxY < 7.0e6) return 'EPSG:26910';
+    /* Statistics Canada Lambert: Canada spans roughly x 3.0e6-9.5e6, y 0.5e6-5.5e6
+       (Vancouver is near 4.02e6, 2.00e6). A Web Mercator file inside this box
+       would lie in Asia or Africa, not Canada, so this check comes before the
+       Mercator catch-all. */
+    if (minX > 3.0e6 && maxX < 9.5e6 && minY > 0.5e6 && maxY < 5.5e6) return 'EPSG:3347';
     if (Math.abs(maxX) <= 20037509 && Math.abs(maxY) <= 20037509) return 'EPSG:3857';
     return null;
   }
@@ -2657,7 +2734,7 @@ const Geo = (() => {
   }
 
   return {
-    CRS, crsFromWkt, crsFromExtent, project, crsName, R_AUTHALIC,
+    CRS, crsFromWkt, crsFromExtent, project, crsName, R_AUTHALIC, lccInverse, STATCAN_LAMBERT,
     inRing, inPolygon, inGeometry, bboxOf, areaM2, buildIndex, representativePoint,
     normalizeWinding, signedArea2,
   };
@@ -3022,11 +3099,8 @@ const BinaryFormats = (() => {
 
   /* --- DBF (shapefile attribute table) ----------------------------------- */
 
-  function readDbf(bytes, decode) {
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    const numRecords = view.getUint32(4, true);
-    const headerLen = view.getUint16(8, true);
-    const recordLen = view.getUint16(10, true);
+  /* Field descriptors: 32 bytes each from offset 32 up to the 0x0d terminator. */
+  function dbfFields(bytes, headerLen, decode) {
     const fields = [];
     for (let o = 32; o < headerLen - 1 && bytes[o] !== 0x0d; o += 32) {
       let end = 0;
@@ -3038,29 +3112,96 @@ const BinaryFormats = (() => {
         decimals: bytes[o + 17],
       });
     }
+    return fields;
+  }
+
+  function dbfRow(bytes, base, fields, decode) {
+    if (bytes[base] === 0x2a) return null; // deleted
+    const row = {};
+    let o = base + 1;
+    for (const f of fields) {
+      const raw = decode(bytes.subarray(o, o + f.length)).trim();
+      o += f.length;
+      if (f.type === 'N' || f.type === 'F') {
+        row[f.name] = raw === '' ? null : Number(raw);
+      } else if (f.type === 'L') {
+        row[f.name] = /^[YyTt]$/.test(raw) ? true : /^[NnFf]$/.test(raw) ? false : null;
+      } else if (f.type === 'D') {
+        row[f.name] = /^\d{8}$/.test(raw)
+          ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6)}` : raw;
+      } else {
+        row[f.name] = raw;
+      }
+    }
+    return row;
+  }
+
+  /* options.keep(i) decides whether row i is parsed at all; a skipped row is
+     null so the row index still lines up with the shapes in the .shp. */
+  function readDbf(bytes, decode, options = {}) {
+    const keep = options.keep || null;
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const numRecords = view.getUint32(4, true);
+    const headerLen = view.getUint16(8, true);
+    const recordLen = view.getUint16(10, true);
+    const fields = dbfFields(bytes, headerLen, decode);
     const rows = [];
     for (let r = 0; r < numRecords; r++) {
       const base = headerLen + r * recordLen;
       if (base + recordLen > bytes.byteLength) break;
-      if (bytes[base] === 0x2a) { rows.push(null); continue; } // deleted
-      const row = {};
-      let o = base + 1;
-      for (const f of fields) {
-        const raw = decode(bytes.subarray(o, o + f.length)).trim();
-        o += f.length;
-        if (f.type === 'N' || f.type === 'F') {
-          row[f.name] = raw === '' ? null : Number(raw);
-        } else if (f.type === 'L') {
-          row[f.name] = /^[YyTt]$/.test(raw) ? true : /^[NnFf]$/.test(raw) ? false : null;
-        } else if (f.type === 'D') {
-          row[f.name] = /^\d{8}$/.test(raw)
-            ? `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6)}` : raw;
-        } else {
-          row[f.name] = raw;
-        }
-      }
-      rows.push(row);
+      rows.push(keep && !keep(r) ? null : dbfRow(bytes, base, fields, decode));
     }
+    return { fields, rows };
+  }
+
+  /* --- Streaming ----------------------------------------------------------
+     A national dissemination-block shapefile is over a gigabyte; the reader
+     below walks a ReadableStream of chunks with a small carry buffer so the
+     file never has to sit in memory whole. */
+  function chunkCursor(stream) {
+    const reader = stream.getReader();
+    let buf = new Uint8Array(0), o = 0, done = false;
+    return {
+      get buffer() { return buf; },
+      get offset() { return o; },
+      advance(n) { o += n; },
+      /* Ensure n bytes are available from the cursor; false at end of stream. */
+      async need(n) {
+        while (buf.byteLength - o < n) {
+          if (done) return false;
+          const r = await reader.read();
+          if (r.done) { done = true; return buf.byteLength - o >= n; }
+          const chunk = r.value instanceof Uint8Array ? r.value : new Uint8Array(r.value);
+          const merged = new Uint8Array(buf.byteLength - o + chunk.byteLength);
+          merged.set(buf.subarray(o));
+          merged.set(chunk, buf.byteLength - o);
+          buf = merged; o = 0;
+        }
+        return true;
+      },
+      view() { return new DataView(buf.buffer, buf.byteOffset, buf.byteLength); },
+      async cancel() { try { await reader.cancel(); } catch (e) { /* already closed */ } },
+    };
+  }
+
+  async function readDbfStream(stream, decode, options = {}) {
+    const keep = options.keep || null;
+    const cur = chunkCursor(stream);
+    if (!(await cur.need(32))) throw new Error('Not a DBF (too short).');
+    let view = cur.view();
+    const numRecords = view.getUint32(cur.offset + 4, true);
+    const headerLen = view.getUint16(cur.offset + 8, true);
+    const recordLen = view.getUint16(cur.offset + 10, true);
+    if (!(await cur.need(headerLen))) throw new Error('Truncated DBF header.');
+    const fields = dbfFields(cur.buffer.subarray(cur.offset), headerLen, decode);
+    cur.advance(headerLen);
+    const rows = [];
+    for (let r = 0; r < numRecords; r++) {
+      if (!(await cur.need(recordLen))) break;
+      rows.push(keep && !keep(r) ? null : dbfRow(cur.buffer, cur.offset, fields, decode));
+      cur.advance(recordLen);
+    }
+    await cur.cancel();
     return { fields, rows };
   }
 
@@ -3092,7 +3233,54 @@ const BinaryFormats = (() => {
     return polys;
   }
 
-  function readShp(bytes) {
+  /* The bounding box every polygon record carries right after its shape type. */
+  const recordBox = (view, body) => [
+    view.getFloat64(body + 4, true), view.getFloat64(body + 12, true),
+    view.getFloat64(body + 20, true), view.getFloat64(body + 28, true),
+  ];
+
+  /* One polygon record starting at `body` (just after the 8-byte record
+     header). keep(bbox, index) can reject it from its header bbox alone, before
+     a single point is read; a rejected or non-areal record is null. */
+  function shpRecord(view, body, keep, index) {
+    const type = view.getInt32(body, true);
+    /* 5/15/25 are Polygon, PolygonZ and PolygonM. Z and M values trail the
+       X/Y block, so the same offsets read all three. */
+    if (type !== 5 && type !== 15 && type !== 25) return null;
+    if (keep && !keep(recordBox(view, body), index)) return null;
+    const numParts = view.getInt32(body + 36, true);
+    const numPoints = view.getInt32(body + 40, true);
+    const partsAt = body + 44;
+    const pointsAt = partsAt + numParts * 4;
+    const parts = [];
+    for (let i = 0; i < numParts; i++) parts.push(view.getInt32(partsAt + i * 4, true));
+    const rings = [];
+    for (let i = 0; i < numParts; i++) {
+      const from = parts[i], to = i + 1 < numParts ? parts[i + 1] : numPoints;
+      const ring = [];
+      for (let k = from; k < to; k++) {
+        ring.push([
+          view.getFloat64(pointsAt + k * 16, true),
+          view.getFloat64(pointsAt + k * 16 + 8, true),
+        ]);
+      }
+      if (ring.length >= 4) rings.push(ring);
+    }
+    const polys = groupRings(rings);
+    return polys.length === 0 ? null
+      : polys.length === 1 ? { type: 'Polygon', coordinates: polys[0] }
+      : { type: 'MultiPolygon', coordinates: polys };
+  }
+
+  /* The file header's bounding box (bytes 36-68), in the file's own units. */
+  function shpHeaderBox(bytes) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (bytes.byteLength < 100 || view.getInt32(0, false) !== 9994) return null;
+    return [view.getFloat64(36, true), view.getFloat64(44, true), view.getFloat64(52, true), view.getFloat64(60, true)];
+  }
+
+  function readShp(bytes, options = {}) {
+    const keep = options.keep || null;
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     if (view.getInt32(0, false) !== 9994) throw new Error('Not a shapefile (.shp signature missing).');
     const fileLen = view.getInt32(24, false) * 2;
@@ -3103,41 +3291,106 @@ const BinaryFormats = (() => {
       const contentLen = view.getInt32(o + 4, false) * 2;
       const body = o + 8;
       if (body + contentLen > bytes.byteLength) break;
-      const type = view.getInt32(body, true);
-      /* 5/15/25 are Polygon, PolygonZ and PolygonM. Z and M values trail the
-         X/Y block, so the same offsets read all three. */
-      if (type === 5 || type === 15 || type === 25) {
-        const numParts = view.getInt32(body + 36, true);
-        const numPoints = view.getInt32(body + 40, true);
-        const partsAt = body + 44;
-        const pointsAt = partsAt + numParts * 4;
-        const parts = [];
-        for (let i = 0; i < numParts; i++) parts.push(view.getInt32(partsAt + i * 4, true));
-        const rings = [];
-        for (let i = 0; i < numParts; i++) {
-          const from = parts[i], to = i + 1 < numParts ? parts[i + 1] : numPoints;
-          const ring = [];
-          for (let k = from; k < to; k++) {
-            ring.push([
-              view.getFloat64(pointsAt + k * 16, true),
-              view.getFloat64(pointsAt + k * 16 + 8, true),
-            ]);
-          }
-          if (ring.length >= 4) rings.push(ring);
-        }
-        const polys = groupRings(rings);
-        shapes.push(polys.length === 0 ? null
-          : polys.length === 1 ? { type: 'Polygon', coordinates: polys[0] }
-          : { type: 'MultiPolygon', coordinates: polys });
-      } else {
-        shapes.push(null); // null shape, or a non-areal type we do not map
-      }
+      shapes.push(shpRecord(view, body, keep, shapes.length));
       o = body + contentLen;
     }
     return shapes;
   }
 
-  return { readZip, readDbf, readShp, inflateRaw, groupRings };
+  async function readShpStream(stream, options = {}) {
+    const keep = options.keep || null;
+    const cur = chunkCursor(stream);
+    if (!(await cur.need(100))) throw new Error('Not a shapefile (too short).');
+    if (cur.view().getInt32(cur.offset, false) !== 9994) throw new Error('Not a shapefile (.shp signature missing).');
+    const header = cur.buffer.slice(cur.offset, cur.offset + 100);
+    cur.advance(100);
+    const shapes = [];
+    while (await cur.need(8)) {
+      const contentLen = cur.view().getInt32(cur.offset + 4, false) * 2;
+      if (!(await cur.need(8 + contentLen))) break;
+      shapes.push(shpRecord(cur.view(), cur.offset + 8, keep, shapes.length));
+      cur.advance(8 + contentLen);
+    }
+    await cur.cancel();
+    return Object.assign(shapes, { headerBox: shpHeaderBox(header) });
+  }
+
+  /* --- ZIP from a Blob ------------------------------------------------------
+     Same directory walk as readZip, but only the tail and the central
+     directory are read up front; each entry is opened from its own byte range,
+     as a whole (bytes) or as a stream. Entries are the same async openers
+     readZip returns, with .size and .stream added. */
+  async function readZipBlob(blob) {
+    const size = blob.size;
+    const tailStart = Math.max(0, size - 66000);
+    const tail = new Uint8Array(await blob.slice(tailStart, size).arrayBuffer());
+    const tview = new DataView(tail.buffer, tail.byteOffset, tail.byteLength);
+    const eocdLocal = findEocd(tview, tail.byteLength);
+    if (eocdLocal < 0) throw new Error('Not a ZIP archive (no end-of-central-directory record).');
+    let count = tview.getUint16(eocdLocal + 10, true);
+    let cdSize = tview.getUint32(eocdLocal + 12, true);
+    let cdOffset = tview.getUint32(eocdLocal + 16, true);
+    if ((count === 0xffff || cdOffset === 0xffffffff || cdSize === 0xffffffff) && eocdLocal >= 20 &&
+        tview.getUint32(eocdLocal - 20, true) === 0x07064b50) {
+      const z64 = Number(tview.getBigUint64(eocdLocal - 20 + 8, true));
+      const rec = new DataView(await blob.slice(z64, z64 + 56).arrayBuffer());
+      if (rec.getUint32(0, true) === 0x06064b50) {
+        count = Number(rec.getBigUint64(32, true));
+        cdSize = Number(rec.getBigUint64(40, true));
+        cdOffset = Number(rec.getBigUint64(48, true));
+      }
+    }
+    const cd = new Uint8Array(await blob.slice(cdOffset, cdOffset + cdSize).arrayBuffer());
+    const view = new DataView(cd.buffer, cd.byteOffset, cd.byteLength);
+    const entries = [];
+    let o = 0;
+    for (let i = 0; i < count && o + 46 <= cd.byteLength; i++) {
+      if (view.getUint32(o, true) !== SIG_CD) break;
+      const nameLen = view.getUint16(o + 28, true);
+      const extraLen = view.getUint16(o + 30, true);
+      const commentLen = view.getUint16(o + 32, true);
+      const entry = {
+        name: new TextDecoder('utf-8').decode(cd.subarray(o + 46, o + 46 + nameLen)),
+        method: view.getUint16(o + 10, true),
+        compressedSize: view.getUint32(o + 20, true),
+        uncompressedSize: view.getUint32(o + 24, true),
+        offset: view.getUint32(o + 42, true),
+      };
+      if (extraLen) zip64Patch(new DataView(cd.buffer, cd.byteOffset + o + 46 + nameLen, extraLen), entry);
+      entries.push(entry);
+      o += 46 + nameLen + extraLen + commentLen;
+    }
+    const files = new Map();
+    for (const e of entries) {
+      if (e.name.endsWith('/')) continue;
+      const dataStart = async () => {
+        const lh = new DataView(await blob.slice(e.offset, e.offset + 30).arrayBuffer());
+        if (lh.getUint32(0, true) !== SIG_LOCAL) throw new Error(`Corrupt ZIP entry: ${e.name}`);
+        return e.offset + 30 + lh.getUint16(26, true) + lh.getUint16(28, true);
+      };
+      if (e.method !== 0 && e.method !== 8) {
+        files.set(e.name, async () => { throw new Error(`Unsupported ZIP compression method ${e.method} for ${e.name}`); });
+        continue;
+      }
+      const open = async () => {
+        const start = await dataStart();
+        const raw = new Uint8Array(await blob.slice(start, start + e.compressedSize).arrayBuffer());
+        return e.method === 0 ? raw : inflateRaw(raw);
+      };
+      open.size = e.uncompressedSize;
+      open.compressedSize = e.compressedSize;
+      open.stream = async () => {
+        const start = await dataStart();
+        const raw = blob.slice(start, start + e.compressedSize).stream();
+        return e.method === 0 ? raw : raw.pipeThrough(new DecompressionStream('deflate-raw'));
+      };
+      files.set(e.name, open);
+    }
+    return files;
+  }
+
+  return { readZip, readZipBlob, readDbf, readDbfStream, readShp, readShpStream, shpHeaderBox,
+           inflateRaw, groupRings };
 })();
 
 /* ---------------------------------------------------------------------------
@@ -3250,47 +3503,112 @@ const Ingest = (() => {
     return null;
   }
 
-  /* Pair up the .shp/.dbf/.prj members of a zipped shapefile by stem. */
-  async function shapefileFromZip(zip, warnings) {
+  /* Entries above this many bytes are parsed from a stream instead of being
+     inflated whole: a national dissemination-block shapefile is ~1.1 GB. */
+  const STREAM_THRESHOLD = 256 * 1024 * 1024;
+
+  /* The first 100 bytes of a .shp, read without inflating the rest, give the
+     file's own bounding box -- enough to sniff its coordinate system. */
+  async function peekShpHeader(open) {
+    if (!open.stream) return BinaryFormats.shpHeaderBox(await open());
+    const reader = (await open.stream()).getReader();
+    let buf = new Uint8Array(0);
+    while (buf.byteLength < 100) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const merged = new Uint8Array(buf.byteLength + value.byteLength);
+      merged.set(buf); merged.set(value, buf.byteLength);
+      buf = merged;
+    }
+    try { await reader.cancel(); } catch (e) { /* stream already finished */ }
+    return BinaryFormats.shpHeaderBox(buf);
+  }
+
+  /* A record is kept when its bounding box, taken to lon/lat, overlaps the
+     study-area box. Four corners are exact for an axis-aligned box in lon/lat
+     and within metres for census polygons in a conic projection; the caller
+     pads the box. */
+  function bboxKeep(target, inverse) {
+    const [tx0, ty0, tx1, ty1] = target;
+    return (box) => {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const [x, y] of [[box[0], box[1]], [box[2], box[1]], [box[2], box[3]], [box[0], box[3]]]) {
+        const q = inverse ? inverse(x, y) : [x, y];
+        if (q[0] < x0) x0 = q[0]; if (q[0] > x1) x1 = q[0];
+        if (q[1] < y0) y0 = q[1]; if (q[1] > y1) y1 = q[1];
+      }
+      return x1 >= tx0 && x0 <= tx1 && y1 >= ty0 && y0 <= ty1;
+    };
+  }
+
+  const bboxTouches = (a, b) => a[2] >= b[0] && a[0] <= b[2] && a[3] >= b[1] && a[1] <= b[3];
+
+  /* Pair up the .shp/.dbf/.prj members of a zipped shapefile by stem. The .prj
+     is read first so a study-area box can filter records before any geometry
+     is parsed; entries too big to hold whole are streamed. */
+  async function shapefileFromZip(zip, warnings, options = {}) {
     let stem = null;
     for (const name of zip.keys()) {
       if (name.includes('__MACOSX') || baseName(name).startsWith('.')) continue;
       if (extensionOf(name) === 'shp') { stem = name.replace(/\.shp$/i, ''); break; }
     }
     if (stem === null) return null;
-    const at = async (ext) => {
+    const opener = (ext) => {
       for (const [name, open] of zip) {
-        if (name.toLowerCase() === (stem + '.' + ext).toLowerCase()) return open();
+        if (name.toLowerCase() === (stem + '.' + ext).toLowerCase()) return open;
       }
       return null;
     };
-    const shpBytes = await at('shp');
-    const geometries = BinaryFormats.readShp(shpBytes);
-    const dbfBytes = await at('dbf');
+    const shpOpen = opener('shp'), dbfOpen = opener('dbf'), prjOpen = opener('prj');
+    const declared = prjOpen ? Geo.crsFromWkt(TextFormats.decodeBytes(await prjOpen())) : null;
+    if (!prjOpen) warnings.push('No .prj in the archive; the coordinate system was inferred from the extent.');
+
+    const streamAbove = options.streamAbove ?? STREAM_THRESHOLD;
+    const big = (open) => Boolean(open && open.stream && open.size > streamAbove);
+
+    let keep = null, filtered = false;
+    if (options.bbox) {
+      let crs = declared && Geo.CRS[declared] ? declared : null;
+      if (!crs) {
+        const hb = await peekShpHeader(shpOpen);
+        crs = hb ? Geo.crsFromExtent(hb[0], hb[1], hb[2], hb[3]) : null;
+      }
+      if (crs) { keep = bboxKeep(options.bbox, Geo.project(crs)); filtered = true; }
+      else warnings.push('Could not identify the coordinate system, so the file was read whole instead of clipped to the study area.');
+    }
+    const geometries = big(shpOpen)
+      ? await BinaryFormats.readShpStream(await shpOpen.stream(), { keep })
+      : BinaryFormats.readShp(await shpOpen(), { keep });
     let rows = [];
-    if (dbfBytes) {
-      rows = BinaryFormats.readDbf(dbfBytes, TextFormats.decodeBytes).rows;
+    if (dbfOpen) {
+      const keepRow = keep ? (i) => geometries[i] != null : null;
+      rows = big(dbfOpen)
+        ? (await BinaryFormats.readDbfStream(await dbfOpen.stream(), TextFormats.decodeBytes, { keep: keepRow })).rows
+        : BinaryFormats.readDbf(await dbfOpen(), TextFormats.decodeBytes, { keep: keepRow }).rows;
     } else {
       warnings.push('No .dbf in the archive, so the shapes arrived without attributes. '
-        + 'Include the .dbf to label the voting areas.');
+        + 'Include the .dbf to label the areas.');
     }
-    const prjBytes = await at('prj');
-    const declared = prjBytes ? Geo.crsFromWkt(TextFormats.decodeBytes(prjBytes)) : null;
-    if (!prjBytes) warnings.push('No .prj in the archive; the coordinate system was inferred from the extent.');
     const features = [];
     geometries.forEach((geometry, i) => {
       if (!geometry) return;
       features.push({ type: 'Feature', properties: rows[i] || {}, geometry });
     });
-    return { features, declared, label: baseName(stem) + '.shp' };
+    return { features, declared, label: baseName(stem) + '.shp', records: geometries.length, filtered };
   }
 
   /* --- Boundary files ---------------------------------------------------- */
 
-  async function loadBoundaries(fileName, bytes) {
+  /* source: a Uint8Array, or a File/Blob (read lazily, so a zipped shapefile
+     far larger than memory can still be clipped to the study area).
+     options.bbox: [minLon, minLat, maxLon, maxLat] -- keep only features whose
+     bounding box touches it; options.streamAbove overrides STREAM_THRESHOLD. */
+  async function loadBoundaries(fileName, source, options = {}) {
     const warnings = [];
     const ext = extensionOf(fileName);
-    let features = [], declared = null, label = fileName;
+    const isBlob = typeof Blob !== 'undefined' && source instanceof Blob;
+    const bytesOf = async () => (isBlob ? new Uint8Array(await source.arrayBuffer()) : source);
+    let features = [], declared = null, label = fileName, records = null, filtered = false;
 
     const fromText = (text, how) => {
       if (how === 'kml') return { features: TextFormats.kmlToFeatures(text), declared: 'EPSG:4326' };
@@ -3302,10 +3620,10 @@ const Ingest = (() => {
     };
 
     if (ext === 'zip' || ext === 'kmz') {
-      const zip = BinaryFormats.readZip(bytes);
-      const shp = await shapefileFromZip(zip, warnings);
+      const zip = isBlob ? await BinaryFormats.readZipBlob(source) : BinaryFormats.readZip(source);
+      const shp = await shapefileFromZip(zip, warnings, options);
       if (shp) {
-        ({ features, declared, label } = shp);
+        ({ features, declared, label, records, filtered } = shp);
       } else {
         const inner = await firstMatchingEntry(zip, (n) => /\.(kml|geojson|json)$/i.test(n));
         if (!inner) {
@@ -3317,13 +3635,14 @@ const Ingest = (() => {
         label = baseName(inner.name);
       }
     } else if (ext === 'kml') {
-      ({ features, declared } = fromText(TextFormats.decodeBytes(bytes), 'kml'));
+      ({ features, declared } = fromText(TextFormats.decodeBytes(await bytesOf()), 'kml'));
     } else if (ext === 'shp') {
       throw new Error('A .shp on its own has no attributes or projection. '
         + 'Zip it together with the matching .dbf and .prj and load the .zip.');
     } else {
-      ({ features, declared } = fromText(TextFormats.decodeBytes(bytes), 'json'));
+      ({ features, declared } = fromText(TextFormats.decodeBytes(await bytesOf()), 'json'));
     }
+    if (records == null) records = features.length;
 
     const normalized = [];
     let dropped = 0;
@@ -3339,7 +3658,17 @@ const Ingest = (() => {
       warnings.push(`${dropped} non-polygon features (points or lines) were skipped.`);
     }
     const crs = toWgs84(normalized, declared, warnings);
-    return { features: normalized, crs, crsLabel: Geo.crsName(crs), label, warnings };
+    let kept = normalized;
+    if (options.bbox) {
+      kept = normalized.filter((f) => bboxTouches(Geo.bboxOf(f.geometry), options.bbox));
+      filtered = true;
+      if (!kept.length) {
+        throw new Error('None of the polygons in this file touch the study area. '
+          + 'Untick the clipping option to load it whole, or check that it covers Vancouver.');
+      }
+    }
+    return { features: kept, crs, crsLabel: Geo.crsName(crs), label, warnings,
+             records, kept: kept.length, filtered };
   }
 
   /* --- Tables ------------------------------------------------------------ */
@@ -3362,7 +3691,7 @@ const Ingest = (() => {
     return { ...table, name };
   }
 
-  return { loadBoundaries, loadTable, normalizeFeature, crsFromGeoJson, overallExtent };
+  return { loadBoundaries, loadTable, normalizeFeature, crsFromGeoJson, overallExtent, STREAM_THRESHOLD, bboxKeep };
 })();
 
 /* ---------------------------------------------------------------------------
@@ -3379,69 +3708,200 @@ const Ingest = (() => {
 --------------------------------------------------------------------------- */
 const Analysis = (() => {
 
-  /* --- Crosswalk --------------------------------------------------------- */
+  /* --- Lattice sample ------------------------------------------------------
 
-  /* Runs as a generator so the caller can keep the page responsive; each
-     next() processes one band of lattice rows and reports progress. */
-  function* crosswalkRunner(fedFeatures, provFeatures, options = {}) {
+     One equal-area lattice is laid over the study area and every point is
+     hit-tested against every loaded layer once. The per-point hits are kept,
+     so any pair of layers can be crossed afterwards in one pass over the
+     sample, and the same sample can be re-weighted -- by block population,
+     say -- without sampling again.
+
+     Runs as a generator so the caller can keep the page responsive; each
+     next() processes one band of lattice rows and reports progress in (0, 1].
+
+     layers:  [{ features, index? }]   (indexes are built when absent)
+     options: { spacingM, extent }     extent defaults to the first layer's,
+              which is the anchor of the study (the active federal polls).
+     Returns  { spacingM, extent, rows, points, n, hits, nFeatures, layers,
+                indexes } where hits[k] is an Int32Array of length n holding
+              the feature index in layer k for each stored point (-1 = miss);
+              only points that hit at least one layer are stored. */
+  function* sampleLattice(layers, options = {}) {
     const spacingM = options.spacingM || 40;
-    const fedIndex = options.fedIndex || Geo.buildIndex(fedFeatures);
-    const provIndex = options.provIndex || Geo.buildIndex(provFeatures);
-    if (!fedIndex.extent || !provIndex.extent) {
-      return { cells: new Map(), fedCount: [], provCount: [], spacingM, points: 0, hits: 0 };
+    const indexes = layers.map((l) => l.index || Geo.buildIndex(l.features));
+    const nFeatures = layers.map((l) => l.features.length);
+    const features = layers.map((l) => l.features);
+    const ext = options.extent || indexes[0].extent;
+    if (!ext || !(ext[2] > ext[0] && ext[3] > ext[1])) {
+      return { spacingM, extent: null, rows: 0, points: 0, n: 0,
+               hits: layers.map(() => new Int32Array(0)), nFeatures, layers: features, indexes };
     }
-    /* Only the overlap of the two layers can contribute. */
-    const minX = Math.max(fedIndex.extent[0], provIndex.extent[0]);
-    const minY = Math.max(fedIndex.extent[1], provIndex.extent[1]);
-    const maxX = Math.min(fedIndex.extent[2], provIndex.extent[2]);
-    const maxY = Math.min(fedIndex.extent[3], provIndex.extent[3]);
-    const cells = new Map();
-    const fedCount = new Float64Array(fedFeatures.length);
-    const provCount = new Float64Array(provFeatures.length);
-    /* Points that landed in both layers, so a poll only partly covered by the
-       other geography can be flagged rather than silently extrapolated. */
-    const fedBoth = new Float64Array(fedFeatures.length);
-    const provBoth = new Float64Array(provFeatures.length);
-    let points = 0, hits = 0, bothHits = 0;
-
-    if (!(maxX > minX && maxY > minY)) {
-      return { cells, fedCount, provCount, fedBoth, provBoth, spacingM,
-               points, hits, bothHits, overlap: false, extent: null,
-               nProv: provFeatures.length };
-    }
+    const [minX, minY, maxX, maxY] = ext;
     const dLat = spacingM / 110574;
     const rows = Math.max(1, Math.ceil((maxY - minY) / dLat));
     const rowsPerStep = Math.max(1, Math.ceil(rows / 60));
+    /* Widen the longitude step with latitude so every sample point stands
+       for the same ground area. */
+    const dLonOf = (r) => spacingM / (111320 * Math.cos((minY + (r + 0.5) * dLat) * Math.PI / 180));
+    /* Column counts are known up front, so the hit arrays are allocated once
+       at (a little over) the size they can need. */
+    let capacity = 0;
+    for (let r = 0; r < rows; r++) {
+      const dLon = dLonOf(r);
+      capacity += Math.max(0, Math.floor((maxX - (minX + dLon / 2)) / dLon) + 2);
+    }
+    const hits = layers.map(() => new Int32Array(capacity));
+    const tmp = new Int32Array(layers.length);
+    let points = 0, n = 0;
 
     for (let r0 = 0; r0 < rows; r0 += rowsPerStep) {
       for (let r = r0; r < Math.min(rows, r0 + rowsPerStep); r++) {
         const lat = minY + (r + 0.5) * dLat;
-        /* Widen the longitude step with latitude so every sample point stands
-           for the same ground area. */
-        const dLon = spacingM / (111320 * Math.cos(lat * Math.PI / 180));
+        const dLon = dLonOf(r);
         for (let x = minX + dLon / 2; x <= maxX; x += dLon) {
           points++;
-          const fi = fedIndex.hit(x, lat);
-          const pi = provIndex.hit(x, lat);
-          if (fi < 0 && pi < 0) continue;
-          hits++;
-          if (fi >= 0) fedCount[fi]++;
-          if (pi >= 0) provCount[pi]++;
-          if (fi >= 0 && pi >= 0) {
-            bothHits++;
-            fedBoth[fi]++;
-            provBoth[pi]++;
-            const key = fi * provFeatures.length + pi;
-            cells.set(key, (cells.get(key) || 0) + 1);
+          let any = false;
+          for (let k = 0; k < layers.length; k++) {
+            const h = indexes[k].hit(x, lat);
+            tmp[k] = h;
+            if (h >= 0) any = true;
           }
+          if (!any) continue;
+          for (let k = 0; k < layers.length; k++) hits[k][n] = tmp[k];
+          n++;
         }
       }
       yield Math.min(1, (r0 + rowsPerStep) / rows);
     }
-    return { cells, fedCount, provCount, fedBoth, provBoth, spacingM,
-             points, hits, bothHits, overlap: true,
-             extent: [minX, minY, maxX, maxY], nProv: provFeatures.length };
+    return { spacingM, extent: [minX, minY, maxX, maxY], rows, points, n,
+             hits: hits.map((h) => h.subarray(0, n)), nFeatures, layers: features, indexes };
   }
+
+  /* Per-point weights from a population layer: each feature's population is
+     spread evenly over the lattice points inside it, so a point stands for
+     people rather than ground. A point outside every populated feature takes
+     the fallback weight -- another layer's weights, or 1 (plain area). */
+  function pointWeights(sample, layerIdx, popByFeature, fallback = null) {
+    const h = sample.hits[layerIdx];
+    const count = new Float64Array(sample.nFeatures[layerIdx]);
+    for (let p = 0; p < sample.n; p++) if (h[p] >= 0) count[h[p]]++;
+    const pop = (i) => {
+      const v = popByFeature instanceof Map ? popByFeature.get(i) : popByFeature[i];
+      return v != null && isFinite(v) && v >= 0 ? v : null;
+    };
+    const w = new Float64Array(sample.n);
+    for (let p = 0; p < sample.n; p++) {
+      const i = h[p];
+      const v = i >= 0 ? pop(i) : null;
+      w[p] = v != null ? v / count[i] : (fallback ? fallback[p] : 1);
+    }
+    return w;
+  }
+
+  /* --- Crosswalk between two sampled layers ------------------------------
+
+     Unweighted, every point counts one and the shares are shares of area;
+     with weights they are shares of whatever the weights carry. A feature the
+     lattice saw but whose weight sums to zero -- a park under population
+     weights -- would have its votes zeroed by any share computed from it, so
+     its points take the mean point weight instead and the feature is listed
+     in areaFallback for the status line. */
+  function crosswalkBetween(sample, ai, bi, options = {}) {
+    const weights = options.weights || null;
+    const ha = sample.hits[ai], hb = sample.hits[bi];
+    const nA = sample.nFeatures[ai], nB = sample.nFeatures[bi];
+    const cw = {
+      spacingM: sample.spacingM, extent: sample.extent, points: sample.points,
+      nA, nB,
+      aPoints: new Float64Array(nA), bPoints: new Float64Array(nB),   // raw point counts
+      aCount: new Float64Array(nA), bCount: new Float64Array(nB),     // weighted mass
+      aBoth: new Float64Array(nA), bBoth: new Float64Array(nB),       // mass also inside the other layer
+      cells: new Map(),                                               // ai * nB + bi -> mass
+      weighted: Boolean(weights), areaFallback: { a: [], b: [] },
+      hits: 0, bothHits: 0, overlap: Boolean(sample.extent),
+    };
+    if (!sample.n) return cw;
+
+    /* Pass 1: raw counts and mass, to find zero-mass features. */
+    let wSum = 0, wN = 0;
+    for (let p = 0; p < sample.n; p++) {
+      const fa = ha[p], fb = hb[p];
+      if (fa < 0 && fb < 0) continue;
+      const w = weights ? weights[p] : 1;
+      if (fa >= 0) { cw.aPoints[fa]++; cw.aCount[fa] += w; }
+      if (fb >= 0) { cw.bPoints[fb]++; cw.bCount[fb] += w; }
+      wSum += w; wN++;
+    }
+    let fixA = null, fixB = null;
+    if (weights) {
+      const meanW = wN ? wSum / wN : 1;
+      for (let i = 0; i < nA; i++) if (cw.aPoints[i] > 0 && !(cw.aCount[i] > 0)) { (fixA ||= new Set()).add(i); cw.areaFallback.a.push(i); }
+      for (let i = 0; i < nB; i++) if (cw.bPoints[i] > 0 && !(cw.bCount[i] > 0)) { (fixB ||= new Set()).add(i); cw.areaFallback.b.push(i); }
+      if (fixA || fixB) { cw.aCount.fill(0); cw.bCount.fill(0); cw.fallbackWeight = meanW; }
+      else { weightsApplied(cw, sample, ha, hb, weights, null, null, 0); return cw; }
+      weightsApplied(cw, sample, ha, hb, weights, fixA, fixB, meanW);
+      return cw;
+    }
+    weightsApplied(cw, sample, ha, hb, null, null, null, 0);
+    return cw;
+  }
+
+  /* Pass 2 of crosswalkBetween: accumulate cells and "both" masses, with the
+     zero-mass fallback applied. Counts are re-accumulated only when a fallback
+     changed some weights; otherwise pass 1's counts stand. */
+  function weightsApplied(cw, sample, ha, hb, weights, fixA, fixB, meanW) {
+    const recount = Boolean(fixA || fixB);
+    let hits = 0, bothHits = 0;
+    for (let p = 0; p < sample.n; p++) {
+      const fa = ha[p], fb = hb[p];
+      if (fa < 0 && fb < 0) continue;
+      let w = weights ? weights[p] : 1;
+      if ((fixA && fa >= 0 && fixA.has(fa)) || (fixB && fb >= 0 && fixB.has(fb))) w = meanW;
+      hits++;
+      if (recount) {
+        if (fa >= 0) cw.aCount[fa] += w;
+        if (fb >= 0) cw.bCount[fb] += w;
+      }
+      if (fa >= 0 && fb >= 0) {
+        bothHits++;
+        cw.aBoth[fa] += w;
+        cw.bBoth[fb] += w;
+        const key = fa * cw.nB + fb;
+        cw.cells.set(key, (cw.cells.get(key) || 0) + w);
+      }
+    }
+    cw.hits = hits;
+    cw.bothHits = bothHits;
+  }
+
+  /* The two-layer runner every existing caller uses: samples the overlap of
+     the federal and provincial extents (exactly the lattice it always laid)
+     and crosses the pair. The result carries both the a/b names and the
+     older fed/prov aliases, which point at the same arrays. */
+  function* crosswalkRunner(fedFeatures, provFeatures, options = {}) {
+    const spacingM = options.spacingM || 40;
+    const fedIndex = options.fedIndex || Geo.buildIndex(fedFeatures);
+    const provIndex = options.provIndex || Geo.buildIndex(provFeatures);
+    let extent = null;
+    if (fedIndex.extent && provIndex.extent) {
+      /* Only the overlap of the two layers can contribute. */
+      const minX = Math.max(fedIndex.extent[0], provIndex.extent[0]);
+      const minY = Math.max(fedIndex.extent[1], provIndex.extent[1]);
+      const maxX = Math.min(fedIndex.extent[2], provIndex.extent[2]);
+      const maxY = Math.min(fedIndex.extent[3], provIndex.extent[3]);
+      if (maxX > minX && maxY > minY) extent = [minX, minY, maxX, maxY];
+    }
+    const sample = yield* sampleLattice(
+      [{ features: fedFeatures, index: fedIndex }, { features: provFeatures, index: provIndex }],
+      { spacingM, extent });
+    if (!extent) sample.extent = null;
+    return legacyNames(crosswalkBetween(sample, 0, 1));
+  }
+
+  const legacyNames = (cw) => Object.assign(cw, {
+    fedCount: cw.aCount, provCount: cw.bCount, fedBoth: cw.aBoth, provBoth: cw.bBoth,
+    fedPoints: cw.aPoints, provPoints: cw.bPoints, nProv: cw.nB,
+  });
 
   /* Lattice sampling breaks down for very small polygons. Elections Canada
      mobile polls (type M) and single-building polls (type S) are only metres
@@ -3449,11 +3909,18 @@ const Analysis = (() => {
      vanish from the analysis -- exactly the dense downtown and care-home polls
      that matter most. Any feature the lattice barely saw is instead assigned
      whole to the unit containing its representative interior point, with its
-     true area as the weight so the other layer's shares stay proportional. */
-  function repairSmallFeatures(cw, fedFeatures, provFeatures, indexes, minSamples = 6) {
-    if (!cw.overlap) return { fed: [], prov: [] };
+     true area as the weight (times the local point weight, when the sample is
+     weighted) so the other layer's shares stay proportional.
+
+     indexes: { a, b } or the older { fed, prov }. */
+  function repairSmallFeatures(cw, aFeatures, bFeatures, indexes, minSamples = 6) {
+    const repaired = { a: [], b: [] };
+    repaired.fed = repaired.a; repaired.prov = repaired.b;
+    if (!cw.overlap) return repaired;
+    const idxA = indexes.a || indexes.fed, idxB = indexes.b || indexes.prov;
     const unit = cw.spacingM * cw.spacingM;
-    const repaired = { fed: [], prov: [] };
+    const nB = cw.nB;
+    const localWeight = (count, points, i) => (points[i] > 0 && count[i] > 0 ? count[i] / points[i] : 1);
 
     const cellsFor = (matches) => {
       const out = [];
@@ -3461,35 +3928,37 @@ const Analysis = (() => {
       return out;
     };
 
-    fedFeatures.forEach((feature, fi) => {
-      if (cw.fedCount[fi] >= minSamples) return;
+    aFeatures.forEach((feature, ai) => {
+      if (cw.aPoints[ai] >= minSamples) return;
       const pt = Geo.representativePoint(feature.geometry);
       if (!pt) return;
-      const mass = Math.max(Geo.areaM2(feature.geometry) / unit, 1e-6);
-      for (const key of cellsFor((k) => Math.floor(k / cw.nProv) === fi)) cw.cells.delete(key);
-      const pi = indexes.prov.hit(pt[0], pt[1]);
-      cw.fedCount[fi] = mass;
-      cw.fedBoth[fi] = pi >= 0 ? mass : 0;
-      if (pi >= 0) {
-        cw.cells.set(fi * cw.nProv + pi, mass);
-        if (cw.provCount[pi] < minSamples) cw.provCount[pi] = Math.max(cw.provCount[pi], mass);
+      const bi = idxB.hit(pt[0], pt[1]);
+      const mass = Math.max(Geo.areaM2(feature.geometry) / unit, 1e-6)
+        * (bi >= 0 ? localWeight(cw.bCount, cw.bPoints, bi) : 1);
+      for (const key of cellsFor((k) => Math.floor(k / nB) === ai)) cw.cells.delete(key);
+      cw.aCount[ai] = mass;
+      cw.aBoth[ai] = bi >= 0 ? mass : 0;
+      if (bi >= 0) {
+        cw.cells.set(ai * nB + bi, mass);
+        if (cw.bPoints[bi] < minSamples) cw.bCount[bi] = Math.max(cw.bCount[bi], mass);
       }
-      repaired.fed.push(fi);
+      repaired.a.push(ai);
     });
 
-    provFeatures.forEach((feature, pi) => {
-      if (cw.provCount[pi] >= minSamples) return;
+    bFeatures.forEach((feature, bi) => {
+      if (cw.bPoints[bi] >= minSamples) return;
       const pt = Geo.representativePoint(feature.geometry);
       if (!pt) return;
-      const mass = Math.max(Geo.areaM2(feature.geometry) / unit, 1e-6);
-      const fi = indexes.fed.hit(pt[0], pt[1]);
-      /* Leave alone anything the federal pass already pinned here. */
-      if (fi >= 0 && repaired.fed.includes(fi)) return;
-      for (const key of cellsFor((k) => k % cw.nProv === pi)) cw.cells.delete(key);
-      cw.provCount[pi] = mass;
-      cw.provBoth[pi] = fi >= 0 ? mass : 0;
-      if (fi >= 0) cw.cells.set(fi * cw.nProv + pi, mass);
-      repaired.prov.push(pi);
+      const ai = idxA.hit(pt[0], pt[1]);
+      /* Leave alone anything the first pass already pinned here. */
+      if (ai >= 0 && repaired.a.includes(ai)) return;
+      const mass = Math.max(Geo.areaM2(feature.geometry) / unit, 1e-6)
+        * (ai >= 0 ? localWeight(cw.aCount, cw.aPoints, ai) : 1);
+      for (const key of cellsFor((k) => k % nB === bi)) cw.cells.delete(key);
+      cw.bCount[bi] = mass;
+      cw.bBoth[bi] = ai >= 0 ? mass : 0;
+      if (ai >= 0) cw.cells.set(ai * nB + bi, mass);
+      repaired.b.push(bi);
     });
 
     return repaired;
@@ -3507,17 +3976,20 @@ const Analysis = (() => {
      The shares that remain are rescaled to recover exactly the mass that the
      dropped slivers were carrying -- not to 1. A poll lying partly outside the
      other layer keeps its true coverage instead of having its votes pushed
-     inside. */
+     inside.
+
+     Every pair carries both namings: ai/bi/shareOfA/shareOfB and the older
+     fi/pi/shareOfFed/shareOfProv, which are the same numbers. */
   function crosswalkPairs(cw, options = {}) {
     const minShare = options.minShare || 0;
+    const nB = cw.nB;
     const raw = [];
     for (const [key, count] of cw.cells) {
-      const fi = Math.floor(key / cw.nProv), pi = key % cw.nProv;
-      raw.push({
-        fi, pi, count,
-        shareOfFed: cw.fedCount[fi] ? count / cw.fedCount[fi] : 0,
-        shareOfProv: cw.provCount[pi] ? count / cw.provCount[pi] : 0,
-      });
+      const ai = Math.floor(key / nB), bi = key % nB;
+      const shareOfA = cw.aCount[ai] ? count / cw.aCount[ai] : 0;
+      const shareOfB = cw.bCount[bi] ? count / cw.bCount[bi] : 0;
+      raw.push({ ai, bi, fi: ai, pi: bi, count, shareOfA, shareOfB,
+                 shareOfFed: shareOfA, shareOfProv: shareOfB });
     }
     if (!minShare) return raw;
 
@@ -3526,25 +3998,28 @@ const Analysis = (() => {
       for (const p of list) totals.set(p[idx], (totals.get(p[idx]) || 0) + p[key]);
       return totals;
     };
-    const fedBefore = sum(raw, 'shareOfFed', 'fi');
-    const provBefore = sum(raw, 'shareOfProv', 'pi');
-    const kept = raw.filter((p) => p.shareOfFed >= minShare || p.shareOfProv >= minShare);
-    const fedAfter = sum(kept, 'shareOfFed', 'fi');
-    const provAfter = sum(kept, 'shareOfProv', 'pi');
+    const aBefore = sum(raw, 'shareOfA', 'ai');
+    const bBefore = sum(raw, 'shareOfB', 'bi');
+    const kept = raw.filter((p) => p.shareOfA >= minShare || p.shareOfB >= minShare);
+    const aAfter = sum(kept, 'shareOfA', 'ai');
+    const bAfter = sum(kept, 'shareOfB', 'bi');
     for (const p of kept) {
-      const fScale = fedAfter.get(p.fi) > 0 ? fedBefore.get(p.fi) / fedAfter.get(p.fi) : 1;
-      const pScale = provAfter.get(p.pi) > 0 ? provBefore.get(p.pi) / provAfter.get(p.pi) : 1;
-      p.shareOfFed *= fScale;
-      p.shareOfProv *= pScale;
+      const aScale = aAfter.get(p.ai) > 0 ? aBefore.get(p.ai) / aAfter.get(p.ai) : 1;
+      const bScale = bAfter.get(p.bi) > 0 ? bBefore.get(p.bi) / bAfter.get(p.bi) : 1;
+      p.shareOfA *= aScale;
+      p.shareOfB *= bScale;
+      p.shareOfFed = p.shareOfA;
+      p.shareOfProv = p.shareOfB;
     }
     return kept;
   }
 
   /* Fraction of each feature that lies inside the other layer at all. */
-  const coverage = (cw) => ({
-    fed: Array.from(cw.fedCount, (n, i) => (n ? cw.fedBoth[i] / n : 0)),
-    prov: Array.from(cw.provCount, (n, i) => (n ? cw.provBoth[i] / n : 0)),
-  });
+  const coverage = (cw) => {
+    const a = Array.from(cw.aCount, (n, i) => (n ? cw.aBoth[i] / n : 0));
+    const b = Array.from(cw.bCount, (n, i) => (n ? cw.bBoth[i] / n : 0));
+    return { a, b, fed: a, prov: b };
+  };
 
   /* --- Vote redistribution ----------------------------------------------- */
 
@@ -3563,22 +4038,25 @@ const Analysis = (() => {
   }
   const scaledUnit = (src, w) => addScaled(emptyUnit(), src, w);
 
-  /* values: index -> unit. Splits each source unit's counts across the target
-     units in proportion to shared area (or shared population, once the sample
-     carries weights). */
+  /* values: index -> unit on the source side. Splits each source unit's counts
+     across the target units in proportion to shared area (or shared
+     population, once the sample carries weights).
+     from: 'a' | 'b', or the older 'fed' (= a) | 'prov' (= b). */
+  const fromA = (from) => from === 'a' || from === 'fed';
+  const pairShare = (p, side) => (side === 'a' ? (p.shareOfA ?? p.shareOfFed) : (p.shareOfB ?? p.shareOfProv));
+  const pairIndex = (p, side) => (side === 'a' ? (p.ai ?? p.fi) : (p.bi ?? p.pi));
   function redistribute(pairs, values, { from }) {
-    const shareKey = from === 'fed' ? 'shareOfFed' : 'shareOfProv';
-    const sourceKey = from === 'fed' ? 'fi' : 'pi';
-    const targetKey = from === 'fed' ? 'pi' : 'fi';
+    const src = fromA(from) ? 'a' : 'b', dst = fromA(from) ? 'b' : 'a';
     const out = new Map();
     for (const pair of pairs) {
-      const src = values.get(pair[sourceKey]);
-      if (!src) continue;
-      const w = pair[shareKey];
+      const unit = values.get(pairIndex(pair, src));
+      if (!unit) continue;
+      const w = pairShare(pair, src);
       if (!(w > 0)) continue;
-      let acc = out.get(pair[targetKey]);
-      if (!acc) out.set(pair[targetKey], (acc = emptyUnit()));
-      addScaled(acc, src, w);
+      const target = pairIndex(pair, dst);
+      let acc = out.get(target);
+      if (!acc) out.set(target, (acc = emptyUnit()));
+      addScaled(acc, unit, w);
     }
     return out;
   }
@@ -3721,6 +4199,7 @@ const Analysis = (() => {
   }
 
   return {
+    sampleLattice, pointWeights, crosswalkBetween, pairShare, pairIndex,
     crosswalkRunner, crosswalkPairs, coverage, redistribute, repairSmallFeatures,
     emptyUnit, addScaled, scaledUnit,
     pearson, spearman, rankOf, linearFit, pearsonCI,
@@ -4193,12 +4672,17 @@ const Turnout = (() => {
 
   /* --- Rows on a common geography ------------------------------------------
 
-     sources: [{ id: 'fed' | 'prov', values: Map<index, unit>, pairs }].
-     target:  'fed' | 'prov' | 'atom'. A source native to the target is used
-     as-is; any other is moved through its crosswalk pairs; a source with no
-     pairs is left out, so a federal-only ranking works before a provincial
-     layer exists. Each row carries `by[sourceId]` and a reference elector
-     count from the target's native source. */
+     sources: [{ id, values: Map<index, unit>, pairs, side }].
+     target:  a source id ('fed' | 'prov' | 'da' ...) or 'atom'. A source native
+     to the target is used as-is; any other is moved through its crosswalk
+     pairs, from the side it sits on ('a' or 'b'; a source without a side is
+     'a' when its id is 'fed' and 'b' otherwise, which is the federal-provincial
+     crosswalk's convention); a source with no pairs is left out, so a
+     federal-only ranking works before a provincial layer exists. Each row
+     carries `by[sourceId]` and a reference elector count from the target's
+     native source, or the first source present. */
+  const sideOf = (s) => s.side || (s.id === 'fed' ? 'a' : 'b');
+
   function rowsOnUnit(target, sources, labels, { minElectors = 0 } = {}) {
     const rows = new Map();
     const ensure = (key, label) => {
@@ -4209,25 +4693,31 @@ const Turnout = (() => {
     if (target === 'atom') {
       const withPairs = sources.find((s) => s.pairs);
       if (!withPairs) return [];
+      const aSrc = sources.find((s) => s.pairs && sideOf(s) === 'a');
+      const bSrc = sources.find((s) => s.pairs && sideOf(s) === 'b');
+      const labelA = (aSrc && labels[aSrc.id]) || labels.fed;
+      const labelB = (bSrc && labels[bSrc.id]) || labels.prov;
       for (const p of withPairs.pairs) {
-        const row = ensure(`${p.fi}|${p.pi}`, `${labels.fed(p.fi)} × ${labels.prov(p.pi)}`);
+        const ai = Analysis.pairIndex(p, 'a'), bi = Analysis.pairIndex(p, 'b');
+        const row = ensure(`${ai}|${bi}`, `${labelA(ai)} × ${labelB(bi)}`);
         for (const s of sources) {
-          const u = s.values.get(s.id === 'fed' ? p.fi : p.pi);
-          if (u) row.by[s.id] = Analysis.scaledUnit(u, s.id === 'fed' ? p.shareOfFed : p.shareOfProv);
+          const side = sideOf(s);
+          const u = s.values.get(Analysis.pairIndex(p, side));
+          if (u) row.by[s.id] = Analysis.scaledUnit(u, Analysis.pairShare(p, side));
         }
       }
     } else {
       for (const s of sources) {
         let onTarget;
         if (s.id === target) onTarget = s.values;
-        else if (s.pairs) onTarget = Analysis.redistribute(s.pairs, s.values, { from: s.id });
+        else if (s.pairs) onTarget = Analysis.redistribute(s.pairs, s.values, { from: sideOf(s) });
         else continue;
         for (const [idx, u] of onTarget) ensure(String(idx), labels[target](idx)).by[s.id] = u;
       }
     }
     const out = [];
     for (const row of rows.values()) {
-      const ref = row.by[target] || row.by.fed || row.by.prov;
+      const ref = row.by[target] || row.by.fed || row.by.prov || Object.values(row.by)[0];
       row.electors = ref ? ref.electors : 0;
       if (row.electors < minElectors) continue;
       out.push(row);
@@ -4336,6 +4826,291 @@ const Turnout = (() => {
 
   return { ballots, rate, cloneUnit, apportionUnmatched, rowsOnUnit, score, rank, cumulative,
            basketSummary, toCsv };
+})();
+
+/* ---------------------------------------------------------------------------
+   Census: Statistics Canada's 2021 Census Profile and Geographic Attribute
+   File, read into per-area variables that can be joined to dissemination
+   areas and blocks.
+
+   Two layouts are read. The comprehensive Census Profile download is LONG:
+   one row per characteristic per geography, ~2,600 characteristics each, with
+   the hierarchy encoded as leading spaces in CHARACTERISTIC_NAME, a count
+   column and a rate column each followed by a SYMBOL column, and suppression
+   spelled as x, .., ... or F. Anything else with a geography column and
+   numeric columns is WIDE: one row per geography, one column per variable --
+   the shape tools/filter_census.py writes and StatCan's web tables export.
+
+   Column names, the DGUID prefix and the suppression symbols are matched by
+   pattern and reported, never assumed by position, because this file was
+   written without access to the real downloads.
+--------------------------------------------------------------------------- */
+const Census = (() => {
+
+  const norm = (h) => String(h == null ? '' : h).trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '');
+
+  /* Suppressed or unavailable cells become null. */
+  function parseValue(raw) {
+    const s = String(raw == null ? '' : raw).trim();
+    if (s === '' || /^(x|\.\.|\.\.\.|f|\.)$/i.test(s)) return null;
+    const n = Number(s.replace(/,/g, ''));
+    return isFinite(n) ? n : null;
+  }
+
+  /* A DGUID is vintage + schema + type + code (2021S05120001234): the code is
+     what the boundary files carry as DAUID / DBUID, so keys are compared on
+     the trailing code alone and either spelling joins. */
+  const geoKey = (v) => String(v == null ? '' : v).trim().replace(/^\d{4}[A-Z]\d{4}(?=\d)/i, '');
+
+  /* --- Long layout -------------------------------------------------------- */
+
+  function detectProfileLayout(header) {
+    const H = header.map(norm);
+    const col = (...res) => {
+      for (const re of res) { const i = H.findIndex((h) => re.test(h)); if (i >= 0) return i; }
+      return -1;
+    };
+    const name = col(/^CHARACTERISTIC_NAME$/, /CHARACTERISTIC.*NAME/);
+    if (name < 0) return null;
+    const count = col(/^C1_COUNT_TOTAL$/, /^C1_COUNT/, /COUNT_TOTAL/, /^TOTAL$/);
+    const rate = col(/^C10_RATE_TOTAL$/, /^C10_RATE/, /RATE_TOTAL/);
+    const symbolAfter = (i) => (i >= 0 && H[i + 1] === 'SYMBOL' ? i + 1 : -1);
+    return {
+      dguid: col(/^DGUID$/, /DGUID/),
+      altCode: col(/^ALT_GEO_CODE$/, /ALT_GEO_CODE/, /^GEO_CODE/),
+      geoLevel: col(/^GEO_LEVEL$/),
+      geoName: col(/^GEO_NAME$/),
+      charId: col(/^CHARACTERISTIC_ID$/, /CHARACTERISTIC.*ID/),
+      name, count, rate,
+      countSymbol: symbolAfter(count), rateSymbol: symbolAfter(rate),
+    };
+  }
+
+  /* Pivots the long file. keep(geoKey, row) filters geographies. The result
+     holds one Float64Array of counts and one of rates per geography (NaN
+     where suppressed or absent), indexed by the characteristic list. */
+  function parseLongProfile(table, layout, options = {}) {
+    const keep = options.keep || null;
+    const characteristics = [];
+    const byId = new Map();
+    const byGeo = new Map();
+    const stack = [];   // open ancestors by depth
+    let geoLevel = null, rows = 0;
+    for (const row of table.rows) {
+      const rawName = row[layout.name];
+      if (rawName == null) continue;
+      const geo = geoKey(layout.altCode >= 0 && row[layout.altCode] !== '' && row[layout.altCode] != null
+        ? row[layout.altCode] : row[layout.dguid]);
+      if (!geo) continue;
+      if (geoLevel == null && layout.geoLevel >= 0) geoLevel = String(row[layout.geoLevel] || '').trim();
+      const id = layout.charId >= 0 ? Number(String(row[layout.charId]).trim()) : NaN;
+      let entry = byId.get(isFinite(id) ? id : rawName);
+      if (!entry) {
+        const leading = /^ */.exec(rawName)[0].length;
+        const depth = Math.floor(leading / 2);
+        while (stack.length > depth) stack.pop();
+        const parent = stack.length ? stack[stack.length - 1] : null;
+        entry = { id: isFinite(id) ? id : characteristics.length + 1, name: rawName.trim(), depth,
+                  parentId: parent ? parent.id : null, index: characteristics.length };
+        characteristics.push(entry);
+        byId.set(isFinite(id) ? id : rawName, entry);
+        stack.push(entry);
+      }
+      if (keep && !keep(geo, row)) continue;
+      let g = byGeo.get(geo);
+      if (!g) byGeo.set(geo, (g = { count: [], rate: [], dguid: layout.dguid >= 0 ? String(row[layout.dguid]).trim() : null,
+                                     name: layout.geoName >= 0 ? String(row[layout.geoName] || '').trim() : '' }));
+      g.count[entry.index] = layout.count >= 0 ? parseValue(row[layout.count]) : null;
+      g.rate[entry.index] = layout.rate >= 0 ? parseValue(row[layout.rate]) : null;
+      rows++;
+    }
+    const n = characteristics.length;
+    const toTyped = (arr) => { const t = new Float64Array(n).fill(NaN); for (let i = 0; i < n; i++) if (arr[i] != null) t[i] = arr[i]; return t; };
+    for (const g of byGeo.values()) { g.count = toTyped(g.count); g.rate = toTyped(g.rate); }
+    const byCharId = new Map(characteristics.map((c) => [c.id, c]));
+    return { layout: 'long', geoLevel, characteristics, byCharId, byGeo, rows, geographies: byGeo.size };
+  }
+
+  /* --- Starter variables ----------------------------------------------------
+     Matched on the trimmed characteristic name; `over` names an ancestor that
+     disambiguates repeated names ("Movers" appears under both the 1-year and
+     5-year mobility totals) and supplies the denominator for a share. Every
+     match is reported so the user can see which row fired. */
+  const STARTER = [
+    { key: 'pop_2021', label: 'Population, 2021', name: /^Population, 2021$/i, use: 'count' },
+    { key: 'pop_density', label: 'Population density per km²', name: /^Population density per square kilometre$/i, use: 'count' },
+    { key: 'median_age', label: 'Median age', name: /^Median age of the population$/i, use: 'count' },
+    { key: 'pct_65_plus', label: 'Aged 65 and over (%)', name: /^65 years and over$/i, use: 'ratio',
+      over: /^Total - Age groups of the population/i },
+    { key: 'avg_household_size', label: 'Average household size', name: /^Average household size$/i, use: 'count' },
+    { key: 'pct_one_person_hh', label: 'One-person households (%)', name: /^1 person$/i, use: 'ratio',
+      over: /^Total - Private households by household size/i },
+    { key: 'median_hh_income', label: 'Median household income, 2020 ($)', name: /^Median total income of household in 2020/i, use: 'count' },
+    { key: 'pct_lim_at', label: 'Low income, LIM-AT (%)', name: /^Prevalence of low income based on the Low-income measure, after tax/i, use: 'count' },
+    { key: 'unemployment_rate', label: 'Unemployment rate (%)', name: /^Unemployment rate$/i, use: 'count' },
+    { key: 'pct_renter', label: 'Renter households (%)', name: /^Renter$/i, use: 'ratio',
+      over: /^Total - Private households by tenure/i },
+    { key: 'pct_movers_5yr', label: 'Moved in the last 5 years (%)', name: /^Movers$/i, use: 'ratio',
+      over: /^Total - Mobility status 5 years ago/i },
+    { key: 'pct_immigrant', label: 'Immigrants (%)', name: /^Immigrants$/i, use: 'ratio',
+      over: /^Total - Immigrant status and period of immigration/i },
+    { key: 'pct_recent_immigrant', label: 'Immigrated 2016 to 2021 (%)', name: /^2016 to 2021$/i, use: 'ratio',
+      over: /^Total - Immigrant status and period of immigration/i },
+    { key: 'pct_bachelor_plus', label: "Bachelor's degree or higher, ages 25 to 64 (%)", name: /^Bachelor.s degree or higher$/i, use: 'ratio',
+      over: /^Total - Highest certificate, diploma or degree for the population aged 25 to 64/i },
+  ];
+
+  function ancestors(profile, c) {
+    const out = [];
+    let cur = c;
+    while (cur && cur.parentId != null) {
+      cur = profile.byCharId.get(cur.parentId);
+      if (cur) out.push(cur);
+    }
+    return out;
+  }
+
+  /* The characteristic a starter spec points at, or null. */
+  function resolveSpec(profile, spec) {
+    for (const c of profile.characteristics) {
+      if (!spec.name.test(c.name)) continue;
+      if (!spec.over) return { pick: c, over: null };
+      const over = ancestors(profile, c).find((a) => spec.over.test(a.name));
+      if (over) return { pick: c, over };
+    }
+    return null;
+  }
+
+  function valuesOf(profile, index, use, overIndex) {
+    const values = new Map();
+    for (const [geo, g] of profile.byGeo) {
+      let v = null;
+      if (use === 'rate') v = g.rate[index];
+      else if (use === 'ratio') {
+        const num = g.count[index], den = overIndex != null ? g.count[overIndex] : NaN;
+        v = den > 0 && isFinite(num) ? (100 * num) / den : NaN;
+      } else v = g.count[index];
+      if (v != null && isFinite(v)) values.set(geo, v);
+    }
+    return values;
+  }
+
+  function deriveVariables(profile, spec = STARTER) {
+    const variables = [], matched = [], unmatched = [];
+    for (const s of spec) {
+      const r = resolveSpec(profile, s);
+      if (!r) { unmatched.push(s.key); continue; }
+      const values = valuesOf(profile, r.pick.index, s.use, r.over ? r.over.index : null);
+      variables.push({ key: s.key, label: s.label, id: r.pick.id, name: r.pick.name, use: s.use,
+                       over: r.over ? r.over.name : null, values });
+      matched.push({ key: s.key, id: r.pick.id, name: r.pick.name, over: r.over ? r.over.name : null });
+    }
+    return { variables, matched, unmatched };
+  }
+
+  /* Any characteristic by id, as a count or as StatCan's own rate. */
+  function characteristicVariable(profile, id, use = 'count') {
+    const c = profile.byCharId.get(Number(id));
+    if (!c) return null;
+    const key = (use === 'rate' ? 'r' : 'c') + c.id;
+    return { key, label: `${c.name}${use === 'rate' ? ' (%)' : ''}`, id: c.id, name: c.name, use,
+             values: valuesOf(profile, c.index, use, null) };
+  }
+
+  /* --- Wide layout ---------------------------------------------------------- */
+
+  const GEO_COLUMNS = [/^DGUID$/, /^DAUID$/, /^DBUID$/, /^GEO_CODE$/, /^ALT_GEO_CODE$/, /^GEOUID$/, /^GEO_UID$/, /UID$/];
+
+  function findGeoColumn(header) {
+    const H = header.map(norm);
+    for (const re of GEO_COLUMNS) { const i = H.findIndex((h) => re.test(h)); if (i >= 0) return i; }
+    return -1;
+  }
+
+  function readWide(table) {
+    const geoCol = findGeoColumn(table.header);
+    if (geoCol < 0) throw new Error('No geography column (DGUID, DAUID or DBUID) was found in this table.');
+    const variables = [];
+    table.header.forEach((h, i) => {
+      /* Every identifier column is skipped, not just the one used as the key:
+         a DAUID beside a DGUID is numeric but is not a variable. */
+      if (i === geoCol || !h || GEO_COLUMNS.some((re) => re.test(norm(h)))) return;
+      const values = new Map();
+      let seen = 0, numeric = 0;
+      for (const row of table.rows) {
+        const raw = row[i];
+        if (raw == null || String(raw).trim() === '') continue;
+        seen++;
+        const v = parseValue(raw);
+        if (v != null) { numeric++; values.set(geoKey(row[geoCol]), v); }
+        else if (/^(x|\.\.|\.\.\.|f)$/i.test(String(raw).trim())) numeric++;   // suppressed, still a numeric column
+      }
+      if (seen && numeric / seen >= 0.9) variables.push({ key: h.trim(), label: h.trim(), values });
+    });
+    return { layout: 'wide', geoColumn: table.header[geoCol], variables,
+             geographies: new Set(table.rows.map((r) => geoKey(r[geoCol]))).size };
+  }
+
+  /* --- Geographic Attribute File / block population ------------------------- */
+
+  function readGeoAttributes(table) {
+    const H = table.header.map(norm);
+    const col = (...res) => { for (const re of res) { const i = H.findIndex((h) => re.test(h)); if (i >= 0) return i; } return -1; };
+    const db = col(/^DBUID$/, /DBUID/);
+    const pop = col(/^DBPOP2021$/, /^DBPOP/, /^POPULATION/, /POP_?2021/, /^POP$/);
+    if (db < 0 || pop < 0) {
+      throw new Error('A block population table needs a DBUID column and a population column (DBPOP2021).');
+    }
+    const da = col(/^DAUID$/, /DAUID/);
+    const dwell = col(/^DBTDWELL2021$/, /^DBTDWELL/, /DWELL/);
+    const dbPop = new Map(), daPop = new Map(), dwellings = new Map(), dbToDa = new Map();
+    for (const row of table.rows) {
+      const key = geoKey(row[db]);
+      if (!key) continue;
+      const p = parseValue(row[pop]);
+      if (p != null) dbPop.set(key, p);
+      if (dwell >= 0) { const d = parseValue(row[dwell]); if (d != null) dwellings.set(key, d); }
+      if (da >= 0) {
+        const daKey = geoKey(row[da]);
+        if (daKey) { dbToDa.set(key, daKey); if (p != null) daPop.set(daKey, (daPop.get(daKey) || 0) + p); }
+      }
+    }
+    return { dbPop, daPop, dwellings, dbToDa, columns: { db: table.header[db], pop: table.header[pop],
+             da: da >= 0 ? table.header[da] : null } };
+  }
+
+  /* --- Joining to features --------------------------------------------------- */
+
+  function suggestGeoKey(features) {
+    const sample = features.slice(0, 200);
+    const names = new Set();
+    for (const f of sample) for (const k of Object.keys(f.properties || {})) names.add(k);
+    const all = [...names];
+    for (const re of GEO_COLUMNS) { const hit = all.find((n) => re.test(norm(n))); if (hit) return hit; }
+    let best = null, bestU = 0;
+    for (const n of all) {
+      const u = new Set(sample.map((f) => String((f.properties || {})[n]))).size / Math.max(1, sample.length);
+      if (u > bestU) { bestU = u; best = n; }
+    }
+    return best;
+  }
+
+  /* values: Map<geoKey, number> -> Map<featureIdx, number>. */
+  function joinToFeatures(features, keyProp, values) {
+    const out = new Map();
+    if (!keyProp) return out;
+    features.forEach((f, i) => {
+      const v = values.get(geoKey((f.properties || {})[keyProp]));
+      if (v != null && isFinite(v)) out.set(i, v);
+    });
+    return out;
+  }
+
+  return {
+    norm, parseValue, geoKey, detectProfileLayout, parseLongProfile, STARTER, resolveSpec,
+    deriveVariables, characteristicVariable, readWide, findGeoColumn, readGeoAttributes,
+    suggestGeoKey, joinToFeatures,
+  };
 })();
 
 </script>

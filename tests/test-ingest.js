@@ -8,6 +8,10 @@ const read = (p) => new Uint8Array(fs.readFileSync(p));
 const enc = (s) => new TextEncoder().encode(s);
 
 (async () => {
+  const fail = async (name, bytes, re, options) => {
+    try { await Ingest.loadBoundaries(name, bytes, options); ok(`${name} should have thrown`, false); }
+    catch (e) { ok(`${name}: ${e.message.slice(0, 58)}...`, re.test(e.message), e.message); }
+  };
   console.log('\n== Zipped shapefile in BC Albers ==');
   const z = await Ingest.loadBoundaries('va_shapefile.zip', read('fixtures/va_shapefile.zip'));
   eq('feature count', z.features.length, 3);
@@ -17,6 +21,15 @@ const enc = (s) => new TextEncoder().encode(s);
   ok('reprojected into Vancouver lon/lat', bb[0] > -123.2 && bb[2] < -123.0 && bb[1] > 49.2 && bb[3] < 49.3,
      JSON.stringify(bb.map(v => +v.toFixed(4))));
   eq('no warnings for a complete archive', z.warnings, []);
+
+  console.log('\n== Zipped shapefile in Statistics Canada Lambert (Esri .prj) ==');
+  const lcc = await Ingest.loadBoundaries('da_lcc.zip', read('fixtures/da_lcc.zip'));
+  eq('feature count', lcc.features.length, 3);
+  eq('CRS read from the Esri .prj', lcc.crs, 'EPSG:3347');
+  eq('DAUID attribute kept', lcc.features[0].properties.DAUID, '59150100');
+  const lb = Geo.bboxOf(lcc.features[0].geometry), ab = Geo.bboxOf(z.features[0].geometry);
+  ok('Lambert and Albers routes agree to 1e-7 deg', Math.max(...lb.map((v, i) => Math.abs(v - ab[i]))) < 1e-7,
+     JSON.stringify([lb, ab]));
 
   console.log('\n== KMZ and KML ==');
   const kmz = await Ingest.loadBoundaries('va.kmz', read('fixtures/va.kmz'));
@@ -49,6 +62,27 @@ const enc = (s) => new TextEncoder().encode(s);
   const sniffed = await Ingest.loadBoundaries('x.json', enc(albersGj.replace(/"crs":\{[^}]*\}[^,]*,/, '')));
   eq('extent sniffing recovers BC Albers', sniffed.crs, 'EPSG:3005');
 
+  console.log('\n== Clipping a big file to the study area while loading ==');
+  const zb = new Blob([read('fixtures/e2e_voting_areas.zip')]);
+  const whole = await Ingest.loadBoundaries('e2e_voting_areas.zip', zb);
+  eq('a Blob loads like bytes', whole.features.length, 700);
+  eq('records reported', [whole.records, whole.kept, whole.filtered], [700, 700, false]);
+  const box = [-123.12, 49.24, -123.08, 49.27];
+  const touches = (f) => { const b = Geo.bboxOf(f.geometry); return b[2] >= box[0] && b[0] <= box[2] && b[3] >= box[1] && b[1] <= box[3]; };
+  const inBox = whole.features.filter(touches).length;
+  const clipped = await Ingest.loadBoundaries('e2e_voting_areas.zip', zb, { bbox: box });
+  ok(`clipped load keeps the ${inBox} areas touching the box (got ${clipped.kept} of ${clipped.records})`,
+     clipped.features.length === inBox && clipped.records === 700 && clipped.kept === inBox && clipped.filtered === true);
+  ok('the clipped features are the same objects as in the whole load', clipped.features.every(touches)
+     && JSON.stringify(clipped.features.map((f) => f.properties.VA_CODE)) === JSON.stringify(whole.features.filter(touches).map((f) => f.properties.VA_CODE)));
+  const streamed = await Ingest.loadBoundaries('e2e_voting_areas.zip', zb, { bbox: box, streamAbove: 0 });
+  ok('the streaming path gives the same layer', streamed.features.length === inBox
+     && JSON.stringify(streamed.features[0]) === JSON.stringify(clipped.features[0]));
+  const gj = await Ingest.loadBoundaries('e2e_va.geojson', new Blob([read('fixtures/e2e_va.geojson')]), { bbox: box });
+  eq('a GeoJSON layer is clipped to the same count', gj.features.length, inBox);
+  await fail('e2e_va.geojson', enc(JSON.stringify({ type: 'FeatureCollection', features: [
+    { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [[[-100, 40], [-99, 40], [-99, 41], [-100, 40]]] } }] })), /touch the study area/, { bbox: box });
+
   console.log('\n== Geometry normalisation ==');
   const mixed = JSON.stringify({ type:'FeatureCollection', features:[
     { type:'Feature', properties:{n:1}, geometry:{ type:'Point', coordinates:[-123,49] } },
@@ -61,10 +95,6 @@ const enc = (s) => new TextEncoder().encode(s);
   ok('warned about the dropped point', m.warnings.some(w => /skipped/i.test(w)), JSON.stringify(m.warnings));
 
   console.log('\n== Error messages ==');
-  const fail = async (name, bytes, re) => {
-    try { await Ingest.loadBoundaries(name, bytes); ok(`${name} should have thrown`, false); }
-    catch (e) { ok(`${name}: ${e.message.slice(0,58)}...`, re.test(e.message), e.message); }
-  };
   await fail('t.json', enc(JSON.stringify({ type:'Topology', objects:{} })), /TopoJSON/);
   await fail('a.shp', new Uint8Array(8), /zip it together/i);
   await fail('empty.geojson', enc(JSON.stringify({ type:'FeatureCollection', features:[] })), /No polygon features/);

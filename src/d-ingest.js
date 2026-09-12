@@ -108,47 +108,112 @@ const Ingest = (() => {
     return null;
   }
 
-  /* Pair up the .shp/.dbf/.prj members of a zipped shapefile by stem. */
-  async function shapefileFromZip(zip, warnings) {
+  /* Entries above this many bytes are parsed from a stream instead of being
+     inflated whole: a national dissemination-block shapefile is ~1.1 GB. */
+  const STREAM_THRESHOLD = 256 * 1024 * 1024;
+
+  /* The first 100 bytes of a .shp, read without inflating the rest, give the
+     file's own bounding box -- enough to sniff its coordinate system. */
+  async function peekShpHeader(open) {
+    if (!open.stream) return BinaryFormats.shpHeaderBox(await open());
+    const reader = (await open.stream()).getReader();
+    let buf = new Uint8Array(0);
+    while (buf.byteLength < 100) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const merged = new Uint8Array(buf.byteLength + value.byteLength);
+      merged.set(buf); merged.set(value, buf.byteLength);
+      buf = merged;
+    }
+    try { await reader.cancel(); } catch (e) { /* stream already finished */ }
+    return BinaryFormats.shpHeaderBox(buf);
+  }
+
+  /* A record is kept when its bounding box, taken to lon/lat, overlaps the
+     study-area box. Four corners are exact for an axis-aligned box in lon/lat
+     and within metres for census polygons in a conic projection; the caller
+     pads the box. */
+  function bboxKeep(target, inverse) {
+    const [tx0, ty0, tx1, ty1] = target;
+    return (box) => {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const [x, y] of [[box[0], box[1]], [box[2], box[1]], [box[2], box[3]], [box[0], box[3]]]) {
+        const q = inverse ? inverse(x, y) : [x, y];
+        if (q[0] < x0) x0 = q[0]; if (q[0] > x1) x1 = q[0];
+        if (q[1] < y0) y0 = q[1]; if (q[1] > y1) y1 = q[1];
+      }
+      return x1 >= tx0 && x0 <= tx1 && y1 >= ty0 && y0 <= ty1;
+    };
+  }
+
+  const bboxTouches = (a, b) => a[2] >= b[0] && a[0] <= b[2] && a[3] >= b[1] && a[1] <= b[3];
+
+  /* Pair up the .shp/.dbf/.prj members of a zipped shapefile by stem. The .prj
+     is read first so a study-area box can filter records before any geometry
+     is parsed; entries too big to hold whole are streamed. */
+  async function shapefileFromZip(zip, warnings, options = {}) {
     let stem = null;
     for (const name of zip.keys()) {
       if (name.includes('__MACOSX') || baseName(name).startsWith('.')) continue;
       if (extensionOf(name) === 'shp') { stem = name.replace(/\.shp$/i, ''); break; }
     }
     if (stem === null) return null;
-    const at = async (ext) => {
+    const opener = (ext) => {
       for (const [name, open] of zip) {
-        if (name.toLowerCase() === (stem + '.' + ext).toLowerCase()) return open();
+        if (name.toLowerCase() === (stem + '.' + ext).toLowerCase()) return open;
       }
       return null;
     };
-    const shpBytes = await at('shp');
-    const geometries = BinaryFormats.readShp(shpBytes);
-    const dbfBytes = await at('dbf');
+    const shpOpen = opener('shp'), dbfOpen = opener('dbf'), prjOpen = opener('prj');
+    const declared = prjOpen ? Geo.crsFromWkt(TextFormats.decodeBytes(await prjOpen())) : null;
+    if (!prjOpen) warnings.push('No .prj in the archive; the coordinate system was inferred from the extent.');
+
+    const streamAbove = options.streamAbove ?? STREAM_THRESHOLD;
+    const big = (open) => Boolean(open && open.stream && open.size > streamAbove);
+
+    let keep = null, filtered = false;
+    if (options.bbox) {
+      let crs = declared && Geo.CRS[declared] ? declared : null;
+      if (!crs) {
+        const hb = await peekShpHeader(shpOpen);
+        crs = hb ? Geo.crsFromExtent(hb[0], hb[1], hb[2], hb[3]) : null;
+      }
+      if (crs) { keep = bboxKeep(options.bbox, Geo.project(crs)); filtered = true; }
+      else warnings.push('Could not identify the coordinate system, so the file was read whole instead of clipped to the study area.');
+    }
+    const geometries = big(shpOpen)
+      ? await BinaryFormats.readShpStream(await shpOpen.stream(), { keep })
+      : BinaryFormats.readShp(await shpOpen(), { keep });
     let rows = [];
-    if (dbfBytes) {
-      rows = BinaryFormats.readDbf(dbfBytes, TextFormats.decodeBytes).rows;
+    if (dbfOpen) {
+      const keepRow = keep ? (i) => geometries[i] != null : null;
+      rows = big(dbfOpen)
+        ? (await BinaryFormats.readDbfStream(await dbfOpen.stream(), TextFormats.decodeBytes, { keep: keepRow })).rows
+        : BinaryFormats.readDbf(await dbfOpen(), TextFormats.decodeBytes, { keep: keepRow }).rows;
     } else {
       warnings.push('No .dbf in the archive, so the shapes arrived without attributes. '
-        + 'Include the .dbf to label the voting areas.');
+        + 'Include the .dbf to label the areas.');
     }
-    const prjBytes = await at('prj');
-    const declared = prjBytes ? Geo.crsFromWkt(TextFormats.decodeBytes(prjBytes)) : null;
-    if (!prjBytes) warnings.push('No .prj in the archive; the coordinate system was inferred from the extent.');
     const features = [];
     geometries.forEach((geometry, i) => {
       if (!geometry) return;
       features.push({ type: 'Feature', properties: rows[i] || {}, geometry });
     });
-    return { features, declared, label: baseName(stem) + '.shp' };
+    return { features, declared, label: baseName(stem) + '.shp', records: geometries.length, filtered };
   }
 
   /* --- Boundary files ---------------------------------------------------- */
 
-  async function loadBoundaries(fileName, bytes) {
+  /* source: a Uint8Array, or a File/Blob (read lazily, so a zipped shapefile
+     far larger than memory can still be clipped to the study area).
+     options.bbox: [minLon, minLat, maxLon, maxLat] -- keep only features whose
+     bounding box touches it; options.streamAbove overrides STREAM_THRESHOLD. */
+  async function loadBoundaries(fileName, source, options = {}) {
     const warnings = [];
     const ext = extensionOf(fileName);
-    let features = [], declared = null, label = fileName;
+    const isBlob = typeof Blob !== 'undefined' && source instanceof Blob;
+    const bytesOf = async () => (isBlob ? new Uint8Array(await source.arrayBuffer()) : source);
+    let features = [], declared = null, label = fileName, records = null, filtered = false;
 
     const fromText = (text, how) => {
       if (how === 'kml') return { features: TextFormats.kmlToFeatures(text), declared: 'EPSG:4326' };
@@ -160,10 +225,10 @@ const Ingest = (() => {
     };
 
     if (ext === 'zip' || ext === 'kmz') {
-      const zip = BinaryFormats.readZip(bytes);
-      const shp = await shapefileFromZip(zip, warnings);
+      const zip = isBlob ? await BinaryFormats.readZipBlob(source) : BinaryFormats.readZip(source);
+      const shp = await shapefileFromZip(zip, warnings, options);
       if (shp) {
-        ({ features, declared, label } = shp);
+        ({ features, declared, label, records, filtered } = shp);
       } else {
         const inner = await firstMatchingEntry(zip, (n) => /\.(kml|geojson|json)$/i.test(n));
         if (!inner) {
@@ -175,13 +240,14 @@ const Ingest = (() => {
         label = baseName(inner.name);
       }
     } else if (ext === 'kml') {
-      ({ features, declared } = fromText(TextFormats.decodeBytes(bytes), 'kml'));
+      ({ features, declared } = fromText(TextFormats.decodeBytes(await bytesOf()), 'kml'));
     } else if (ext === 'shp') {
       throw new Error('A .shp on its own has no attributes or projection. '
         + 'Zip it together with the matching .dbf and .prj and load the .zip.');
     } else {
-      ({ features, declared } = fromText(TextFormats.decodeBytes(bytes), 'json'));
+      ({ features, declared } = fromText(TextFormats.decodeBytes(await bytesOf()), 'json'));
     }
+    if (records == null) records = features.length;
 
     const normalized = [];
     let dropped = 0;
@@ -197,7 +263,17 @@ const Ingest = (() => {
       warnings.push(`${dropped} non-polygon features (points or lines) were skipped.`);
     }
     const crs = toWgs84(normalized, declared, warnings);
-    return { features: normalized, crs, crsLabel: Geo.crsName(crs), label, warnings };
+    let kept = normalized;
+    if (options.bbox) {
+      kept = normalized.filter((f) => bboxTouches(Geo.bboxOf(f.geometry), options.bbox));
+      filtered = true;
+      if (!kept.length) {
+        throw new Error('None of the polygons in this file touch the study area. '
+          + 'Untick the clipping option to load it whole, or check that it covers Vancouver.');
+      }
+    }
+    return { features: kept, crs, crsLabel: Geo.crsName(crs), label, warnings,
+             records, kept: kept.length, filtered };
   }
 
   /* --- Tables ------------------------------------------------------------ */
@@ -220,5 +296,5 @@ const Ingest = (() => {
     return { ...table, name };
   }
 
-  return { loadBoundaries, loadTable, normalizeFeature, crsFromGeoJson, overallExtent };
+  return { loadBoundaries, loadTable, normalizeFeature, crsFromGeoJson, overallExtent, STREAM_THRESHOLD, bboxKeep };
 })();
