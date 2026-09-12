@@ -230,7 +230,8 @@ const Ingest = (() => {
       if (shp) {
         ({ features, declared, label, records, filtered } = shp);
       } else {
-        const inner = await firstMatchingEntry(zip, (n) => /\.(kml|geojson|json)$/i.test(n));
+        const inner = await firstMatchingEntry(zip, (n) => /\.(kml|geojson)$/i.test(n))
+          || await firstMatchingEntry(zip, (n) => /\.json$/i.test(n));
         if (!inner) {
           throw new Error('The archive holds no .shp, .kml or .geojson. '
             + `It contains: ${[...zip.keys()].slice(0, 8).join(', ') || '(nothing)'}.`);

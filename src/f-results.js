@@ -44,7 +44,8 @@ const Results = (() => {
 
   const PATTERNS = {
     district: [/electoral district number/i,
-               /\bed[_ ]?(number|num|code|id|name|abbr|abbrev)\b/i,
+               /\bed[_ ]?(number|num|code|id|name|abbr|abbrev|abbreviation)\b/i,
+               /electoral district (abbreviation|abbrev|code)/i,
                /district.*(number|code|id|name)/i, /\bfed(num|_num|eral)?\b/i,
                /circonscription/i, /electoral district/i, /\bdistrict\b/i,
                /\briding\b/i, /^ed$/i],

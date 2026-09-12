@@ -2031,11 +2031,24 @@ html>body{padding:0}
       <a href="https://elections.bc.ca/resources/maps/gis-spatial-data/" target="_blank" rel="noopener">GIS spatial data</a>
       page or the <a href="https://catalogue.data.gov.bc.ca/" target="_blank" rel="noopener">BC Data Catalogue</a>,
       and load the voting-area file for the election you are comparing against.
+      For 2024 that is <i>Provincial Electoral District Voting Areas &ndash; Gazetted 09/19/2024</i>
+      (<code>EBC_VOTING_AREAS_BS11_POLY_SVW</code>), ordered from the catalogue as GeoJSON;
+      the order&rsquo;s <code>.zip</code> loads here as delivered, all 5,778 areas of the province,
+      and is clipped to the study area while it is read. Districts are identified by
+      <code>ED_ABBREVIATION</code> and areas by <code>VA_CODE</code>; site-based voting areas
+      (codes ending in <code>S</code>, one care facility each) are not polygons in that file,
+      so their results stay unmatched and are listed in the results report.
       A zipped shapefile (<code>.shp</code> + <code>.dbf</code> + <code>.prj</code>),
       <code>.kml</code>, <code>.kmz</code> or <code>.geojson</code> all work.
       BC Albers, UTM zone 10N and lon/lat are converted automatically.
       Nothing is uploaded anywhere &mdash; the file is read in this browser tab.
+      To keep a small file for repeated use, <code>python3 tools/clip_geojson.py</code>
+      writes just the study area (see the README).
     </p>
+    <label class="form-check">
+      <input class="form-check-input" type="checkbox" id="clip-prov" checked>
+      <span class="form-check-label">Clip the file to the study area while loading (federal extent plus 2 km)</span>
+    </label>
     <div class="viz-controls">
       <input class="form-control" type="file" id="file-prov-geo" accept=".zip,.kml,.kmz,.geojson,.json">
       <button type="button" class="btn" id="clear-prov-geo" hidden>Remove layer</button>
@@ -3808,7 +3821,8 @@ const Ingest = (() => {
       if (shp) {
         ({ features, declared, label, records, filtered } = shp);
       } else {
-        const inner = await firstMatchingEntry(zip, (n) => /\.(kml|geojson|json)$/i.test(n));
+        const inner = await firstMatchingEntry(zip, (n) => /\.(kml|geojson)$/i.test(n))
+          || await firstMatchingEntry(zip, (n) => /\.json$/i.test(n));
         if (!inner) {
           throw new Error('The archive holds no .shp, .kml or .geojson. '
             + `It contains: ${[...zip.keys()].slice(0, 8).join(', ') || '(nothing)'}.`);
@@ -4436,7 +4450,8 @@ const Results = (() => {
 
   const PATTERNS = {
     district: [/electoral district number/i,
-               /\bed[_ ]?(number|num|code|id|name|abbr|abbrev)\b/i,
+               /\bed[_ ]?(number|num|code|id|name|abbr|abbrev|abbreviation)\b/i,
+               /electoral district (abbreviation|abbrev|code)/i,
                /district.*(number|code|id|name)/i, /\bfed(num|_num|eral)?\b/i,
                /circonscription/i, /electoral district/i, /\bdistrict\b/i,
                /\briding\b/i, /^ed$/i],
@@ -6161,6 +6176,12 @@ const readFile = (file) => new Promise((resolve, reject) => {
   reader.readAsArrayBuffer(file);
 });
 
+/* A failed load leaves the file input holding the file it could not read, and
+   choosing the same file again fires no change event -- so the retry an error
+   message asks for (untick the clipping switch, load it again) would do
+   nothing at all. Clearing the input after a failure makes the retry work. */
+const clearInput = (id) => { const input = $(id); if (input) input.value = ''; };
+
 function setStatus(id, kind, lines) {
   const box = $(id);
   box.textContent = '';
@@ -6189,8 +6210,9 @@ $('file-prov-geo').addEventListener('change', async (event) => {
   if (!file) return;
   setStatus('status-prov-geo', 'busy', `Reading ${file.name}…`);
   try {
-    const bytes = await readFile(file);
-    const loaded = await Ingest.loadBoundaries(file.name, bytes);
+    /* The File goes in as is: a province-wide download is clipped to the
+       study area as it is read instead of being held whole. */
+    const loaded = await Ingest.loadBoundaries(file.name, file, { bbox: clipBox('clip-prov') });
     loaded.features.forEach((f, i) => { f.__idx = i; f.__key = 'p' + i; });
     state.prov.all = loaded.features;
     state.prov.meta = loaded;
@@ -6204,9 +6226,13 @@ $('file-prov-geo').addEventListener('change', async (event) => {
     fillSelect($('prov-key-va'), props, suggestion.poll || props[0]);
     state.prov.keyDef = { district: suggestion.district || null, poll: suggestion.poll || props[0] };
 
+    const keyDef = state.prov.keyDef;
     const lines = [
-      `Loaded ${fmtInt(loaded.features.length)} voting areas from ${loaded.label}.`,
-      `Coordinate system: ${loaded.crsLabel}.`,
+      `Loaded ${fmtInt(loaded.kept)} voting areas`
+        + (loaded.filtered && loaded.records !== loaded.kept
+          ? ` of ${fmtInt(loaded.records)} in ${loaded.label}, clipped to the study area.` : ` from ${loaded.label}.`),
+      `Coordinate system: ${loaded.crsLabel}. Keyed by ${keyDef.district ? `${keyDef.district} + ${keyDef.poll}` : keyDef.poll}`
+        + ' (change the fields below if that is wrong).',
     ];
     for (const w of loaded.warnings) lines.push(el('p', 'text-warning', w));
     setStatus('status-prov-geo', 'ok', lines);
@@ -6215,6 +6241,7 @@ $('file-prov-geo').addEventListener('change', async (event) => {
     onProvincialLayerChanged();
   } catch (err) {
     setStatus('status-prov-geo', 'error', [`Could not read ${file.name}.`, err.message]);
+    clearInput('file-prov-geo');
   }
 });
 
@@ -6246,9 +6273,10 @@ function onProvincialLayerChanged() {
 
 /* --- Census layers (Statistics Canada, 2021) --------------------------------- */
 
-/* The study area plus 2 km, in lon/lat, for clipping census files on load. */
-function clipBox() {
-  if (!$('clip-census').checked) return null;
+/* The study area plus 2 km, in lon/lat, for clipping boundary files on load;
+   each Data section has its own switch. */
+function clipBox(switchId = 'clip-census') {
+  if (!$(switchId).checked) return null;
   const e = extentOf(state.fed.active);
   if (!e) return null;
   const dLat = 2000 / 110574;
@@ -6287,6 +6315,7 @@ async function loadCensusLayer(kind, file) {
     onCensusChanged();
   } catch (err) {
     setStatus(statusId, 'error', [`Could not read ${file.name}.`, err.message]);
+    clearInput(`file-${kind}-geo`);
   }
 }
 
@@ -6329,6 +6358,7 @@ $('file-geo-attr').addEventListener('change', async (e) => {
     onCensusChanged();
   } catch (err) {
     setStatus('status-geo-attr', 'error', [`Could not read ${file.name}.`, err.message]);
+    clearInput('file-geo-attr');
   }
 });
 $('clear-geo-attr').addEventListener('click', () => {
@@ -6390,6 +6420,7 @@ $('file-census').addEventListener('change', async (e) => {
     onCensusChanged();
   } catch (err) {
     setStatus('status-census', 'error', [`Could not read ${file.name}.`, err.message]);
+    clearInput('file-census');
   }
 });
 $('clear-census').addEventListener('click', () => {
@@ -6490,6 +6521,7 @@ async function loadResultFiles(files, side) {
     rejoin(side);
   } catch (err) {
     setStatus(statusId, 'error', ['Could not load these results.', err.message]);
+    clearInput(side === 'fed' ? 'file-fed-results' : 'file-prov-results');
   }
 }
 

@@ -121,6 +121,15 @@ console.log('\n== Key property suggestion ==');
 const s = R.suggestKeyProperties(provFeatures);
 eq('district property suggested', s.district, 'ED_NAME');
 eq('voting area property suggested', s.poll, 'VA_CODE');
+// Elections BC's own column names (WHSE_ADMIN_BOUNDARIES.EBC_VOTING_AREAS_BS11_POLY_SVW).
+const ebc = ['VHA001', 'VHA002', 'VKE001', 'VKE002'].map((c, i) => ({ properties: {
+  VOTING_AREA_POLY_ID: 24453 + i, BOUNDARY_SET_ID: 11, ED_ABBREVIATION: c.slice(0, 3), VA_CODE: c.slice(3),
+  EDVA_CODE: c, VA_TYPE: 'Areal', DATA_ACCESS_LEVEL: 'Public', GAZETTE_DATE: '20240919',
+  FEATURE_AREA_SQM: 1000 * i, FEATURE_LENGTH_M: 100 * i, OBJECTID: 169136 + i, SE_ANNO_CAD_DATA: null,
+  'SHAPE.AREA': 0, 'SHAPE.LEN': 0 } }));
+const se = R.suggestKeyProperties(ebc);
+eq('Elections BC district column ED_ABBREVIATION suggested', se.district, 'ED_ABBREVIATION');
+eq('Elections BC voting area column VA_CODE suggested', se.poll, 'VA_CODE');
 
 console.log('\n== Federal poll suffix variants ==');
 eq('plain poll', R.federalPollVariants('12-0').sort(), ['12','12-0'].sort());

@@ -7,6 +7,12 @@ const readFile = (file) => new Promise((resolve, reject) => {
   reader.readAsArrayBuffer(file);
 });
 
+/* A failed load leaves the file input holding the file it could not read, and
+   choosing the same file again fires no change event -- so the retry an error
+   message asks for (untick the clipping switch, load it again) would do
+   nothing at all. Clearing the input after a failure makes the retry work. */
+const clearInput = (id) => { const input = $(id); if (input) input.value = ''; };
+
 function setStatus(id, kind, lines) {
   const box = $(id);
   box.textContent = '';
@@ -35,8 +41,9 @@ $('file-prov-geo').addEventListener('change', async (event) => {
   if (!file) return;
   setStatus('status-prov-geo', 'busy', `Reading ${file.name}…`);
   try {
-    const bytes = await readFile(file);
-    const loaded = await Ingest.loadBoundaries(file.name, bytes);
+    /* The File goes in as is: a province-wide download is clipped to the
+       study area as it is read instead of being held whole. */
+    const loaded = await Ingest.loadBoundaries(file.name, file, { bbox: clipBox('clip-prov') });
     loaded.features.forEach((f, i) => { f.__idx = i; f.__key = 'p' + i; });
     state.prov.all = loaded.features;
     state.prov.meta = loaded;
@@ -50,9 +57,13 @@ $('file-prov-geo').addEventListener('change', async (event) => {
     fillSelect($('prov-key-va'), props, suggestion.poll || props[0]);
     state.prov.keyDef = { district: suggestion.district || null, poll: suggestion.poll || props[0] };
 
+    const keyDef = state.prov.keyDef;
     const lines = [
-      `Loaded ${fmtInt(loaded.features.length)} voting areas from ${loaded.label}.`,
-      `Coordinate system: ${loaded.crsLabel}.`,
+      `Loaded ${fmtInt(loaded.kept)} voting areas`
+        + (loaded.filtered && loaded.records !== loaded.kept
+          ? ` of ${fmtInt(loaded.records)} in ${loaded.label}, clipped to the study area.` : ` from ${loaded.label}.`),
+      `Coordinate system: ${loaded.crsLabel}. Keyed by ${keyDef.district ? `${keyDef.district} + ${keyDef.poll}` : keyDef.poll}`
+        + ' (change the fields below if that is wrong).',
     ];
     for (const w of loaded.warnings) lines.push(el('p', 'text-warning', w));
     setStatus('status-prov-geo', 'ok', lines);
@@ -61,6 +72,7 @@ $('file-prov-geo').addEventListener('change', async (event) => {
     onProvincialLayerChanged();
   } catch (err) {
     setStatus('status-prov-geo', 'error', [`Could not read ${file.name}.`, err.message]);
+    clearInput('file-prov-geo');
   }
 });
 
@@ -92,9 +104,10 @@ function onProvincialLayerChanged() {
 
 /* --- Census layers (Statistics Canada, 2021) --------------------------------- */
 
-/* The study area plus 2 km, in lon/lat, for clipping census files on load. */
-function clipBox() {
-  if (!$('clip-census').checked) return null;
+/* The study area plus 2 km, in lon/lat, for clipping boundary files on load;
+   each Data section has its own switch. */
+function clipBox(switchId = 'clip-census') {
+  if (!$(switchId).checked) return null;
   const e = extentOf(state.fed.active);
   if (!e) return null;
   const dLat = 2000 / 110574;
@@ -133,6 +146,7 @@ async function loadCensusLayer(kind, file) {
     onCensusChanged();
   } catch (err) {
     setStatus(statusId, 'error', [`Could not read ${file.name}.`, err.message]);
+    clearInput(`file-${kind}-geo`);
   }
 }
 
@@ -175,6 +189,7 @@ $('file-geo-attr').addEventListener('change', async (e) => {
     onCensusChanged();
   } catch (err) {
     setStatus('status-geo-attr', 'error', [`Could not read ${file.name}.`, err.message]);
+    clearInput('file-geo-attr');
   }
 });
 $('clear-geo-attr').addEventListener('click', () => {
@@ -236,6 +251,7 @@ $('file-census').addEventListener('change', async (e) => {
     onCensusChanged();
   } catch (err) {
     setStatus('status-census', 'error', [`Could not read ${file.name}.`, err.message]);
+    clearInput('file-census');
   }
 });
 $('clear-census').addEventListener('click', () => {
@@ -336,6 +352,7 @@ async function loadResultFiles(files, side) {
     rejoin(side);
   } catch (err) {
     setStatus(statusId, 'error', ['Could not load these results.', err.message]);
+    clearInput(side === 'fed' ? 'file-fed-results' : 'file-prov-results');
   }
 }
 

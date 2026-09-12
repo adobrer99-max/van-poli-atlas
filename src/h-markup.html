@@ -161,11 +161,24 @@
       <a href="https://elections.bc.ca/resources/maps/gis-spatial-data/" target="_blank" rel="noopener">GIS spatial data</a>
       page or the <a href="https://catalogue.data.gov.bc.ca/" target="_blank" rel="noopener">BC Data Catalogue</a>,
       and load the voting-area file for the election you are comparing against.
+      For 2024 that is <i>Provincial Electoral District Voting Areas &ndash; Gazetted 09/19/2024</i>
+      (<code>EBC_VOTING_AREAS_BS11_POLY_SVW</code>), ordered from the catalogue as GeoJSON;
+      the order&rsquo;s <code>.zip</code> loads here as delivered, all 5,778 areas of the province,
+      and is clipped to the study area while it is read. Districts are identified by
+      <code>ED_ABBREVIATION</code> and areas by <code>VA_CODE</code>; site-based voting areas
+      (codes ending in <code>S</code>, one care facility each) are not polygons in that file,
+      so their results stay unmatched and are listed in the results report.
       A zipped shapefile (<code>.shp</code> + <code>.dbf</code> + <code>.prj</code>),
       <code>.kml</code>, <code>.kmz</code> or <code>.geojson</code> all work.
       BC Albers, UTM zone 10N and lon/lat are converted automatically.
       Nothing is uploaded anywhere &mdash; the file is read in this browser tab.
+      To keep a small file for repeated use, <code>python3 tools/clip_geojson.py</code>
+      writes just the study area (see the README).
     </p>
+    <label class="form-check">
+      <input class="form-check-input" type="checkbox" id="clip-prov" checked>
+      <span class="form-check-label">Clip the file to the study area while loading (federal extent plus 2 km)</span>
+    </label>
     <div class="viz-controls">
       <input class="form-control" type="file" id="file-prov-geo" accept=".zip,.kml,.kmz,.geojson,.json">
       <button type="button" class="btn" id="clear-prov-geo" hidden>Remove layer</button>

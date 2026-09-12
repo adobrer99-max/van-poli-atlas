@@ -367,3 +367,46 @@ expected["census"] = {
 }
 json.dump(expected, open("fixtures/e2e_expected.json", "w"), indent=1)
 print(f"census layer: {len(da_attrs)} dissemination areas, {len(db_attrs)} blocks, {len(profile_rows)} profile rows")
+
+
+# --- An Elections BC data order, as the BC Data Catalogue delivers it ---------
+# The same 700 voting areas with the columns of
+# WHSE_ADMIN_BOUNDARIES.EBC_VOTING_AREAS_BS11_POLY_SVW, plus 30 areas of a
+# district far from the study area, zipped next to the order's metadata files
+# (the metadata .json is listed first, so a loader that grabs the first .json
+# gets the wrong member).
+ebc_feats = []
+for n, f in enumerate(lonlat_feats, start=1):
+    p = f["properties"]
+    ed = "SD%02d" % int(p["ED_NAME"].split()[-1])
+    ebc_feats.append({"type": "Feature", "geometry": f["geometry"], "properties": {
+        "VOTING_AREA_POLY_ID": 24000 + n, "BOUNDARY_SET_ID": 11, "ED_ABBREVIATION": ed,
+        "VA_CODE": p["VA_CODE"], "EDVA_CODE": ed + p["VA_CODE"], "VA_TYPE": "Areal",
+        "DATA_ACCESS_LEVEL": "Public", "GAZETTE_DATE": "20240919", "FEATURE_AREA_SQM": 0.0,
+        "FEATURE_LENGTH_M": 0.0, "OBJECTID": 160000 + n, "SE_ANNO_CAD_DATA": None,
+        "SHAPE.AREA": 0, "SHAPE.LEN": 0}})
+FAR_X, FAR_Y, FAR_NX, FAR_NY = -122.80, 53.90, 3, 10          # a grid near Prince George
+for i in range(FAR_NX):
+    for j in range(FAR_NY):
+        ax, ay = FAR_X + i * 0.01, FAR_Y + j * 0.01
+        ring = [[ax, ay], [ax + 0.01, ay], [ax + 0.01, ay + 0.01], [ax, ay + 0.01], [ax, ay]]
+        code = "%03d" % (1 + i * FAR_NY + j)
+        ebc_feats.append({"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [ring]}, "properties": {
+            "VOTING_AREA_POLY_ID": 30000 + len(ebc_feats), "BOUNDARY_SET_ID": 11, "ED_ABBREVIATION": "FAR",
+            "VA_CODE": code, "EDVA_CODE": "FAR" + code, "VA_TYPE": "Areal", "DATA_ACCESS_LEVEL": "Public",
+            "GAZETTE_DATE": "20240919", "FEATURE_AREA_SQM": 0.0, "FEATURE_LENGTH_M": 0.0,
+            "OBJECTID": 170000 + len(ebc_feats), "SE_ANNO_CAD_DATA": None, "SHAPE.AREA": 0, "SHAPE.LEN": 0}})
+ebc_doc = {"type": "FeatureCollection", "name": "EBC_VOTING_AREAS_BS11_POLY_SVW", "features": ebc_feats}
+ebc_meta = [{"title": "Provincial Electoral District Voting Areas - Gazetted 09/19/2024 (test fixture)",
+             "object_name": "WHSE_ADMIN_BOUNDARIES.EBC_VOTING_AREAS_BS11_POLY_SVW", "projection_name": "epsg3005",
+             "license_title": "Elections BC Open Data Licence"}]
+with zipfile.ZipFile("fixtures/e2e_ebc_order.zip", "w", zipfile.ZIP_DEFLATED) as z:
+    z.writestr("WHSE_ADMIN_BOUNDARIES.EBC_VOTING_AREAS_BS11_POLY_SVW_metadata.json", json.dumps(ebc_meta, indent=1))
+    z.writestr("Contents of Order.txt", "Order ID: 0\nFeature Types\n - Provincial Electoral District Voting Areas (test fixture)\n")
+    z.writestr("EBC_VOTING_AREAS_BS11_POLY_SVW.geojson", json.dumps(ebc_doc))
+    z.writestr("licence.txt", "Test fixture: synthetic geometry, no licence applies.\n")
+expected["ebc"] = {"total": len(ebc_feats), "in_study_area": len(lonlat_feats), "far": FAR_NX * FAR_NY,
+                   "districts": len({f["properties"]["ED_ABBREVIATION"] for f in ebc_feats})}
+json.dump(expected, open("fixtures/e2e_expected.json", "w"), indent=1)
+print(f"Elections BC order fixture: {len(ebc_feats)} areas in {expected['ebc']['districts']} districts "
+      f"({os.path.getsize('fixtures/e2e_ebc_order.zip'):,} bytes)")

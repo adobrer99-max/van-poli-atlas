@@ -126,10 +126,19 @@ fetches at runtime. This file records what applies to what.
 6. Data not distributed here
 ----------------------------
    Provincial voting-area boundaries, federal poll-by-poll results and
-   provincial results by voting area are never redistributed in this
-   repository. The atlas reads them at runtime from files the user downloads,
-   and they remain subject to whatever terms Elections BC and Elections Canada
-   attach to them.
+   provincial results are never redistributed in this repository. The atlas
+   reads them at runtime from files the user downloads, and they remain
+   subject to whatever terms Elections BC and Elections Canada attach to them.
+
+   The provincial boundaries the atlas is written for are Elections BC's
+   Provincial Electoral District Voting Areas (WHSE_ADMIN_BOUNDARIES.
+   EBC_VOTING_AREAS_BS11_POLY_SVW), ordered from the BC Data Catalogue under
+   the Elections BC Open Data Licence (https://www.elections.bc.ca/docs/
+   EBC-Open-Data-Licence.pdf). Neither those polygons nor anything derived
+   from them is included here; tools/clip_geojson.py only cuts down a copy the
+   user already holds, on the user's own machine. The synthetic voting-area
+   fixtures under tests/ are invented and carry no Elections BC data.
+   Elections BC has not endorsed this work and is not responsible for it.
 
    Statistics Canada's census products -- the 2021 Census Profile, the 2021
    Geographic Attribute File and the dissemination-area and dissemination-block

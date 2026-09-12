@@ -14,11 +14,14 @@ switched off.
 
 Open the file in a browser, then work through the **Data** tab:
 
-1. **Provincial voting-area boundaries** — from
-   [Elections BC GIS spatial data](https://elections.bc.ca/resources/maps/gis-spatial-data/)
-   or the [BC Data Catalogue](https://catalogue.data.gov.bc.ca/). A zipped
-   shapefile (`.shp` + `.dbf` + `.prj`), `.kml`, `.kmz` or `.geojson` all work.
-   BC Albers (EPSG:3005), UTM zone 10N and lon/lat are converted automatically.
+1. **Provincial voting-area boundaries** — the 2024 set is *Provincial
+   Electoral District Voting Areas – Gazetted 09/19/2024* on the
+   [BC Data Catalogue](https://catalogue.data.gov.bc.ca/dataset/2a73ba6d-0707-4335-9f4f-7f8a6d922654),
+   ordered as GeoJSON; the order's `.zip` loads as delivered and is clipped to
+   the study area while it is read (see [Provincial voting areas](#provincial-voting-areas)).
+   A zipped shapefile (`.shp` + `.dbf` + `.prj`), `.kml`, `.kmz` or `.geojson`
+   from anywhere else works too. BC Albers (EPSG:3005), UTM zone 10N and
+   lon/lat are converted automatically.
 2. **Federal results** — Elections Canada's
    `pollresults_resultatsbureau<riding>.csv`, one riding at a time or zipped.
 3. **Provincial results** — Elections BC results by voting area, in either long
@@ -42,6 +45,43 @@ pools any set of areas into a basket, and exports the ranking. The
 **Socioeconomic** tab moves both elections' results onto dissemination areas
 and correlates turnout, or any party's share, with census variables. The
 **Method** tab states the assumptions; read it before quoting a coefficient.
+
+## Provincial voting areas
+
+Elections BC publishes the voting-area polygons through the BC Data
+Catalogue as `WHSE_ADMIN_BOUNDARIES.EBC_VOTING_AREAS_BS11_POLY_SVW`
+(boundary set 11, the 2024 general election). Ordering it as GeoJSON delivers
+a `BCGW_….zip` holding one `.geojson` for the whole province — 5,778 areas,
+about 100 MB — next to the order's metadata and licence files. Two ways to use
+it:
+
+- **Load the `.zip` as delivered.** With *Clip the file to the study area
+  while loading* ticked (the default), only the areas touching the federal
+  extent plus 2 km are kept; the status line reports how many of the
+  province's areas that was. Everything else about the file is ignored.
+- **Cut it down once** and keep a small file:
+
+  ```
+  python3 tools/clip_geojson.py BCGW_order.zip --list                 # district codes, counts, extents
+  python3 tools/clip_geojson.py BCGW_order.zip --study-area --out va_vancouver.geojson
+  python3 tools/clip_geojson.py BCGW_order.zip --ed VHA VKE VLA VLM VNP --out five_districts.geojson
+  ```
+
+  `--study-area` is the City of Vancouver federal ridings plus 2 km, the same
+  box the atlas clips to; `--like other.geojson` takes another file's extent;
+  `--bbox W S E N` is explicit. Properties and coordinates are written
+  unchanged unless `--precision 7` is given (about 1 cm). Standard library only.
+
+The file identifies districts by `ED_ABBREVIATION` (`VHA`, `VKE`, …) and
+areas by the three-digit `VA_CODE`; `EDVA_CODE` joins the two. The atlas
+picks those fields itself and says so in the status line; the results file
+has to name districts the same way, or the district field can be set to
+"none" when the results carry the combined code. **Site-based voting areas**
+— codes ending in `S`, one care facility each, listed in a box on Elections
+BC's district maps with the facility's address — are not polygons in this
+file. Their results stay unmatched, are counted in the results report, and
+are left out of the turnout and crosswalk figures; they are the natural
+first use of the geocoding planned for the municipal electors file.
 
 ## Census data
 
@@ -194,8 +234,10 @@ and so on. `tests/run.js` stops at the first failing suite. GitHub Actions (`.gi
 every pull request, plus a check that the committed
 `vancouver-boundary-atlas.html` matches a fresh build.
 
-480+ assertions. The browser suites drive the real page in Chromium through
-Playwright: loading each boundary format, joining results, building the
+482 assertions — 338 in the node suites, 144 in the browser ones — plus 13
+Python tests over the tools in `tools/`. The browser suites drive the real page
+in Chromium through Playwright: loading each boundary format, loading a BC Data
+Catalogue order as delivered and clipped, joining results, building the
 crosswalk, ranking turnout, loading the census layers and correlating a planted
 variable on the Socioeconomic tab, exporting CSV, dark mode, phone-width
 layout, and the basemap with tile requests stubbed — including a run where

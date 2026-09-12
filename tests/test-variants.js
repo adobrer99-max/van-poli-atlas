@@ -140,6 +140,40 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     await page.close();
   }
 
+  console.log('\n== A BC Data Catalogue order loads as delivered ==');
+  // The real order is one .geojson of every voting area in the province, zipped
+  // next to the order's metadata .json. The fixture has that shape: areas over
+  // the study area, one district far away, and the metadata entry as a decoy.
+  {
+    const ebc = JSON.parse(require('fs').readFileSync('fixtures/e2e_expected.json', 'utf8')).ebc;
+    const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    const errs = []; page.on('pageerror', (e) => errs.push(e.message));
+    await stubTiles(page); await page.goto(FILE); await page.waitForTimeout(500);
+    await page.locator('#tab-data').click();
+    const load = async () => {
+      await page.locator('#file-prov-geo').setInputFiles('fixtures/e2e_ebc_order.zip');
+      await page.waitForFunction(() => /Loaded|Could not/.test(document.querySelector('#status-prov-geo').innerText),
+        null, { timeout: 30000 });
+      return (await page.locator('#status-prov-geo').innerText()).replace(/\s+/g, ' ');
+    };
+    let st = await load();
+    ok(`order zip clipped to the study area: ${ebc.in_study_area} of ${ebc.total} areas`,
+       new RegExp(`Loaded ${ebc.in_study_area} voting areas of ${ebc.total} in`).test(st)
+       && /EBC_VOTING_AREAS_BS11_POLY_SVW\.geojson/.test(st), st.slice(0, 200));
+    ok('Elections BC key fields chosen without being told',
+       /Keyed by ED_ABBREVIATION \+ VA_CODE/.test(st), st.slice(0, 200));
+    await page.locator('#tab-map').click(); await page.waitForTimeout(600);
+    ok('the kept areas are drawn', (await page.locator('.layer-prov path').count()) === ebc.in_study_area);
+    await page.locator('#tab-data').click();
+    await page.locator('#clear-prov-geo').click();
+    await page.locator('#clip-prov').uncheck();
+    st = await load();
+    ok(`unclipped, the whole province loads: ${ebc.total} areas`,
+       new RegExp(`Loaded ${ebc.total} voting areas from`).test(st), st.slice(0, 200));
+    ok('no errors loading the order', errs.length === 0, errs.join(' | '));
+    await page.close();
+  }
+
   console.log('\n== Unhelpful input is reported clearly ==');
   {
     const page = await browser.newPage({ viewport:{width:1200,height:900} });
@@ -153,14 +187,23 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     let s = await page.locator('#status-prov-geo').innerText();
     ok('bad file explained, page still alive', /Could not read/i.test(s) && errs.length === 0,
        s.replace(/\s+/g,' ').slice(0,140));
-    // A boundary file that does not overlap Vancouver at all.
+    // A boundary file that does not overlap Vancouver at all. Clipping is on by
+    // default, so this stops with a message that names the way out...
     fs.writeFileSync('fixtures/elsewhere.geojson', JSON.stringify({type:'FeatureCollection',features:[
       {type:'Feature',properties:{ED_NAME:'Far Away',VA_CODE:'1'},geometry:{type:'Polygon',
         coordinates:[[[10,50],[11,50],[11,51],[10,51],[10,50]]]}}]}));
     await page.locator('#file-prov-geo').setInputFiles('fixtures/elsewhere.geojson');
     await page.waitForTimeout(900);
     s = await page.locator('#status-prov-geo').innerText();
-    ok('non-overlapping layer loads without crashing', /Loaded 1 voting area/.test(s), s.replace(/\s+/g,' ').slice(0,140));
+    ok('a file outside the study area says so, and says to untick clipping',
+       /touch the study area/i.test(s) && /untick/i.test(s), s.replace(/\s+/g,' ').slice(0,160));
+    // ...and unticking it does load the layer whole.
+    await page.locator('#clip-prov').uncheck();
+    await page.locator('#file-prov-geo').setInputFiles('fixtures/elsewhere.geojson');
+    await page.waitForTimeout(900);
+    s = await page.locator('#status-prov-geo').innerText();
+    ok('unclipped, the non-overlapping layer loads without crashing', /Loaded 1 voting area/.test(s),
+       s.replace(/\s+/g,' ').slice(0,140));
     await page.locator('#tab-corr').click(); await page.waitForTimeout(300);
     await page.locator('#build-crosswalk').click(); await page.waitForTimeout(1500);
     const cs = await page.locator('#status-crosswalk').innerText();
