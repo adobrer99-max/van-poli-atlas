@@ -18,6 +18,15 @@ const enc = (s) => new TextEncoder().encode(s);
      JSON.stringify(bb.map(v => +v.toFixed(4))));
   eq('no warnings for a complete archive', z.warnings, []);
 
+  console.log('\n== Zipped shapefile in Statistics Canada Lambert (Esri .prj) ==');
+  const lcc = await Ingest.loadBoundaries('da_lcc.zip', read('fixtures/da_lcc.zip'));
+  eq('feature count', lcc.features.length, 3);
+  eq('CRS read from the Esri .prj', lcc.crs, 'EPSG:3347');
+  eq('DAUID attribute kept', lcc.features[0].properties.DAUID, '59150100');
+  const lb = Geo.bboxOf(lcc.features[0].geometry), ab = Geo.bboxOf(z.features[0].geometry);
+  ok('Lambert and Albers routes agree to 1e-7 deg', Math.max(...lb.map((v, i) => Math.abs(v - ab[i]))) < 1e-7,
+     JSON.stringify([lb, ab]));
+
   console.log('\n== KMZ and KML ==');
   const kmz = await Ingest.loadBoundaries('va.kmz', read('fixtures/va.kmz'));
   eq('kmz features', kmz.features.length, 3);

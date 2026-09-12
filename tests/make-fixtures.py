@@ -31,6 +31,42 @@ def bc_albers_forward(lon, lat, lat1=50.0, lat2=58.5, lat0=45.0, lon0=-126.0,
     theta = n * r(lon - lon0)
     return (x0 + rho * math.sin(theta), y0 + rho0 - rho * math.cos(theta))
 
+def lcc_forward(lon, lat, lat1=49.0, lat2=77.0, lat0=63.390675, lon0=-(91 + 52 / 60),
+                x0=6_200_000.0, y0=3_000_000.0):
+    """Snyder, Lambert Conformal Conic (ellipsoidal, 2SP), forward. EPSG:3347
+    defaults: NAD83 / Statistics Canada Lambert."""
+    r = math.radians
+    def t_of(phi):
+        s = math.sin(phi)
+        return math.tan(math.pi / 4 - phi / 2) / ((1 - E * s) / (1 + E * s)) ** (E / 2)
+    p1, p2, p0 = r(lat1), r(lat2), r(lat0)
+    m1, m2 = m_of(math.sin(p1), math.cos(p1)), m_of(math.sin(p2), math.cos(p2))
+    t1, t2, t0 = t_of(p1), t_of(p2), t_of(p0)
+    n = (math.log(m1) - math.log(m2)) / (math.log(t1) - math.log(t2))
+    F = m1 / (n * t1 ** n)
+    rho0 = A * F * t0 ** n
+    rho = A * F * t_of(r(lat)) ** n
+    theta = n * r(lon - lon0)
+    return (x0 + rho * math.sin(theta), y0 + rho0 - rho * math.cos(theta))
+
+
+def parallel_arc_m(lat, dlon):
+    """Length in metres of dlon degrees of longitude along the parallel at lat."""
+    phi = math.radians(lat)
+    N = A / math.sqrt(1 - E2 * math.sin(phi) ** 2)
+    return N * math.cos(phi) * math.radians(dlon)
+
+
+# Esri-style, as Statistics Canada ships it: no AUTHORITY, parameters in Esri spelling.
+STATCAN_LCC_WKT = (
+    'PROJCS["PCS_Lambert_Conformal_Conic",GEOGCS["GCS_North_American_1983",'
+    'DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137.0,298.257222101]],'
+    'PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],'
+    'PROJECTION["Lambert_Conformal_Conic"],PARAMETER["False_Easting",6200000.0],'
+    'PARAMETER["False_Northing",3000000.0],PARAMETER["Central_Meridian",-91.86666666666667],'
+    'PARAMETER["Standard_Parallel_1",49.0],PARAMETER["Standard_Parallel_2",77.0],'
+    'PARAMETER["Latitude_Of_Origin",63.390675],UNIT["Meter",1.0]]')
+
 BC_ALBERS_WKT = (
     'PROJCS["NAD83 / BC Albers",GEOGCS["NAD83",DATUM["North_American_Datum_1983",'
     'SPHEROID["GRS 1980",6378137,298.257222101,AUTHORITY["EPSG","7019"]],'
@@ -166,6 +202,44 @@ with open("fixtures/albers_control.json", "w") as fh:
     json.dump([{"lon": lo, "lat": la,
                 "x": bc_albers_forward(lo, la)[0], "y": bc_albers_forward(lo, la)[1]}
                for lo, la in pts], fh, indent=1)
+
+# The same for Statistics Canada Lambert: cities across the country, the
+# projection origin, and a pair of points on the 49th parallel (a standard
+# parallel, where the scale factor is exactly 1) with their true separation.
+with open("fixtures/lcc_control.json", "w") as fh:
+    import json
+    named = [("Vancouver", -123.1207, 49.2827), ("Toronto", -79.3832, 43.6532),
+             ("Whitehorse", -135.0568, 60.7212), ("St. John's", -52.7126, 47.5615),
+             ("origin", -(91 + 52 / 60), 63.390675), ("Winnipeg", -97.1384, 49.8951)]
+    pair = [(-100.0, 49.0), (-99.99, 49.0)]
+    json.dump({
+        "points": [{"name": nm, "lon": lo, "lat": la,
+                    "x": lcc_forward(lo, la)[0], "y": lcc_forward(lo, la)[1]}
+                   for nm, lo, la in named],
+        "parallel_pair": {"a": lcc_forward(*pair[0]), "b": lcc_forward(*pair[1]),
+                          "arc_m": parallel_arc_m(49.0, 0.01)},
+    }, fh, indent=1)
+
+# The three Fairview cells again, in Statistics Canada Lambert with the Esri
+# .prj StatCan ships, so the ingest path is checked end to end.
+lcc_polys = []
+for ed, code, _ in vas:
+    lo0, la0, lo1, la1 = {"015": (-123.14, 49.25, -123.12, 49.27),
+                          "016": (-123.12, 49.25, -123.10, 49.27),
+                          "022": (-123.10, 49.25, -123.08, 49.27)}[code]
+    corners = [(lo0, la0), (lo1, la0), (lo1, la1), (lo0, la1), (lo0, la0)]
+    ring = [lcc_forward(lo, la) for lo, la in corners]
+    lcc_polys.append([list(reversed(ring))])            # clockwise outer
+write_shp("fixtures/da_lcc.shp", lcc_polys)
+write_dbf("fixtures/da_lcc.dbf",
+          [("DAUID", "C", 8, 0), ("DGUID", "C", 21, 0), ("LANDAREA", "N", 12, 4)],
+          [{"DAUID": f"5915{100 + i:04d}", "DGUID": f"2021S05125915{100 + i:04d}", "LANDAREA": 0.4}
+           for i in range(len(vas))])
+with open("fixtures/da_lcc.prj", "w") as fh:
+    fh.write(STATCAN_LCC_WKT)
+with zipfile.ZipFile("fixtures/da_lcc.zip", "w", zipfile.ZIP_DEFLATED) as z:
+    for ext in ("shp", "dbf", "prj"):
+        z.write(f"fixtures/da_lcc.{ext}", f"da_lcc.{ext}")
 
 for f in sorted(os.listdir("fixtures")):
     print(f"  {f:26s} {os.path.getsize('fixtures/'+f):8d} bytes")
