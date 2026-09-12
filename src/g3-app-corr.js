@@ -1,36 +1,39 @@
 /* --- Crosswalk -------------------------------------------------------------- */
 
 function refreshCrosswalkStatus() {
-  const has = state.prov.all.length > 0;
+  const has = state.prov.all.length > 0 || state.da.all.length > 0;
   if (!has) {
     setStatus('status-crosswalk', 'idle',
-      ['Load a provincial voting-area layer on the Data tab first.']);
+      ['Load a provincial voting-area layer or a census layer on the Data tab first.']);
     $('corr-controls').hidden = true;
     return;
   }
-  if (!state.crosswalk) {
+  if (!state.sample) {
     setStatus('status-crosswalk', 'idle',
-      ['Ready. Building the crosswalk takes a second or two.']);
+      ['Ready. Sampling the layers takes a few seconds; every crosswalk is derived from that one sample.']);
   }
 }
 
+/* Samples every loaded layer once into state.sample, then derives the
+   federal-provincial crosswalk (and any other on demand, see crossPair). */
 function buildCrosswalk() {
   const spacingM = parseInt($('lattice').value, 10);
-  const fedFeatures = state.fed.active, provFeatures = state.prov.active;
-  if (!fedFeatures.length || !provFeatures.length) {
-    setStatus('status-crosswalk', 'error', ['Nothing to cross: one of the two layers is empty here.']);
+  const fedFeatures = state.fed.active;
+  if (!fedFeatures.length || (!state.prov.active.length && !state.da.active.length)) {
+    setStatus('status-crosswalk', 'error', ['Nothing to cross: the federal layer is empty here, or no other layer is loaded.']);
     return;
   }
   const bar = $('crosswalk-bar');
   $('crosswalk-progress').hidden = false;
   bar.style.width = '0%';
   $('build-crosswalk').disabled = true;
-  setStatus('status-crosswalk', 'busy', ['Sampling the overlap…']);
+  setStatus('status-crosswalk', 'busy', ['Sampling the layers…']);
 
-  const fedIndex = Geo.buildIndex(fedFeatures);
-  const provIndex = Geo.buildIndex(provFeatures);
-  const runner = Analysis.crosswalkRunner(fedFeatures, provFeatures,
-    { spacingM, fedIndex, provIndex });
+  const layers = [{ id: 'fed', features: fedFeatures, index: Geo.buildIndex(fedFeatures) }];
+  for (const id of ['prov', 'da', 'db']) {
+    if (state[id].active.length) layers.push({ id, features: state[id].active, index: Geo.buildIndex(state[id].active) });
+  }
+  const runner = Analysis.sampleLattice(layers, { spacingM });
   const started = Date.now();
 
   /* Stepped through a timer so the progress bar actually paints. */
@@ -43,64 +46,71 @@ function buildCrosswalk() {
       setTimeout(step, 0);
       return;
     }
-    const cw = result.value;
-    const repaired = Analysis.repairSmallFeatures(cw, fedFeatures, provFeatures,
-      { fed: fedIndex, prov: provIndex });
-    state.crosswalk = cw;
-    state.crosswalkFed = fedFeatures;
-    state.crosswalkProv = provFeatures;
-    state.coverage = Analysis.coverage(cw);
-    applyMinOverlap();
+    const sample = result.value;
+    sample.ids = layers.map((l) => l.id);
+    state.sample = sample;
+    state.cross.clear();
+    const fp = crossPair('fed', 'prov');
     bar.style.width = '100%';
     $('crosswalk-progress').hidden = true;
     $('build-crosswalk').disabled = false;
 
     const seconds = ((Date.now() - started) / 1000).toFixed(1);
-    const fullyInside = state.coverage.fed.filter((c) => c > 0.999).length;
-    const partial = state.coverage.fed.filter((c) => c > 0.001 && c <= 0.999).length;
-    const uncovered = state.coverage.fed.filter((c) => c <= 0.001).length;
     const lines = [
-      `Sampled ${fmtInt(cw.points)} lattice points at ${cw.spacingM} m in ${seconds}s, `
-        + `giving ${fmtInt(state.pairs.length)} federal–provincial overlaps.`,
-      `${fmtInt(fullyInside)} polling divisions sit wholly inside the provincial layer, `
-        + `${fmtInt(partial)} straddle its edge, ${fmtInt(uncovered)} fall outside it entirely.`,
+      `Sampled ${fmtInt(sample.points)} lattice points at ${sample.spacingM} m over `
+        + `${layers.map((l) => ({ fed: 'federal polls', prov: 'voting areas', da: 'dissemination areas', db: 'dissemination blocks' })[l.id]).join(', ')} in ${seconds}s.`,
     ];
-    if (repaired.fed.length || repaired.prov.length) {
-      lines.push(el('p', 'text-small text-muted',
-        `${fmtInt(repaired.fed.length)} federal and ${fmtInt(repaired.prov.length)} provincial `
-        + 'polygons were too small for the lattice and were assigned whole to the unit '
-        + 'containing an interior point.'));
+    if (fp) {
+      const cov = fp.coverage.fed;
+      const fullyInside = cov.filter((c) => c > 0.999).length;
+      const partial = cov.filter((c) => c > 0.001 && c <= 0.999).length;
+      const uncovered = cov.filter((c) => c <= 0.001).length;
+      lines.push(`${fmtInt(fp.pairs.length)} federal–provincial overlaps: ${fmtInt(fullyInside)} polling divisions sit wholly inside `
+        + `the provincial layer, ${fmtInt(partial)} straddle its edge, ${fmtInt(uncovered)} fall outside it entirely.`);
+      if (fp.repaired.a.length || fp.repaired.b.length) {
+        lines.push(el('p', 'text-small text-muted',
+          `${fmtInt(fp.repaired.a.length)} federal and ${fmtInt(fp.repaired.b.length)} provincial `
+          + 'polygons were too small for the lattice and were assigned whole to the unit '
+          + 'containing an interior point.'));
+      }
+      if (uncovered > 0) {
+        lines.push(el('p', 'text-warning',
+          `${fmtInt(uncovered)} polling divisions have no provincial coverage; their votes are `
+          + 'left out of the comparison. Check that the provincial file covers the whole area.'));
+      }
     }
-    if (uncovered > 0) {
-      lines.push(el('p', 'text-warning',
-        `${fmtInt(uncovered)} polling divisions have no provincial coverage; their votes are `
-        + 'left out of the comparison. Check that the provincial file covers the whole area.'));
+    const fd = crossPair('fed', 'da');
+    if (fd) {
+      const uncoveredDa = fd.coverage.fed.filter((c) => c <= 0.001).length;
+      lines.push(`${fmtInt(fd.pairs.length)} federal–census overlaps across ${fmtInt(state.da.active.length)} dissemination areas`
+        + (uncoveredDa ? `; ${fmtInt(uncoveredDa)} polling divisions lie outside the census layer.` : '.'));
     }
+    lines.push(el('p', 'text-small text-muted', `Overlaps weighted by ${state.weightingInEffect || 'area'}`
+      + (fp && fp.cw.weighted && (fp.cw.areaFallback.a.length || fp.cw.areaFallback.b.length)
+        ? `; ${fmtInt(fp.cw.areaFallback.a.length + fp.cw.areaFallback.b.length)} polygons with no population fell back to area.` : '.')));
     setStatus('status-crosswalk', 'ok', lines);
     recomputeProvincialOnFederal();
-    $('corr-controls').hidden = false;
+    $('corr-controls').hidden = !fp;
     refreshCorrelation();
     refreshTurnout();
+    refreshSocio();
     draw();
   };
   setTimeout(step, 0);
 }
 
-function applyMinOverlap() {
-  if (!state.crosswalk) return;
-  const minShare = parseFloat($('min-overlap').value);
-  state.pairs = Analysis.crosswalkPairs(state.crosswalk, { minShare });
-}
-
 $('build-crosswalk').addEventListener('click', buildCrosswalk);
-$('min-overlap').addEventListener('change', () => {
-  if (!state.crosswalk) return;
-  applyMinOverlap();
-  recomputeProvincialOnFederal();
-  refreshCorrelation();
-  refreshTurnout();
-  draw();
-});
+for (const id of ['min-overlap', 'sample-weighting']) {
+  $(id).addEventListener('change', () => {
+    if (!state.sample) return;
+    invalidateCross();
+    recomputeProvincialOnFederal();
+    refreshCorrelation();
+    refreshTurnout();
+    refreshSocio();
+    draw();
+  });
+}
 
 /* Provincial votes pushed onto federal divisions, for map shading. */
 function recomputeProvincialOnFederal() {
@@ -198,49 +208,61 @@ for (const id of ['corr-unit', 'corr-fed-party', 'corr-prov-party', 'corr-min-vo
   $(id).addEventListener('change', refreshCorrelation);
 }
 
-function drawScatter(result, fedParty, provParty) {
-  const node = $('scatter');
+/* One scatter routine for every tab: points {x, y, weight, label}, axis
+   labels and formats, a colour, an optional fit line, a title per dot. */
+function drawScatterXY(node, points, opts) {
   const sel = d3.select(node);
   sel.selectAll('*').remove();
   const w = Math.max(320, node.getBoundingClientRect().width || 640);
   const h = Math.max(280, Math.min(460, w * 0.62));
   sel.attr('viewBox', `0 0 ${w} ${h}`).attr('height', h);
-  if (!result.points.length) return;
+  if (!points.length) return;
   const m = { top: 14, right: 16, bottom: 44, left: 54 };
-  const pad = 0.02;
-  const xd = d3.extent(result.points, (p) => p.x), yd = d3.extent(result.points, (p) => p.y);
-  const x = d3.scaleLinear().domain([Math.max(0, xd[0] - pad), Math.min(1, xd[1] + pad)])
-    .range([m.left, w - m.right]).nice();
-  const y = d3.scaleLinear().domain([Math.max(0, yd[0] - pad), Math.min(1, yd[1] + pad)])
-    .range([h - m.bottom, m.top]).nice();
+  const xd = d3.extent(points, (p) => p.x), yd = d3.extent(points, (p) => p.y);
+  const padX = ((xd[1] - xd[0]) || Math.abs(xd[0]) || 1) * 0.04;
+  const padY = ((yd[1] - yd[0]) || Math.abs(yd[0]) || 1) * 0.04;
+  const x = d3.scaleLinear().domain(opts.xDomain || [xd[0] - padX, xd[1] + padX]).range([m.left, w - m.right]).nice();
+  const y = d3.scaleLinear().domain(opts.yDomain || [yd[0] - padY, yd[1] + padY]).range([h - m.bottom, m.top]).nice();
+  const xFormat = opts.xFormat || d3.format('.0%'), yFormat = opts.yFormat || d3.format('.0%');
 
   const g = sel.append('g');
   g.append('g').attr('class', 'axis').attr('transform', `translate(0,${h - m.bottom})`)
-    .call(d3.axisBottom(x).ticks(6).tickFormat(d3.format('.0%')));
+    .call(d3.axisBottom(x).ticks(6).tickFormat(xFormat));
   g.append('g').attr('class', 'axis').attr('transform', `translate(${m.left},0)`)
-    .call(d3.axisLeft(y).ticks(6).tickFormat(d3.format('.0%')));
+    .call(d3.axisLeft(y).ticks(6).tickFormat(yFormat));
   sel.append('text').attr('class', 'axis-label').attr('x', (m.left + w - m.right) / 2)
-    .attr('y', h - 8).attr('text-anchor', 'middle').text(`${fedParty} — federal share`);
+    .attr('y', h - 8).attr('text-anchor', 'middle').text(opts.xLabel || '');
   sel.append('text').attr('class', 'axis-label')
-    .attr('transform', `rotate(-90)`).attr('x', -(m.top + h - m.bottom) / 2).attr('y', 14)
-    .attr('text-anchor', 'middle').text(`${provParty} — provincial share`);
+    .attr('transform', 'rotate(-90)').attr('x', -(m.top + h - m.bottom) / 2).attr('y', 14)
+    .attr('text-anchor', 'middle').text(opts.yLabel || '');
 
-  const maxWeight = Math.max(...result.points.map((p) => p.weight)) || 1;
+  const maxWeight = Math.max(...points.map((p) => p.weight)) || 1;
   const r = (p) => 2 + 5 * Math.sqrt(Math.min(1, p.weight / maxWeight));
-  sel.append('g').selectAll('circle').data(result.points).join('circle')
+  sel.append('g').selectAll('circle').data(points).join('circle')
     .attr('class', 'dot')
     .attr('cx', (p) => x(p.x)).attr('cy', (p) => y(p.y)).attr('r', r)
-    .attr('fill', partyColour(fedParty))
+    .attr('fill', opts.colour || 'var(--viz-series-1)')
     .append('title')
-    .text((p) => `${p.label}\n${fedParty} federal ${fmtPct(p.x)}\n${provParty} provincial ${fmtPct(p.y)}`
-      + `\n${fmtInt(p.weight)} votes`);
+    .text((p) => (opts.title ? opts.title(p) : `${p.label}\n${xFormat(p.x)}, ${yFormat(p.y)}`));
 
-  if (result.fit) {
+  if (opts.fit) {
     const xs = x.domain();
     const line = d3.line().x((d) => x(d[0])).y((d) => y(d[1]));
-    const pts = xs.map((v) => [v, result.fit.intercept + result.fit.slope * v]);
+    const pts = xs.map((v) => [v, opts.fit.intercept + opts.fit.slope * v]);
     sel.append('path').attr('class', 'fit-line').attr('d', line(pts));
   }
+}
+
+function drawScatter(result, fedParty, provParty) {
+  const pad = 0.02;
+  const xd = d3.extent(result.points, (p) => p.x), yd = d3.extent(result.points, (p) => p.y);
+  drawScatterXY($('scatter'), result.points, {
+    xLabel: `${fedParty} — federal share`, yLabel: `${provParty} — provincial share`,
+    xDomain: result.points.length ? [Math.max(0, xd[0] - pad), Math.min(1, xd[1] + pad)] : null,
+    yDomain: result.points.length ? [Math.max(0, yd[0] - pad), Math.min(1, yd[1] + pad)] : null,
+    colour: partyColour(fedParty), fit: result.fit,
+    title: (p) => `${p.label}\n${fedParty} federal ${fmtPct(p.x)}\n${provParty} provincial ${fmtPct(p.y)}\n${fmtInt(p.weight)} votes`,
+  });
 }
 
 /* --- Exports ----------------------------------------------------------------- */
@@ -315,6 +337,12 @@ function populateFinders() {
         .map((f) => ({ value: f.__key, label: provLabel(f) }))
         .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }))]);
   }
+  const daSel = $('find-da');
+  fillSelect(daSel, [{ value: '', label: state.da.active.length ? 'Select an area…' : 'No census layer loaded' },
+    ...state.da.active
+      .map((f) => ({ value: f.__key, label: daLabel(f) }))
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }))]);
+  daSel.disabled = !state.da.active.length;
 }
 
 $('find-poll').addEventListener('change', (e) => {
@@ -334,11 +362,8 @@ for (const id of ['show-fed', 'show-prov', 'prov-weight']) {
 }
 for (const id of ['area-filter', 'show-mobile']) {
   $(id).addEventListener('change', () => {
-    state.crosswalk = null; state.pairs = null; state.provOnFed = null;
-    state.turnout.rows = null; state.turnout.basket.clear();
-    $('corr-controls').hidden = true;
-    refreshCrosswalkStatus();
-    draw(); populateFinders(); renderReadout(); refreshTurnout();
+    invalidateSample();
+    draw(); populateFinders(); renderReadout(); refreshTurnout(); refreshSocio();
   });
 }
 for (const id of ['shade-by', 'shade-party-fed']) {

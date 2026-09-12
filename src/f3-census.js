@@ -189,7 +189,9 @@ const Census = (() => {
 
   /* --- Wide layout ---------------------------------------------------------- */
 
-  const GEO_COLUMNS = [/^DGUID$/, /^DAUID$/, /^DBUID$/, /^GEO_CODE$/, /^ALT_GEO_CODE$/, /^GEOUID$/, /^GEO_UID$/, /UID$/];
+  /* The bare codes come first: they label the map more readably than a DGUID,
+     and either joins, since keys are compared on the trailing code. */
+  const GEO_COLUMNS = [/^DAUID$/, /^DBUID$/, /^DGUID$/, /^GEO_CODE$/, /^ALT_GEO_CODE$/, /^GEOUID$/, /^GEO_UID$/, /UID$/];
 
   function findGeoColumn(header) {
     const H = header.map(norm);
@@ -251,16 +253,20 @@ const Census = (() => {
 
   /* --- Joining to features --------------------------------------------------- */
 
+  /* The id field of a boundary layer: the most unique of the identifier-like
+     properties (a block file carries its DAUID too, shared by several blocks),
+     bare codes before DGUIDs, else the most unique property of all. */
   function suggestGeoKey(features) {
     const sample = features.slice(0, 200);
     const names = new Set();
     for (const f of sample) for (const k of Object.keys(f.properties || {})) names.add(k);
     const all = [...names];
-    for (const re of GEO_COLUMNS) { const hit = all.find((n) => re.test(norm(n))); if (hit) return hit; }
-    let best = null, bestU = 0;
+    const uniqueness = (n) => new Set(sample.map((f) => String((f.properties || {})[n]))).size / Math.max(1, sample.length);
+    let best = null, bestScore = -1;
     for (const n of all) {
-      const u = new Set(sample.map((f) => String((f.properties || {})[n]))).size / Math.max(1, sample.length);
-      if (u > bestU) { bestU = u; best = n; }
+      const rank = GEO_COLUMNS.findIndex((re) => re.test(norm(n)));
+      const score = uniqueness(n) * 100 + (rank >= 0 ? 10 + (GEO_COLUMNS.length - rank) : 0);
+      if (score > bestScore) { bestScore = score; best = n; }
     }
     return best;
   }

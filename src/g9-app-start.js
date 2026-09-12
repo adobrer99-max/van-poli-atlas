@@ -13,6 +13,8 @@ populateFinders();
 refreshCrosswalkStatus();
 refreshPartySelectors();
 refreshTurnout();
+refreshDaShadeVars();
+refreshSocio();
 
 /* Watch the map's own box, not #atlas: the atlas changes height on every tab
    switch, and a Leaflet map only needs telling when its container resized. */
@@ -27,7 +29,11 @@ new ResizeObserver(() => {
         state.lastCorrelation.provParty);
     }
     if (state.turnout.rows && !$('panel-turnout').hidden) refreshTurnout();
+    if (state.socio.table && !$('panel-socio').hidden) drawSocioScatter();
   }, 120);
 }).observe(root);
 $('tab-map').addEventListener('click', () => setTimeout(() => map.invalidateSize({ animate: false }), 0));
+/* For the browser console and the test suites: the live state, read-only by
+   convention. */
+window.vanPoliAtlas = { state, crossPair };
 })();
