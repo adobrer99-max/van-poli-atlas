@@ -1,5 +1,16 @@
 const { chromium } = require('playwright');
 const path = require('path');
+// The build sandbox has no route to tile servers, and an unstubbed tile
+// failure reads as a console error. Serve a 1x1 PNG for every tile request and
+// record which host was asked, so basemap switching can be asserted.
+const ONE_PX_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+const tileHosts = [];
+async function stubTiles(page) {
+  await page.route(/basemaps\.cartocdn\.com|tile\.openstreetmap\.org/, (route) => {
+    tileHosts.push(new URL(route.request().url()).host);
+    route.fulfill({ status: 200, contentType: 'image/png', body: ONE_PX_PNG });
+  });
+}
 let fails = 0;
 const ok=(n,c,e='')=>{ if(c) console.log(`  PASS  ${n}`); else { console.log(`  FAIL  ${n} ${e}`); fails++; } };
 const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
@@ -14,7 +25,7 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
                               ['GeoJSON','fixtures/e2e_va.geojson']]) {
     const page = await browser.newPage({ viewport:{width:1200,height:900} });
     const errs=[]; page.on('pageerror',e=>errs.push(e.message));
-    await page.goto(FILE); await page.waitForTimeout(500);
+    await stubTiles(page); await page.goto(FILE); await page.waitForTimeout(500);
     await page.locator('#tab-data').click();
     await page.locator('#file-prov-geo').setInputFiles(file);
     await page.waitForTimeout(1800);
@@ -22,7 +33,7 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     await page.locator('#tab-map').click(); await page.waitForTimeout(500);
     const n = await page.locator('.layer-prov path').count();
     const bbox = await page.evaluate(() => {
-      const b = document.querySelector('.layer-prov').getBBox();
+      const b = document.querySelector('.layer-prov svg > g').getBBox();
       return [Math.round(b.x), Math.round(b.y), Math.round(b.width), Math.round(b.height)];
     });
     ok(`${name}: 700 areas drawn, bbox ${bbox.join(',')}`, n === 700 && errs.length === 0,
@@ -36,13 +47,13 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
   {
     const measure = async (file) => {
       const page = await browser.newPage({ viewport:{width:1200,height:900} });
-      await page.goto(FILE); await page.waitForTimeout(500);
+      await stubTiles(page); await page.goto(FILE); await page.waitForTimeout(500);
       await page.locator('#tab-data').click();
       await page.locator('#file-prov-geo').setInputFiles(file);
       await page.waitForTimeout(1600);
       await page.locator('#tab-map').click(); await page.waitForTimeout(500);
       const b = await page.evaluate(() => {
-        const r = document.querySelector('.layer-prov').getBBox();
+        const r = document.querySelector('.layer-prov svg > g').getBBox();
         return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
       });
       await page.close();
@@ -60,7 +71,7 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
   {
     const page = await browser.newPage({ viewport:{width:1200,height:900}, colorScheme:'dark' });
     const errs=[]; page.on('pageerror',e=>errs.push(e.message));
-    await page.goto(FILE); await page.waitForTimeout(600);
+    await stubTiles(page); await page.goto(FILE); await page.waitForTimeout(600);
     const colours = await page.evaluate(() => {
       const body = getComputedStyle(document.body);
       const html = getComputedStyle(document.documentElement);
@@ -80,6 +91,8 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     ok(`poll stroke is visible against the dark ground (${colours.pollStroke})`,
        lum(colours.pollStroke) > 120, colours.pollStroke);
     ok('no errors in dark mode', errs.length === 0, errs.join('|'));
+    const darkTiles = await page.evaluate(() => [...document.querySelectorAll('.leaflet-tile-pane img.leaflet-tile')].map((i) => i.src));
+    ok(`auto basemap picks the dark tiles under a dark scheme (${darkTiles.length} tiles)`, darkTiles.length > 0 && darkTiles.every((u) => /dark_all/.test(u)), darkTiles[0]);
     await page.screenshot({ path:'shot-dark.png' });
     await page.close();
   }
@@ -88,7 +101,7 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
   {
     const page = await browser.newPage({ viewport:{width:390,height:840} });
     const errs=[]; page.on('pageerror',e=>errs.push(e.message));
-    await page.goto(FILE); await page.waitForTimeout(700);
+    await stubTiles(page); await page.goto(FILE); await page.waitForTimeout(700);
     const overflow = await page.evaluate(() =>
       document.documentElement.scrollWidth - document.documentElement.clientWidth);
     ok(`no horizontal overflow at 390px (${overflow}px)`, overflow <= 1, `overflow=${overflow}`);
@@ -103,7 +116,7 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
   {
     const page = await browser.newPage({ viewport:{width:1200,height:900} });
     const errs=[]; page.on('pageerror',e=>errs.push(e.message));
-    await page.goto(FILE); await page.waitForTimeout(500);
+    await stubTiles(page); await page.goto(FILE); await page.waitForTimeout(500);
     await page.locator('#tab-data').click();
     const fs = require('fs');
     fs.writeFileSync('fixtures/junk.geojson', 'this is not json at all');
@@ -126,6 +139,24 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     ok('crosswalk says the layers do not meet', /empty|Nothing to cross|fall outside/i.test(cs),
        cs.replace(/\s+/g,' ').slice(0,160));
     ok('no errors from bad input', errs.length === 0, errs.join('|'));
+    await page.close();
+  }
+
+  console.log('\n== Offline: tiles fail, the atlas does not ==');
+  {
+    const page = await browser.newPage({ viewport:{width:1200,height:900} });
+    const errs=[]; page.on('pageerror',e=>errs.push(e.message));
+    await page.route(/basemaps\.cartocdn\.com|tile\.openstreetmap\.org/, (route) => route.abort('failed'));
+    await page.goto(FILE); await page.waitForTimeout(2500);
+    ok('offline note appears once tiles keep failing', await page.locator('#basemap-note').isVisible());
+    ok('boundaries still drawn', (await page.locator('.layer-fed path').count()) > 1000);
+    const box = await page.locator('.atlas-map').boundingBox();
+    await page.mouse.click(box.x + box.width * 0.45, box.y + box.height * 0.5);
+    await page.waitForTimeout(300);
+    ok('click readout still works offline', /Vancouver|Riding/.test(await page.locator('#readout').innerText()));
+    await page.locator('#basemap').selectOption('none'); await page.waitForTimeout(300);
+    ok('choosing None hides the note', !(await page.locator('#basemap-note').isVisible()));
+    ok('no page errors offline', errs.length === 0, errs.join('|'));
     await page.close();
   }
 

@@ -23,10 +23,22 @@
 
 /* --- Map ------------------------------------------------------------------ */
 .map-wrap { position: relative; }
-.atlas-map { display: block; width: 100%; touch-action: none; cursor: crosshair;
+.atlas-map { display: block; width: 100%; height: clamp(380px, 72vw, 700px);
   overflow: hidden; background: color-mix(in srgb, var(--foreground) 3%, transparent);
   border-radius: var(--radius); }
-.atlas-map:active { cursor: grabbing; }
+/* Leaflet resets max-width only for its own overlay pane; our federal and
+   provincial panes are custom, so repeat the reset for every pane's renderer. */
+.leaflet-container .leaflet-pane > svg { max-width: none !important; max-height: none !important; }
+/* Leaflet's stylesheet paints its own ground and fonts; bring both into the theme. */
+.leaflet-container { background: color-mix(in srgb, var(--foreground) 3%, var(--background)); font: inherit; }
+.leaflet-container .leaflet-bar a { background: var(--card); color: var(--foreground); border-bottom-color: var(--border); }
+.leaflet-container .leaflet-bar a:hover { background: var(--accent); }
+.leaflet-container .leaflet-bar { border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
+.leaflet-container .leaflet-control-attribution {
+  background: color-mix(in oklab, var(--background) 82%, transparent); color: var(--muted-foreground);
+  font-size: 11px; }
+.leaflet-container .leaflet-control-attribution a { color: var(--accent-foreground); }
+.leaflet-container .leaflet-interactive.poll { cursor: pointer; }
 .poll { fill: var(--muted); stroke: var(--foreground); stroke-opacity: .34;
   stroke-width: .6; vector-effect: non-scaling-stroke; cursor: pointer; }
 .poll.outside-cov { stroke-dasharray: 3 2; }
@@ -41,7 +53,7 @@
 .va.selected { stroke: var(--orange); stroke-width: calc(var(--va-weight) + 2);
   stroke-opacity: 1; filter: drop-shadow(0 0 2px var(--orange)); }
 
-.map-legend { position: absolute; right: .6rem; bottom: .6rem; display: flex;
+.map-legend { position: absolute; left: .6rem; bottom: 1.6rem; z-index: 1001; display: flex;
   flex-direction: column; gap: .25rem; padding: .5rem .6rem; border-radius: var(--radius-md);
   background: color-mix(in oklab, var(--background) 88%, transparent);
   border: 1px solid var(--border); font-size: var(--font-size-small); max-width: 60%; }

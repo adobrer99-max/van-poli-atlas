@@ -2,15 +2,17 @@ van-poli-atlas — licence and attribution notice
 ===============================================
 
 The GPL v3 text in LICENSE covers the original code in this repository. It does
-not cover the third-party library or the government data distributed alongside
-it, both of which carry their own terms. This file records what applies to what.
+not cover the third-party libraries or the government data distributed
+alongside it, which carry their own terms, nor the street-map tiles the atlas
+fetches at runtime. This file records what applies to what.
 
 
 1. Original code — GPL v3
 -------------------------
    src/a-geo.js, src/b-text.js, src/c-binary.js, src/d-ingest.js,
-   src/e-analysis.js, src/f-results.js, src/g1-app-core.js, src/g2-app-data.js,
-   src/g3-app-corr.js, src/h-markup.html, src/i-atlas.css, src/design.css,
+   src/e-analysis.js, src/f-results.js, src/f2-turnout.js, src/g1-app-core.js,
+   src/g2-app-data.js, src/g3-app-corr.js, src/g4-app-turnout.js,
+   src/g9-app-start.js, src/h-markup.html, src/i-atlas.css, src/design.css,
    src/tabs.js, build.py, tests/*
 
    Licensed under the GNU General Public License version 3, as set out in
@@ -41,7 +43,71 @@ it, both of which carry their own terms. This file records what applies to what.
    strip it.
 
 
-3. Federal polling-division boundaries — Open Government Licence – Canada
+3. Leaflet — BSD 2-Clause licence
+---------------------------------
+   src/leaflet.js, src/leaflet.css, and the corresponding inlined blocks of
+   vancouver-boundary-atlas.html
+
+   Leaflet 1.9.4. https://leafletjs.com
+
+   BSD 2-Clause License
+
+   Copyright (c) 2010-2023, Volodymyr Agafonkin
+   Copyright (c) 2010-2011, CloudMade
+   All rights reserved.
+
+   Redistribution and use in source and binary forms, with or without
+   modification, are permitted provided that the following conditions are met:
+
+   1. Redistributions of source code must retain the above copyright notice,
+      this list of conditions and the following disclaimer.
+
+   2. Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+
+   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+   AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+   IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+   ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+   LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+   CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+   SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+   INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+   CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+   ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+   POSSIBILITY OF SUCH DAMAGE.
+
+   Both files are the unmodified dist/ files of the leaflet@1.9.4 npm package.
+   The copyright header at the top of src/leaflet.js is marked @preserve and
+   is carried through into the built HTML by build.py; do not strip it.
+
+
+4. Street basemap tiles — fetched at runtime, never redistributed
+-----------------------------------------------------------------
+   The Map tab can draw a street basemap under the boundaries. The tiles are
+   requested from the provider's servers while the page is open and are not
+   stored in this repository or in the built HTML:
+
+   - CARTO "Positron" and "Dark Matter" basemaps (the default):
+     map data © OpenStreetMap contributors, available under the Open Database
+     Licence (https://www.openstreetmap.org/copyright); cartography © CARTO
+     (https://carto.com/attributions), served under CARTO's basemap terms.
+   - OpenStreetMap standard tiles: © OpenStreetMap contributors, ODbL;
+     served subject to the OpenStreetMap Foundation tile usage policy
+     (https://operations.osmfoundation.org/policies/tiles/).
+
+   Each tile request is an ordinary web request to the provider's servers. It
+   carries the viewer's IP address, browser identification and request headers
+   together with the tile coordinates (the area and zoom level on screen), and
+   is handled under the provider's privacy policy. Nothing else is sent.
+
+   The atlas shows the required attribution in the map's corner. Selecting
+   "None" under Basemap stops all tile requests; nothing else in the atlas
+   uses the network.
+
+
+5. Federal polling-division boundaries — Open Government Licence – Canada
 ------------------------------------------------------------------------
    boundaries/fed_polls.geojson, and the corresponding inlined block of
    vancouver-boundary-atlas.html
@@ -56,7 +122,7 @@ it, both of which carry their own terms. This file records what applies to what.
    Elections Canada has not endorsed this work and is not responsible for it.
 
 
-4. Data not distributed here
+6. Data not distributed here
 ----------------------------
    Provincial voting-area boundaries, federal poll-by-poll results and
    provincial results by voting area are never redistributed in this
