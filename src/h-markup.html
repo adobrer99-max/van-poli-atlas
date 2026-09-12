@@ -95,17 +95,25 @@
     <label class="form-label grow" for="find-va">Find a provincial (2024) voting area
       <select class="form-select" id="find-va" disabled><option value="">No provincial layer loaded</option></select>
     </label>
-    <button type="button" class="btn" id="zoom-in" aria-label="Zoom in">Zoom +</button>
-    <button type="button" class="btn" id="zoom-out" aria-label="Zoom out">Zoom &minus;</button>
+    <label class="form-label" for="basemap">Basemap
+      <select class="form-select" id="basemap">
+        <option value="auto" selected>Streets (light or dark to match)</option>
+        <option value="positron">Streets — light (CARTO)</option>
+        <option value="dark">Streets — dark (CARTO)</option>
+        <option value="osm">OpenStreetMap standard</option>
+        <option value="none">None (offline)</option>
+      </select>
+    </label>
     <button type="button" class="btn" id="zoom-reset">Full view</button>
   </div>
 
   <div class="map-wrap">
-    <svg class="atlas-map" role="img" aria-label="Map of 2025 federal polling divisions with provincial voting areas overlaid. Use the two find menus for keyboard access.">
-      <title>Vancouver federal polling divisions and provincial voting areas</title>
-      <desc>Drag to pan, scroll or use the zoom buttons to zoom, and click a polygon to read the federal polling division and provincial voting area at that point.</desc>
-    </svg>
+    <div class="atlas-map" id="atlas-map" role="application"
+      aria-label="Map of 2025 federal polling divisions with 2024 provincial voting areas overlaid on streets. Drag to pan, scroll to zoom, click to read the polling division and voting area at a point. Use the two find menus for keyboard access."></div>
     <div class="map-legend" id="map-legend" hidden></div>
+  </div>
+  <div id="basemap-note" class="text-small text-warning" hidden>
+    Street tiles are not loading — offline? The boundaries and every analysis work without them; choose “None” under Basemap to hide the empty layer.
   </div>
 
   <div class="readout" id="readout" aria-live="polite">
@@ -113,7 +121,8 @@
   </div>
 
   <p class="text-small text-muted">
-    North is up. Boundary coordinates are rounded to five decimals.
+    Street basemap &copy; OpenStreetMap contributors, &copy; CARTO — loaded from the web; everything else in this file works offline.
+    Boundary coordinates are rounded to five decimals.
     Federal source: Elections Canada, Polling Division Boundaries 2025 (Metro Vancouver KMZ).
     UBC and UEL sit in Electoral Area A, outside the City of Vancouver.
   </p>
@@ -416,6 +425,15 @@
         <i>minimum</i> of the two is the stricter "reliable turnout" measure; the
         <i>delta</i> shows where one election drew people the other did not.</li>
     </ul>
+
+    <h3>The street basemap</h3>
+    <p>The map is drawn with Leaflet. Street tiles come from CARTO (Positron in the light
+      theme, Dark Matter in the dark) or from OpenStreetMap's standard style, all built on
+      OpenStreetMap data, and are requested from the provider only while the page is open.
+      A tile request reveals which part of the map is on screen and nothing more: boundary
+      and results files stay in the browser tab. If the tiles do not load the map says so
+      and keeps working; choose &ldquo;None&rdquo; under Basemap to work fully offline. The
+      attribution in the map's corner is a condition of the providers' terms.</p>
   </div>
 </section>
 </div>

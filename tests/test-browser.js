@@ -1,5 +1,16 @@
 const { chromium } = require('playwright');
 const path = require('path');
+// The build sandbox has no route to tile servers, and an unstubbed tile
+// failure reads as a console error. Serve a 1x1 PNG for every tile request and
+// record which host was asked, so basemap switching can be asserted.
+const ONE_PX_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+const tileHosts = [];
+async function stubTiles(page) {
+  await page.route(/basemaps\.cartocdn\.com|tile\.openstreetmap\.org/, (route) => {
+    tileHosts.push(new URL(route.request().url()).host);
+    route.fulfill({ status: 200, contentType: 'image/png', body: ONE_PX_PNG });
+  });
+}
 let fails = 0;
 const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { console.log(`  FAIL  ${n} ${e}`); fails++; } };
 
@@ -11,6 +22,7 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
 
   const file = 'file://' + path.resolve('vancouver-boundary-atlas.html');
+  await stubTiles(page);
   await page.goto(file, { waitUntil: 'load' });
   await page.waitForTimeout(900);
 
@@ -23,6 +35,30 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   ok('empty-provincial notice shown', await page.locator('#prov-missing').isVisible());
   const finder = await page.locator('#find-poll option').count();
   ok(`poll finder populated (${finder})`, finder === fedPaths + 1);
+
+  console.log('\n== Basemap ==');
+  ok('Leaflet map mounted', await page.evaluate(() => !!document.querySelector('#atlas-map.leaflet-container')));
+  // Counting paths is not enough: a stylesheet rule once collapsed the renderer
+  // SVG to 0x0 while every path still existed. Assert the drawn size.
+  const svgBox = await page.evaluate(() => { const b = document.querySelector('.layer-fed svg').getBoundingClientRect(); return [b.width, b.height]; });
+  ok(`renderer SVG has a real size (${svgBox.map(Math.round).join('x')})`, svgBox[0] > 300 && svgBox[1] > 300);
+  const painted = await page.evaluate(() => { const b = document.querySelector('.layer-fed path').getBoundingClientRect(); const m = document.querySelector('#atlas-map').getBoundingClientRect();
+    return b.width > 0 && b.left >= m.left - 1 && b.right <= m.right + 1 && b.top >= m.top - 1 && b.bottom <= m.bottom + 1; });
+  ok('a polling division paints inside the map box', painted);
+  ok(`default basemap requests CARTO tiles (${tileHosts.filter((h) => /cartocdn/.test(h)).length} requests)`, tileHosts.some((h) => /cartocdn\.com$/.test(h)));
+  ok('tile images are in the tile pane', (await page.locator('.leaflet-tile-pane img.leaflet-tile').count()) > 0);
+  ok('attribution credits OpenStreetMap', /OpenStreetMap/.test(await page.locator('.leaflet-control-attribution').innerText()));
+  const tileCountBefore = tileHosts.length;
+  await page.locator('#basemap').selectOption('osm');
+  await page.waitForTimeout(800);
+  ok('switching to OpenStreetMap requests tile.openstreetmap.org', tileHosts.slice(tileCountBefore).some((h) => h === 'tile.openstreetmap.org'));
+  await page.locator('#basemap').selectOption('none');
+  await page.waitForTimeout(400);
+  ok('"None" removes every tile', (await page.locator('.leaflet-tile-pane img.leaflet-tile').count()) === 0);
+  ok('polygons survive without a basemap', (await page.locator('.layer-fed path').count()) === fedPaths);
+  await page.locator('#basemap').selectOption('auto');
+  await page.waitForTimeout(400);
+  ok('zoom control present, custom zoom buttons gone', (await page.locator('.leaflet-control-zoom').count()) === 1 && (await page.locator('#zoom-in').count()) === 0);
 
   console.log('\n== Map interaction ==');
   const box = await page.locator('.atlas-map').boundingBox();
@@ -59,7 +95,7 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   const bounds = await page.evaluate(() => {
     const bb = (sel) => { const n = document.querySelector(sel); const b = n.getBBox();
       return [b.x, b.y, b.width, b.height]; };
-    return { fed: bb('.layer-fed'), prov: bb('.layer-prov') };
+    return { fed: bb('.layer-fed svg > g'), prov: bb('.layer-prov svg > g') };
   });
   const overlapFrac = (() => {
     const [fx, fy, fw, fh] = bounds.fed, [px, py, pw, ph] = bounds.prov;

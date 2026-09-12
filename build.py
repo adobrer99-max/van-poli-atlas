@@ -1,5 +1,6 @@
-"""Assemble the standalone atlas. Everything is inlined so the file works
-offline, from disk, with no network access of any kind."""
+"""Assemble the standalone atlas. Everything is inlined -- the libraries, the
+stylesheet, the federal boundaries -- so the file works from disk. The only
+thing it ever fetches is street-basemap tiles, and it works without them."""
 import json, os, io
 
 SRC = "src"
@@ -7,6 +8,8 @@ def read(p):
     with io.open(p, encoding="utf-8") as fh:
         return fh.read()
 
+leaflet_css = read(SRC + "/leaflet.css")
+leaflet_js  = read(SRC + "/leaflet.js")
 design_css = read(SRC + "/design.css")
 atlas_css  = read(SRC + "/i-atlas.css")
 d3_js      = read(SRC + "/d3.js")
@@ -34,6 +37,7 @@ html = f"""<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vancouver federal &amp; provincial poll atlas</title>
 <style>
+{leaflet_css}
 {design_css}
 {atlas_css}
 </style>
@@ -43,6 +47,7 @@ html = f"""<!doctype html>
 
 <script id="federal-polls" type="application/json">{geo}</script>
 
+<script>{leaflet_js}</script>
 <script>{d3_js}</script>
 <script>
 {lib}

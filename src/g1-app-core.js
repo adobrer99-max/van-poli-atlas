@@ -145,16 +145,80 @@ function provLabel(f) {
 
 /* --- Map ------------------------------------------------------------------- */
 
-const svg = d3.select(root.querySelector('.atlas-map'));
-const gRoot = svg.append('g');
-const gFed = gRoot.append('g').attr('class', 'layer-fed');
-const gProv = gRoot.append('g').attr('class', 'layer-prov');
-const gPick = gRoot.append('g').attr('class', 'layer-pick');
-let width = 900, height = 620, projection = null, path = null;
-const zoom = d3.zoom().scaleExtent([1, 60]).on('zoom', (event) => {
-  gRoot.attr('transform', event.transform);
+/* --- Map (Leaflet) ----------------------------------------------------------
+   One pane and one SVG renderer per layer, so `.layer-fed path` and
+   `.layer-prov path` stay countable and stylable exactly as before. Every
+   path gets its feature bound as d3's __data__, which lets the d3-style
+   callbacks below (fill, classes, basket marks) keep working untouched on
+   selections of the panes. Clicks are handled once at map level with a
+   latlng; hit-testing stays in Geo, so the readout is always point-based.
+   Shift-click is the basket gesture, so Leaflet's shift-drag box zoom is off. */
+/* A centre and zoom at construction matter: Leaflet defers adding layers
+   until the map has a view, and draw() binds each path's feature the moment
+   the layer is added. Without a view the paths would not exist yet. */
+const map = L.map($('atlas-map'), {
+  center: [49.25, -123.12], zoom: 12,
+  zoomSnap: 0.25, zoomControl: true, attributionControl: true, boxZoom: false,
+  worldCopyJump: false, maxZoom: 20, minZoom: 9,
 });
-svg.call(zoom).on('dblclick.zoom', null);
+map.createPane('fed').classList.add('layer-fed');
+map.getPane('fed').style.zIndex = 410;
+map.createPane('prov').classList.add('layer-prov');
+map.getPane('prov').style.zIndex = 420;
+const fedLayer = L.geoJSON(null, {
+  pane: 'fed', renderer: L.svg({ pane: 'fed' }), className: 'poll', weight: 0.6, fill: true,
+}).addTo(map);
+const provLayer = L.geoJSON(null, {
+  pane: 'prov', renderer: L.svg({ pane: 'prov' }), className: 'va', fill: false,
+}).addTo(map);
+const gFed = d3.select(map.getPane('fed'));
+const gProv = d3.select(map.getPane('prov'));
+
+/* Free basemaps. Tiles are the only thing in the file that ever touches the
+   network; without them the boundaries and every analysis still work. */
+const BASEMAPS = {
+  positron: {
+    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', subdomains: 'abcd', maxZoom: 20,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  },
+  dark: {
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', subdomains: 'abcd', maxZoom: 20,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  },
+  osm: {
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', subdomains: 'abc', maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  },
+};
+let tileLayer = null, tileErrors = 0, tileLoaded = false;
+const darkScheme = window.matchMedia('(prefers-color-scheme: dark)');
+function resolveBasemap(mode) {
+  if (mode === 'auto') return darkScheme.matches ? 'dark' : 'positron';
+  return mode;
+}
+function setBasemap(mode) {
+  if (tileLayer) { map.removeLayer(tileLayer); tileLayer = null; }
+  tileErrors = 0; tileLoaded = false;
+  $('basemap-note').hidden = true;
+  const key = resolveBasemap(mode);
+  const def = BASEMAPS[key];
+  root.classList.toggle('basemap-none', !def);
+  if (!def) return;
+  tileLayer = L.tileLayer(def.url, {
+    subdomains: def.subdomains, maxZoom: def.maxZoom, attribution: def.attribution, detectRetina: false,
+  });
+  /* Eight failures with nothing loaded is offline, not a slow tile. */
+  tileLayer.on('tileerror', () => { tileErrors++; if (tileErrors >= 8 && !tileLoaded) $('basemap-note').hidden = false; });
+  tileLayer.on('tileload', () => { tileLoaded = true; $('basemap-note').hidden = true; });
+  tileLayer.addTo(map);
+}
+darkScheme.addEventListener('change', () => { if ($('basemap').value === 'auto') setBasemap('auto'); });
+
+function fitAll() {
+  const extent = extentOf(state.fed.active) || extentOf(state.prov.active);
+  if (extent) map.fitBounds([[extent[1], extent[0]], [extent[3], extent[2]]], { padding: [12, 12], animate: false });
+  else map.setView([49.25, -123.12], 12);
+}
 
 /* The value a feature is shaded by, for one layer and one mode. Federal modes
    read the 2025 results by feature index; the provincial-on-federal modes need
@@ -263,57 +327,60 @@ function styleLayer(layerKey, sel) {
 const applyFederalStyle = (sel) => styleLayer('fed', sel);
 const applyProvincialStyle = (sel) => styleLayer('prov', sel);
 
-function draw() {
-  const box = root.querySelector('.map-wrap').getBoundingClientRect();
-  width = Math.max(320, Math.floor(box.width) || 900);
-  height = Math.max(380, Math.min(700, Math.round(width * 0.72)));
-  svg.attr('viewBox', `0 0 ${width} ${height}`).attr('height', height);
+/* Bind the feature to its Leaflet-drawn path so d3 selections of the pane
+   see it as the datum. */
+function bindPaths(layerGroup, decorate) {
+  layerGroup.eachLayer((l) => {
+    const el = l.getElement();
+    if (!el) return;
+    el.__data__ = l.feature;
+    if (decorate) decorate(el, l.feature);
+  });
+}
 
+let layersSignature = null, extentSignature = null;
+
+/* Recomputes the active sets and indexes; rebuilds the Leaflet layers only
+   when the active sets actually changed (results loading merely restyles). */
+function draw() {
   state.fed.active = activeFederal();
   const fedExtent = extentOf(state.fed.active);
   state.prov.active = activeProvincial(fedExtent);
-
-  const fitTarget = { type: 'FeatureCollection', features: state.fed.active.length
-    ? state.fed.active : state.prov.active };
-  projection = d3.geoMercator();
-  if (fitTarget.features.length) {
-    projection.fitExtent([[12, 12], [width - 12, height - 12]], fitTarget);
-  } else {
-    projection.center([-123.12, 49.25]).scale(90000).translate([width / 2, height / 2]);
-  }
-  path = d3.geoPath(projection);
-
   state.fed.index = Geo.buildIndex(state.fed.active);
   state.prov.index = state.prov.active.length ? Geo.buildIndex(state.prov.active) : null;
 
-  const fedSel = gFed.selectAll('path').data(state.fed.active, (f) => f.key);
-  fedSel.exit().remove();
-  const fedAll = fedSel.enter().append('path')
-    .attr('class', 'poll')
-    .on('click', (event, f) => { selectAt(null, f, null); })
-    .merge(fedSel)
-    .attr('d', path)
-    .classed('outside-cov', (f) => f.outsideCity)
-    .classed('point-like', (f) => isPointLike(f));
-  applyFederalStyle(fedAll);
-
-  const provSel = gProv.selectAll('path').data(state.prov.active, (f, i) => f.__key || i);
-  provSel.exit().remove();
-  const provAll = provSel.enter().append('path')
-    .attr('class', 'va')
-    .on('click', (event, f) => { selectAt(null, null, f); })
-    .merge(provSel)
-    .attr('d', path);
-  applyProvincialStyle(provAll);
+  const signature = [state.fed.active.length, state.prov.active.length, state.prov.all.length,
+    $('area-filter').value, $('show-mobile').checked,
+    state.fed.active[0]?.key, state.fed.active[state.fed.active.length - 1]?.key].join('|');
+  if (signature !== layersSignature) {
+    layersSignature = signature;
+    fedLayer.clearLayers();
+    fedLayer.addData({ type: 'FeatureCollection', features: state.fed.active });
+    bindPaths(fedLayer, (el, f) => {
+      el.classList.toggle('outside-cov', Boolean(f.outsideCity));
+      el.classList.toggle('point-like', isPointLike(f));
+    });
+    provLayer.clearLayers();
+    if (state.prov.active.length) {
+      provLayer.addData({ type: 'FeatureCollection', features: state.prov.active });
+    }
+    bindPaths(provLayer);
+  }
+  applyFederalStyle(gFed.selectAll('path'));
+  applyProvincialStyle(gProv.selectAll('path'));
 
   updateLayerVisibility();
   renderLegend();
   redrawSelection();
+
+  const extent = fedExtent || extentOf(state.prov.active);
+  const key = extent ? extent.map((v) => v.toFixed(4)).join(',') : '';
+  if (key !== extentSignature) { extentSignature = key; fitAll(); }
 }
 
 function updateLayerVisibility() {
-  gFed.attr('display', $('show-fed').checked ? null : 'none');
-  gProv.attr('display', $('show-prov').checked ? null : 'none');
+  map.getPane('fed').style.display = $('show-fed').checked ? '' : 'none';
+  map.getPane('prov').style.display = $('show-prov').checked ? '' : 'none';
   gProv.classed('filled', $('shade-prov-by').value !== 'none');
   root.style.setProperty('--va-weight', $('prov-weight').value);
 }
@@ -392,6 +459,9 @@ function selectAt(lonlat, fedFeature, provFeature) {
 function redrawSelection() {
   gFed.selectAll('path').classed('selected', (f) => f === state.selection.fed);
   gProv.selectAll('path').classed('selected', (f) => f === state.selection.prov);
+  /* Re-appending brings the selected outline above its neighbours. */
+  gFed.selectAll('path.selected').raise();
+  gProv.selectAll('path.selected').raise();
 }
 
 function resultsList(unit, limit = 6) {
@@ -506,27 +576,18 @@ function turnoutLine(unit) {
   return bits.join(' · ');
 }
 
-svg.on('click', (event) => {
-  if (event.defaultPrevented) return;
-  if (!projection) return;
-  const [mx, my] = d3.pointer(event, svg.node());
-  const t = d3.zoomTransform(svg.node());
-  const [px, py] = t.invert([mx, my]);
-  const lonlat = projection.invert([px, py]);
-  if (lonlat) selectAt(lonlat);
+map.on('click', (event) => {
+  selectAt([event.latlng.lng, event.latlng.lat]);
   /* Shift-click adds the unit under the cursor to the turnout basket. */
-  if (event.shiftKey) {
+  if (event.originalEvent && event.originalEvent.shiftKey) {
     const key = basketKeyForSelection();
     if (key) toggleBasket(key);
   }
 });
 
 function zoomToFeature(feature) {
-  if (!feature || !path) return;
-  const b = path.bounds(feature);
-  const dx = b[1][0] - b[0][0], dy = b[1][1] - b[0][1];
-  const k = Math.max(1, Math.min(40, 0.55 / Math.max(dx / width, dy / height)));
-  const cx = (b[0][0] + b[1][0]) / 2, cy = (b[0][1] + b[1][1]) / 2;
-  svg.transition().duration(400).call(zoom.transform,
-    d3.zoomIdentity.translate(width / 2 - k * cx, height / 2 - k * cy).scale(k));
+  if (!feature) return;
+  const b = Geo.bboxOf(feature.geometry);
+  if (!isFinite(b[0])) return;
+  map.fitBounds([[b[1], b[0]], [b[3], b[2]]], { padding: [24, 24], maxZoom: 17 });
 }

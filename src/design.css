@@ -997,7 +997,10 @@ textarea.form-control {
   }
 }
 
-svg {
+/* Leaflet's renderer SVGs are sized by width/height attributes inside 0x0
+   panes; a stylesheet max-width or height on them collapses the map layers
+   to nothing, so the design rule stops at the map container. */
+svg:not(.leaflet-container svg) {
   display: block;
   max-width: 100%;
   height: auto;
