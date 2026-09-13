@@ -10944,12 +10944,40 @@ function restyleMapForTurnout() {
   updatePlaceControls();
   applyFederalStyle(gFed.selectAll('path'));
   applyProvincialStyle(gProv.selectAll('path'));
+  /* The census layer shades by aggregate turnout too, and its value is
+     computed from state.turnout.weight like the other two. Leaving it out
+     meant moving the weight restyled the federal and provincial layers and
+     left the census one showing the previous weighting. */
+  if (state.da.active.length) applyDaStyle(gDa.selectAll('path'));
   renderLegend();
   markBasketOnMap();
 }
 
-for (const id of ['turnout-unit', 'turnout-weight', 'turnout-min-electors', 'apportion-fed', 'apportion-prov']) {
-  $(id).addEventListener('change', refreshTurnout);
+/* The aggregate weight is read in three places -- the map's turnout-agg
+   shading, the legend that names the split, and the socioeconomic table's
+   aggregate column -- so the socio side has to be recomputed, not merely
+   repainted. */
+for (const id of ['turnout-unit', 'turnout-weight', 'turnout-min-electors']) {
+  $(id).addEventListener('change', () => { refreshTurnout(); refreshSocio(); });
+}
+/* Apportionment is different from the other three: it changes WHICH BALLOTS
+   every reader sees, not just how the turnout table presents them. The map,
+   the readout and the correlation are all computed from the apportioned
+   values, so all of them have to follow.
+
+   correlationInputs already says why -- "a correlation computed on different
+   ballots from all three would be a trap" -- and without this line that is
+   exactly what happened: switching apportionment left the Correlation tab
+   showing an r computed under the previous setting, with nothing to say so.
+   Numbers that look stable because they never recomputed are worse than
+   numbers that move. */
+for (const id of ['apportion-fed', 'apportion-prov']) {
+  $(id).addEventListener('change', () => {
+    refreshTurnout();
+    refreshCorrelation();
+    draw();
+    renderReadout();
+  });
 }
 $('turnout-weight').addEventListener('input', () => {
   const w = parseFloat($('turnout-weight').value);
