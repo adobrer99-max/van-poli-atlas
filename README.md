@@ -172,6 +172,13 @@ The **Results** tab still reports the file exactly as loaded, because it is the
 one unmodelled check in the atlas — but it names how many of those ballots were
 cast outside the chosen area, so a city total is never quoted by accident.
 
+Checked against Elections Canada's 2025 electoral district boundaries: the poll
+payload tiles five of the six ridings exactly, and covers 78% of Vancouver
+Fraserview—South Burnaby (26.1 of 33.5 km²). The missing 7.4 km² is the Burnaby
+end, whose fifty polls have no polygon here — which is why they are reported as
+ground outside the study area rather than spread across it. Quadra is fully
+covered, UBC included, and its UBC polls are tagged.
+
 That denominator is per district, so it is **not** spread onto voting areas:
 one number per district split across its areas would be a model, not a
 measurement. Until an elector count by voting area exists, per-area provincial
