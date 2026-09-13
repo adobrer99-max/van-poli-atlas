@@ -95,6 +95,8 @@
         <option value="turnout-fed">Federal (2025) turnout</option>
         <option value="turnout-prov">Provincial (2024) turnout</option>
         <option value="variable">A census variable</option>
+        <option value="muni-party" hidden>Municipal (2022) party share</option>
+        <option value="muni-ballots" hidden>Municipal (2022) ballots cast (smoothed)</option>
         <option value="points-count" hidden>Places loaded (count)</option>
         <option value="points-weight" hidden>Places loaded (weighted)</option>
       </select>
@@ -142,12 +144,16 @@
     </label>
     <label class="form-label" for="basemap">Basemap
       <select class="form-select" id="basemap">
-        <option value="osm" selected>OpenStreetMap standard</option>
-        <option value="auto">Streets, light or dark to match (CARTO — needs a key)</option>
-        <option value="positron">Streets — light (CARTO — needs a key)</option>
-        <option value="dark">Streets — dark (CARTO — needs a key)</option>
-        <option value="none">None (offline)</option>
+        <option value="none">None — boundaries only</option>
+        <option value="auto">Streets, light or dark to match (CARTO)</option>
+        <option value="positron">Streets — light (CARTO)</option>
+        <option value="dark">Streets — dark (CARTO)</option>
+        <option value="osm">OpenStreetMap standard (needs the page served over http)</option>
       </select>
+    </label>
+    <label class="form-label grow" for="carto-key">CARTO key (free, optional)
+      <input class="form-control" type="text" id="carto-key" placeholder="paste a key to turn on street tiles"
+             autocomplete="off" spellcheck="false">
     </label>
     <button type="button" class="btn" id="zoom-reset">Full view</button>
   </div>

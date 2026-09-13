@@ -122,21 +122,21 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     ok(`poll stroke is visible against the dark ground (${colours.pollStroke})`,
        lum(colours.pollStroke) > 120, colours.pollStroke);
     ok('no errors in dark mode', errs.length === 0, errs.join('|'));
-    /* The default no longer follows the colour scheme, and that is deliberate:
-       it is OpenStreetMap, the one basemap that still needs no API key, on a
-       light page and a dark one alike. */
+    /* Opened from disk with no key, the atlas asks for no tiles at all --
+       there is no free basemap it can legitimately fetch from a file:// page,
+       and a grid of 403s is worse than clean boundaries. */
     const tilesOf = () => page.evaluate(() =>
       [...document.querySelectorAll('.leaflet-tile-pane img.leaflet-tile')].map((i) => i.src));
     const defaultTiles = await tilesOf();
-    ok(`the default basemap is the keyless one under a dark scheme too (${defaultTiles.length} tiles)`,
-       defaultTiles.length > 0 && defaultTiles.every((u) => /tile\.openstreetmap\.org/.test(u)),
-       defaultTiles[0]);
-    /* Choosing "auto" still follows the scheme, which is the whole point of
-       keeping it -- it just has to be chosen now. */
-    await page.locator('#basemap').selectOption('auto');
-    await page.waitForTimeout(900);
+    ok(`a keyless file:// build asks for no tiles, dark scheme or not (${defaultTiles.length})`,
+       defaultTiles.length === 0, defaultTiles[0]);
+    /* With a key, "auto" still follows the colour scheme, which is the whole
+       point of keeping it. */
+    await page.locator('#carto-key').fill('TESTKEY123');
+    await page.locator('#carto-key').dispatchEvent('change');
+    await page.waitForTimeout(1000);
     const darkTiles = await tilesOf();
-    ok(`auto picks the dark tiles under a dark scheme (${darkTiles.length} tiles)`,
+    ok(`a key under a dark scheme picks the dark tiles (${darkTiles.length} tiles)`,
        darkTiles.length > 0 && darkTiles.every((u) => /dark_all/.test(u)), darkTiles[0]);
     await page.screenshot({ path:'shot-dark.png' });
     await page.close();
@@ -503,8 +503,17 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     const page = await browser.newPage({ viewport:{width:1200,height:900} });
     const errs=[]; page.on('pageerror',e=>errs.push(e.message));
     await page.route(/basemaps\.cartocdn\.com|tile\.openstreetmap\.org/, (route) => route.abort('failed'));
-    await page.goto(FILE); await page.waitForTimeout(2500);
+    await page.goto(FILE); await page.waitForTimeout(600);
+    /* A keyless file:// build asks for no tiles, so there is nothing to fail.
+       A key is pasted first, which is the case where a reader would actually
+       be waiting for tiles that never come. */
+    await page.locator('#carto-key').fill('TESTKEY123');
+    await page.locator('#carto-key').dispatchEvent('change');
+    await page.waitForTimeout(2500);
     ok('offline note appears once tiles keep failing', await page.locator('#basemap-note').isVisible());
+    ok('and it says why rather than just that they failed',
+       /key|identify|not loading/i.test(await page.locator('#basemap-note').innerText()),
+       await page.locator('#basemap-note').innerText());
     ok('boundaries still drawn', (await page.locator('.layer-fed path').count()) > 1000);
     const box = await page.locator('.atlas-map').boundingBox();
     await page.mouse.click(box.x + box.width * 0.45, box.y + box.height * 0.5);

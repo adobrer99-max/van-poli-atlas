@@ -552,4 +552,10 @@ for (const id of ['shade-prov-by', 'shade-party-prov']) {
     renderLegend();
   });
 }
-$('prov-opacity').addEventListener('input', () => applyProvincialStyle(gProv.selectAll('path')));
+/* The slider is read by styleLayer for every overlay, which is the provincial
+   layer AND the census one. Restyling only the provincial paths left a shaded
+   census layer at its old opacity until something else forced a redraw. */
+$('prov-opacity').addEventListener('input', () => {
+  applyProvincialStyle(gProv.selectAll('path'));
+  if (state.da.active.length) applyDaStyle(gDa.selectAll('path'));
+});

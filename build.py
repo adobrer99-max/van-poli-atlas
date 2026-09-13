@@ -5,6 +5,7 @@ thing it ever fetches is street-basemap tiles, and it works without them.
     python3 build.py                          the atlas, as committed
     python3 build.py --payload payload/       with data baked in
     python3 build.py --out share/atlas.html   written somewhere else
+    python3 build.py --carto-key KEY          opens on a street basemap
 
 --payload names a directory written by tools/make-payload.js, holding one
 subdirectory per dataset. Without it nothing is baked in and every dataset is
@@ -60,6 +61,14 @@ def esc(text, where):
         raise SystemExit(f"{where} contains a closing script tag and cannot be inlined.")
     return text
 
+# A free CARTO key, if this build should open on a street map. Baking one in is
+# what makes a copy handed to somebody else show streets without them having to
+# get a key of their own; leave it out and the atlas opens on boundaries only,
+# which is complete and correct, just plainer.
+carto_key = arg("--carto-key", "")
+carto_block = (f'\n<script id="carto-key-payload" type="text/plain">{esc(carto_key, "--carto-key")}</script>'
+               if carto_key else "")
+
 payload_dir = arg("--payload")
 payload_blocks, payload_report = "", []
 if payload_dir:
@@ -101,7 +110,7 @@ html = f"""<!doctype html>
 <body>
 {markup}
 
-<script id="federal-polls" type="application/json">{geo}</script>{payload_blocks}
+<script id="federal-polls" type="application/json">{geo}</script>{carto_block}{payload_blocks}
 
 <script>{leaflet_js}</script>
 <script>{d3_js}</script>
