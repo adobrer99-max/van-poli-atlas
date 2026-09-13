@@ -244,12 +244,19 @@ area on your machine:
 
 ```sh
 python3 tools/filter_census.py \
-    --geo-attr 2021_92-151_X.csv \
+    --geo-attr 2021_92-151_X.zip \
     --csd 5915022 \
-    --profile 98-401-X2021006_English_CSV_data_BritishColumbia.csv \
+    --profile 98-401-X2021006_BC_eng_CSV.zip \
     --clip-shp lda_000b21a_e.zip --clip-shp ldb_000b21a_e.zip \
     --out-dir census/
 ```
+
+Every input can be the `.zip` exactly as it downloaded — nothing needs
+extracting first. The British Columbia dissemination-area profile is 3.5 GB
+unpacked against 300 MB packed, so extracting it would cost several gigabytes
+of disk to produce a file this reads once and streams straight out of the
+archive instead. On Windows, `py` rather than `python3`; Git Bash handles the
+`\` line continuations, `cmd.exe` and PowerShell do not.
 
 It needs the 2021 Geographic Attribute File (one row per dissemination block
 with its population and its parent geographies), the comprehensive Census

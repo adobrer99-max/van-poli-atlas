@@ -5,20 +5,28 @@ The national files are far too big to load into a browser tab, so this runs
 on your own machine, once, and writes small files the atlas reads:
 
     python3 tools/filter_census.py \\
-        --geo-attr 2021_92-151_X.csv \\
+        --geo-attr 2021_92-151_X.zip \\
         --csd 5915022 \\
-        --profile 98-401-X2021006_English_CSV_data_BritishColumbia.csv \\
+        --profile 98-401-X2021006_BC_eng_CSV.zip \\
         --clip-shp lda_000b21a_e.zip --clip-shp ldb_000b21a_e.zip \\
         --out-dir census/
+
+Every input may be the .zip exactly as it downloaded; nothing needs extracting
+first. That is not only tidiness: the British Columbia dissemination-area
+profile is 3.5 GB unpacked against 300 MB packed, and this reads it out of the
+archive at the same speed without ever writing it to disk.
 
 Inputs (all from statcan.gc.ca, none redistributed here):
   --geo-attr   the 2021 Geographic Attribute File (one row per dissemination
                block: DBUID, DBPOP2021, DBTDWELL2021, DAUID, CSDUID, CSDNAME ...)
   --csd        a census subdivision id to keep (5915022 is the City of
                Vancouver); repeat for more. --csd-name matches CSDNAME instead.
-  --profile    the comprehensive Census Profile CSV for the province at the
+  --profile    the comprehensive Census Profile for the province at the
                dissemination-area level (the long layout: one row per
-               characteristic per geography)
+               characteristic per geography), .csv or .zip. A profile at the
+               wrong geographic level is rejected rather than silently writing
+               empty files -- it is the easiest mistake here to make and the
+               hardest to see.
   --clip-shp   a zipped boundary file (dissemination areas lda_000b21a_e.zip,
                dissemination blocks ldb_000b21a_e.zip); repeat for more
 
@@ -103,9 +111,36 @@ def find_col(header, *patterns):
     return -1
 
 
+def csv_in_zip(path):
+    """The one .csv of substance inside a StatCan archive. Their downloads ship
+    the data beside a metadata file and a 'geo starting row' index, all .csv,
+    so the largest is the data -- by a factor of thousands, never ambiguously."""
+    with zipfile.ZipFile(path) as zf:
+        members = [i for i in zf.infolist()
+                   if i.filename.lower().endswith(".csv")
+                   and not i.is_dir()
+                   and "__MACOSX" not in i.filename
+                   and not os.path.basename(i.filename).startswith(".")]
+    if not members:
+        raise SystemExit(f"{path} holds no .csv. It contains: "
+                         + ", ".join(i.filename for i in zipfile.ZipFile(path).infolist()[:8]))
+    members.sort(key=lambda i: i.file_size, reverse=True)
+    return members[0].filename
+
+
 def open_text(path, encoding=None):
     """Opens a StatCan CSV, trying UTF-8 (with BOM) first and cp1252 second
-    unless an encoding is given."""
+    unless an encoding is given.
+
+    A .zip is read without being extracted. This matters more than it sounds:
+    the British Columbia dissemination-area profile is 3.5 GB uncompressed and
+    300 MB packed, so extracting it first costs several gigabytes of disk to
+    produce a file this script streams once and never needs again. Python reads
+    it out of the archive at the same speed."""
+    if path.lower().endswith(".zip"):
+        inner = csv_in_zip(path)
+        raw = zipfile.ZipFile(path).open(inner, "r")
+        return io.TextIOWrapper(raw, encoding=encoding or "utf-8-sig", newline="")
     if encoding:
         return open(path, "r", encoding=encoding, newline="")
     try:
@@ -199,6 +234,7 @@ class Profile:
         self.by_id = {}
         self.by_geo = {}               # geo key -> {"dguid", "name", "count": [], "rate": []}
         self._stack = []
+        self.geo_level = ""            # GEO_LEVEL as the file spells it, for the check below
 
     def characteristic(self, raw_id, raw_name):
         key = raw_id if raw_id is not None else raw_name
@@ -233,6 +269,8 @@ def pivot(reader, layout, keep_codes=None, stop_after_first_geo=False):
     profile = Profile()
     first_geo = None
     for rec in reader:
+        if not profile.geo_level and layout["level"] >= 0 and layout["level"] < len(rec):
+            profile.geo_level = rec[layout["level"]].strip()
         if len(rec) <= layout["name"]:
             continue
         raw_name = rec[layout["name"]]
@@ -401,8 +439,19 @@ def main(argv=None):
                     raise SystemExit(f"the profile lacks a {k} column (header: {header[:12]} ...)")
             profile = pivot(reader, layout, keep_codes=dauids)
         missing = dauids - set(profile.by_geo)
-        print(f"profile: {len(profile.by_geo):,} of {len(dauids):,} dissemination areas found, "
-              f"{len(profile.characteristics):,} characteristics"
+        level = profile.geo_level or "(not stated)"
+        if not profile.by_geo:
+            raise SystemExit(
+                f"NONE of the {len(dauids):,} dissemination areas appear in this profile, so it "
+                "would have written empty files.\n"
+                f"The profile says its geographic level is: {level}.\n"
+                "The product that reaches dissemination areas is 98-401-X2021006. Two look-alikes:\n"
+                "  98-401-X2021025  Census Subdivisions in British Columbia -- Vancouver as ONE row\n"
+                "  ...any number ending CI   the confidence-interval variant, which omits\n"
+                "                           population, age, household size and income entirely\n"
+                "Run again with --list population to see what this file actually contains.")
+        print(f"profile: {len(profile.by_geo):,} of {len(dauids):,} dissemination areas found "
+              f"(geographic level: {level}), {len(profile.characteristics):,} characteristics"
               + (f"; {len(missing)} DA(s) absent from the profile" if missing else ""))
         matched, unmatched = write_profile_outputs(profile, args.out_dir)
         print("  starter variables:")
