@@ -739,10 +739,21 @@
           <option value="100">100 electors</option>
         </select>
       </label>
-      <label class="form-check form-switch">
-        <input class="form-check-input" type="checkbox" id="socio-both-only" checked>
-        <span class="form-check-label" id="socio-both-only-label">Only areas with results from both elections</span>
-      </label>
+      <!-- Two named options rather than a switch. A checkbox only ever labels the
+           state it is in; the other one is left implicit, and that is where the
+           confusion sat: "Only areas with both elections" said nothing about
+           what unticking it would give you. -->
+      <fieldset class="form-label grow choice" id="socio-areas">
+        <legend>Areas to chart</legend>
+        <label class="form-check">
+          <input class="form-check-input" type="radio" name="socio-areas" id="socio-areas-all" value="all" checked>
+          <span class="form-check-label">All areas this measure can use</span>
+        </label>
+        <label class="form-check">
+          <input class="form-check-input" type="radio" name="socio-areas" id="socio-areas-both" value="both">
+          <span class="form-check-label">Only areas with both elections</span>
+        </label>
+      </fieldset>
     </div>
     <p class="text-small text-muted" id="socio-unit-note"></p>
     <div id="socio-status" class="status"></div>

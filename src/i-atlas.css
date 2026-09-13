@@ -351,3 +351,20 @@
 .badge-dirty { color: var(--color-text-warning, #b45309); border-color: currentColor; cursor: default; }
 .sources { margin: .5rem 0 0; padding-left: 1.1rem; display: grid; gap: .35rem; }
 .sources li { text-wrap: pretty; }
+
+/* A named choice rather than a switch: two options, both labelled, so neither
+   state has to be inferred from the other. */
+.choice {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.choice > legend {
+  padding: 0;
+  margin-bottom: .25rem;
+  color: var(--muted-foreground);
+  font-size: var(--font-size-small, .85rem);
+}
+.choice .form-check { display: flex; align-items: center; gap: .4rem; }
+.choice .form-check + .form-check { margin-top: .15rem; }

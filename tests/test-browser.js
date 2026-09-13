@@ -495,36 +495,37 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   ok('dissemination areas are counted as available and as charted',
      /\d+ dissemination areas in the study area, \d+ charted/.test(socioStatus), socioStatus);
 
-  /* The "only areas with both elections" switch used to ask whether both sides
-     produced a turnout RATE. Results reported by voting place carry no
-     electors, so that question emptied the tab for the very outcomes built to
-     survive a missing denominator. It now asks about ballots, and switches
-     itself off for an outcome that reads one election, because there is then
-     nothing for it to exclude. */
-  const bothBox = page.locator('#socio-both-only');
-  const bothLabel = page.locator('#socio-both-only-label');
-  ok('the both-elections switch is live for the aggregate',
-     !(await bothBox.isDisabled()), await bothLabel.innerText());
-  await page.locator('#socio-outcome').selectOption('turnout-fed');
-  await page.waitForTimeout(800);
-  const oneSided = await page.locator('#socio-status').innerText();
-  ok('a one-election outcome switches the filter off',
-     await bothBox.isDisabled(), await bothLabel.innerText());
-  ok('and says why in the label',
-     /not used by this outcome/i.test(await bothLabel.innerText()), await bothLabel.innerText());
-  ok('and still charts areas rather than emptying the tab',
-     /in the study area, [1-9]\d* charted/.test(oneSided), oneSided);
-  await page.locator('#socio-outcome').selectOption('turnout-agg');
-  await page.waitForTimeout(800);
-  ok('the filter comes back for an outcome that reads both',
-     !(await bothBox.isDisabled()), await bothLabel.innerText());
-  /* The regression this guards. The ballots test used to read
+  /* Which areas to chart is two named options now, not a switch. A checkbox
+     labels only the state it is in, and the state it did not label -- what
+     unticking would actually give you -- was where the confusion sat.
+
+     Two mistakes are pinned here. The predicate used to ask whether both sides
+     produced a turnout RATE, which needs electors; results reported by voting
+     place carry none, so it emptied the tab for exactly the measures built to
+     survive a missing denominator. And it used to be judged against the
+     measure, which made one control mean something different on every one of
+     them. It asks one question now -- did both elections put ballots here --
+     and answers it the same way whatever is being charted, which is what lets
+     it hold a sample still across two measures. */
+  const allAreas = page.locator('#socio-areas-all');
+  const bothAreas = page.locator('#socio-areas-both');
+  const charted = async () => {
+    const line = await page.locator('#socio-status').innerText();
+    return parseInt((/in the study area, ([\d,]+) charted/.exec(line) || [0, '0'])[1]
+      .replace(/,/g, ''), 10);
+  };
+  ok('both options are offered, and neither state has to be inferred',
+     (await page.locator('#socio-areas .form-check-label').allTextContents()).join(' | ')
+       === 'All areas this measure can use | Only areas with both elections',
+     (await page.locator('#socio-areas .form-check-label').allTextContents()).join(' | '));
+  ok('the default is every area the measure can use, not a quietly narrowed set',
+     await allAreas.isChecked() && !(await bothAreas.isChecked()));
+
+  /* The regression this guards. The ballots test once read
      sources.map(s => s.key); socioSources sets id, so every lookup was
-     ballots[undefined], every row counted as one-sided, and leaving the box
-     ticked emptied the tab for exactly the non-turnout outcomes that branch
-     existed to rescue. Checked on both kinds that were affected -- a
-     participation ratio and a party share -- with the box left TICKED, which
-     is the state that used to empty them. */
+     ballots[undefined] and the filter took every row. Checked on the two kinds
+     of measure it emptied -- a participation ratio and a party share -- under
+     BOTH options, because under the old code the restrictive one left nothing. */
   const partyOutcome = (await page.locator('#socio-outcome option').evaluateAll(
     (os) => os.map((o) => o.value))).find((v) => /^(fed|prov):/.test(v));
   ok('the fixture offers a party-share outcome to test with', Boolean(partyOutcome), partyOutcome);
@@ -532,18 +533,70 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
                                [partyOutcome, 'a party share']]) {
     await page.locator('#socio-outcome').selectOption(value);
     await page.waitForTimeout(800);
-    const line = await page.locator('#socio-status').innerText();
-    const charted = parseInt((/in the study area, ([\d,]+) charted/.exec(line) || [0, '0'])[1]
-      .replace(/,/g, ''), 10);
-    ok(`${what} keeps its rows with the box still ticked (${charted})`, charted > 0, line);
-    ok(`and the box is ticked but inert for ${what}`,
-       await bothBox.isChecked() && await bothBox.isDisabled(),
-       `checked=${await bothBox.isChecked()} disabled=${await bothBox.isDisabled()}`);
+    const withAll = await charted();
+    ok(`${what} charts areas under "all areas" (${withAll})`, withAll > 0,
+       await page.locator('#socio-status').innerText());
+    await bothAreas.check();
+    await page.waitForTimeout(800);
+    const withBoth = await charted();
+    ok(`${what} still charts areas under "both elections" (${withBoth})`, withBoth > 0,
+       await page.locator('#socio-status').innerText());
+    ok(`and restricting never adds areas for ${what} (${withBoth} <= ${withAll})`,
+       withBoth <= withAll);
     ok(`and rows are plotted for ${what}`,
        (await page.locator('#socio-table tbody tr').count()) > 0);
+    await allAreas.check();
+    await page.waitForTimeout(600);
   }
+
+  /* The point of the restrictive option: the same areas whichever measure is
+     picked, so two measures can be compared directly. */
+  await bothAreas.check();
+  const held = [];
+  for (const value of ['turnout-fed', 'turnout-prov', 'turnout-agg']) {
+    await page.locator('#socio-outcome').selectOption(value);
+    await page.waitForTimeout(800);
+    held.push(await page.evaluate(() => window.vanPoliAtlas.state.socio.rows.length));
+  }
+  ok(`"both elections" holds the same set of areas across measures (${held.join(', ')})`,
+     held.every((n) => n === held[0]) && held[0] > 0, held.join(', '));
+  /* Every dissemination area in the fixture carries both elections, so the
+     counts above are equal and prove only that nothing was emptied. The
+     provincial geography is where the two options genuinely differ -- the
+     crosswalk reaches federal results on some voting areas and not others --
+     so the difference is asserted there, or the assertion means nothing. */
+  await page.locator('#socio-unit').selectOption('prov');
+  await page.locator('#socio-outcome').selectOption('turnout-agg');
+  await allAreas.check();
+  await page.waitForTimeout(1200);
+  const provAll = await charted();
+  await bothAreas.check();
+  await page.waitForTimeout(1200);
+  const provBoth = await charted();
+  ok(`on voting areas the two options really do differ (${provBoth} of ${provAll})`,
+     provBoth > 0 && provBoth < provAll, `${provBoth} vs ${provAll}`);
+  ok('and the restrictive one names what it left out, with the count',
+     /carry one election only, left out by the choice above/.test(
+       await page.locator('#socio-status').innerText()),
+     await page.locator('#socio-status').innerText());
+  await allAreas.check();
+  await page.waitForTimeout(1200);
+  ok('while the default says what a one-election aggregate means rather than hiding it',
+     /one election only, so their aggregate is that election/.test(
+       await page.locator('#socio-status').innerText()),
+     await page.locator('#socio-status').innerText());
+  await page.locator('#socio-unit').selectOption('da');
+  await page.waitForTimeout(1200);
+
+  await allAreas.check();
   await page.locator('#socio-outcome').selectOption('turnout-agg');
   await page.waitForTimeout(800);
+  ok('and on dissemination areas every area carries both, so nothing is dropped',
+     /one election only, so their aggregate is that election/.test(
+       await page.locator('#socio-status').innerText())
+     || (await charted()) === await page.evaluate(
+       () => window.vanPoliAtlas.state.socio.rows.length),
+     await page.locator('#socio-status').innerText());
 
   ok('every area is accounted for, charted or with a reason',
      await page.evaluate(() => {

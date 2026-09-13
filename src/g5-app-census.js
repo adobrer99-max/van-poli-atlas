@@ -120,18 +120,6 @@ function socioOutcome(mode) {
            usesProvincial: true };
 }
 
-/* Which elections an outcome actually reads, which is what "areas with both
-   elections" has to be judged against. A denominator carried in from somewhere
-   else does not count: "provincial ballots per federal elector" reads one set
-   of results and borrows an elector count, and "per resident 15+" borrows from
-   the census. Only the aggregate genuinely reads two. */
-function outcomeSides(mode) {
-  if (mode === 'turnout-fed') return ['fed'];
-  if (['turnout-prov', 'part-fed', 'part-adult'].includes(mode)) return ['prov'];
-  const m = /^(fed|prov):/.exec(mode);
-  if (m) return [m[1]];
-  return ['fed', 'prov'];
-}
 
 /* How a variable survives being carried to another geography. A count is
    shared out; anything else is averaged, because rates and medians do not add.
@@ -231,40 +219,35 @@ function refreshSocio() {
   st.byDa = unit === 'da' ? null
     : new Map(scoredOn('da', socioSources('da')).map((r) => [r.feature.__idx, r]));
   const outcome = socioOutcome(st.outcome);
-  /* "Only areas with both elections" asks one question, and it has to be asked
-     of the results: did every election this outcome reads put ballots here.
+  /* Which areas to chart, as two named options rather than one switch.
 
-     It used to ask something else. row.partial is about turnout RATES, and a
-     rate needs electors -- which results reported by voting place do not carry,
-     and which is the entire reason the two "ballots per..." outcomes exist.
-     Filtering on it emptied the tab for exactly the outcomes built to survive a
-     missing denominator, and the page read "0 areas" with no hint why.
+     "All areas this measure can use" is the default and the honest starting
+     point: every area where the chosen measure has a value. "Only areas with
+     both elections" is a sample choice, not a correctness one -- it holds the
+     set of areas still so two measures can be put side by side and compared,
+     at the cost of the areas only one election reached.
 
-     The other half of the same mistake: most outcomes read ONE election.
-     Federal turnout does not become unavailable because an area is missing
-     provincial ballots. On those the filter has nothing to exclude, so it says
-     so and switches off, rather than sitting there ticked and looking as though
-     it were doing something. */
-  /* row.ballots is keyed by side id -- 'fed', 'prov' -- because that is what
-     Turnout.score builds it from. The previous attempt at this filter read
-     s.key, which socioSources does not set: every lookup was ballots[undefined],
-     every row counted as incomplete, and ticking the box emptied the tab. */
-  const loaded = new Set(sources.map((s) => s.id));
-  const sides = outcomeSides(st.outcome).filter((k) => loaded.has(k));
-  const oneSided = (r) => !sides.every((k) => r.ballots && r.ballots[k] > 0);
-  const canFilter = sides.length > 1;
-  const both = $('socio-both-only');
-  both.disabled = !canFilter;
-  $('socio-both-only-label').textContent = canFilter
-    ? 'Only areas with results from both elections'
-    : 'Only areas with both elections — not used by this outcome';
-  both.title = canFilter
-    ? 'Leaves out areas where only one of the two elections reported ballots.'
-    : `${outcome.label} reads ${sides.length === 1 ? 'one election' : 'no election results'}, `
-      + 'so there is nothing for this to exclude.';
+     It is deliberately NOT judged against the measure. An earlier version asked
+     whether both sides produced a turnout RATE, which needs electors; results
+     reported by voting place carry none, so that question emptied the tab for
+     exactly the measures built to survive a missing denominator. A later one
+     asked which elections the measure reads, which made the control mean
+     something different on every measure. This asks one question -- did both
+     elections put ballots in this area -- and gives the same answer whatever is
+     being charted, which is the only way it can hold a sample still.
+
+     row.ballots is keyed by side id, 'fed' and 'prov', because that is what
+     Turnout.score builds it from. An earlier attempt read s.key, which
+     socioSources does not set: every lookup was ballots[undefined] and the
+     filter took every row. */
+  const loadedSides = [...new Set(sources.map((s) => s.id))];
+  const oneSided = (r) => !loadedSides.every((k) => r.ballots && r.ballots[k] > 0);
+  /* With one election loaded there is no choice to offer, so none is shown. */
+  const canChoose = loadedSides.length > 1;
+  $('socio-areas').hidden = !canChoose;
   const belowMinimum = state[unit].active.length - rows.length;
   const oneSidedCount = rows.filter(oneSided).length;
-  const bothOnly = canFilter && both.checked;
+  const bothOnly = canChoose && $('socio-areas-both').checked;
   if (bothOnly) rows = rows.filter((r) => !oneSided(r));
   const excludedByFilter = bothOnly ? oneSidedCount : 0;
   st.rows = rows;
@@ -302,9 +285,9 @@ function refreshSocio() {
   statsHost.append(
     stat(`${U.name} charted`, fmtInt(withOutcome.length),
       `of ${fmtInt(state[unit].active.length)} in the study area`),
-    stat('excluded by the filter', fmtInt(excludedByFilter),
-      canFilter ? (bothOnly ? 'carry one election only' : 'filter is off')
-                : 'filter does not apply to this outcome'),
+    stat('excluded by the choice above', fmtInt(excludedByFilter),
+      !canChoose ? 'only one election is loaded'
+        : bothOnly ? 'carry one election only' : 'charting every area this measure can use'),
     stat('electors located', fmtInt(electors)),
     stat('overlaps weighted by', state.weightingShort || 'area', state.weightingDetail || null),
     stat('variables compared', fmtInt(table.length),
@@ -321,7 +304,7 @@ function refreshSocio() {
     [belowMinimum, st.minElectors
       ? `under ${fmtInt(st.minElectors)} electors, or no results reached them`
       : 'no results reached them'],
-    [excludedByFilter, 'carry one election only, excluded by the filter above'],
+    [excludedByFilter, 'carry one election only, left out by the choice above'],
     [noValue, `no ${outcome.label.toLowerCase()} to report`],
   ].filter(([n]) => n > 0);
   const lines = [`${fmtInt(state[unit].active.length)} ${U.name} in the study area, `
@@ -332,10 +315,20 @@ function refreshSocio() {
     lines.push(el('p', 'text-small text-muted',
       `Not charted: ${drops.map(([n, why]) => `${fmtInt(n)} ${why}`).join('; ')}.`));
   }
+  /* The default charts every area the measure can use, which for the aggregate
+     means an area reached by one election contributes that election alone. That
+     is worth saying where the number is rather than leaving it to be inferred
+     -- it is the reason the second option exists. */
+  if (!bothOnly && canChoose && oneSidedCount && st.outcome === 'turnout-agg') {
+    lines.push(el('p', 'text-small text-muted',
+      `${fmtInt(oneSidedCount)} of the charted areas were reached by one election only, so their `
+      + 'aggregate is that election on its own. Choose “Only areas with both elections” above to '
+      + 'leave them out.'));
+  }
   if (!withOutcome.length) {
     lines.push(el('p', 'text-warning', excludedByFilter
-      ? 'Every area carries results from one election only, so the filter above has left nothing. '
-        + 'Untick it to see the areas that carry one.'
+      ? 'Every area carries results from one election only, so “Only areas with both elections” '
+        + 'has left nothing. Choose “All areas this measure can use” above to see them.'
       : `No area has ${outcome.label.toLowerCase()} to report. `
         + 'Results reported by voting place carry no electors, and a turnout rate needs them — '
         + 'the two "ballots per…" outcomes exist for exactly that case.'));
@@ -578,7 +571,8 @@ $('export-socio').addEventListener('click', () => {
 
 /* --- Wiring ---------------------------------------------------------------- */
 
-for (const id of ['socio-unit', 'socio-outcome', 'socio-min-electors', 'socio-both-only']) {
+for (const id of ['socio-unit', 'socio-outcome', 'socio-min-electors',
+                  'socio-areas-all', 'socio-areas-both']) {
   $(id).addEventListener('change', () => { clearMovedVariables(); refreshSocio(); });
 }
 $('socio-search').addEventListener('input', renderSocioSearch);
