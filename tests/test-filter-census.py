@@ -129,6 +129,68 @@ class Tool(unittest.TestCase):
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("cannot find column", r.stderr)
 
+    def test_reads_a_csv_straight_out_of_a_zip(self):
+        """Statistics Canada ships the profile packed, and the British Columbia
+        dissemination-area file is 3.5 GB unpacked against 300 MB packed. Making
+        someone extract it first costs several gigabytes of disk to produce a
+        file this script streams once, so a .zip is read in place."""
+        with tempfile.TemporaryDirectory() as tmp:
+            prof, gaf = write_inputs(tmp)
+            packed = os.path.join(tmp, "98-401-X2021006_BC_eng_CSV.zip")
+            with zipfile.ZipFile(packed, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.write(prof, "98-401-X2021006_English_CSV_data.csv")
+                # The archive also carries a geo index and a metadata file, both
+                # .csv, so "the data file" cannot just mean "the only csv".
+                zf.writestr("98-401-X2021006_Geo_starting_row_CSV.csv", "GEO,ROW\nx,1\n")
+                zf.writestr("README_meta.txt", "not a csv")
+            self.assertEqual(fc.csv_in_zip(packed), "98-401-X2021006_English_CSV_data.csv")
+            out = os.path.join(tmp, "out")
+            r = subprocess.run([sys.executable, "tools/filter_census.py", "--geo-attr", gaf,
+                                "--csd", "5915022", "--profile", packed, "--out-dir", out],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("3 of 3 dissemination areas found", r.stdout)
+            # And the result is the same as from the unpacked file.
+            loose = os.path.join(tmp, "loose")
+            subprocess.run([sys.executable, "tools/filter_census.py", "--geo-attr", gaf,
+                            "--csd", "5915022", "--profile", prof, "--out-dir", loose],
+                           capture_output=True, text=True, check=True)
+            for name in ("starter.csv", "census_da_wide.csv", "variables.csv"):
+                with open(os.path.join(out, name)) as a, open(os.path.join(loose, name)) as b:
+                    self.assertEqual(a.read(), b.read(), name)
+
+    def test_the_geographic_level_is_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prof, gaf = write_inputs(tmp)
+            r = subprocess.run([sys.executable, "tools/filter_census.py", "--geo-attr", gaf,
+                                "--csd", "5915022", "--profile", prof, "--out-dir", os.path.join(tmp, "o")],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("geographic level: Dissemination area", r.stdout)
+
+    def test_a_profile_at_the_wrong_level_is_an_error(self):
+        """The 98-401-X2021025 / ...006 mix-up is the easiest mistake to make
+        here and the hardest to see: a profile of census subdivisions parses
+        perfectly and matches no dissemination area, so without this it writes
+        empty files and says nothing useful."""
+        with tempfile.TemporaryDirectory() as tmp:
+            prof, gaf = write_inputs(tmp)
+            wrong = os.path.join(tmp, "subdivisions.csv")
+            with open(prof) as src, open(wrong, "w", newline="") as dst:
+                r = csv.reader(src); w = csv.writer(dst)
+                w.writerow(next(r))
+                for row in r:
+                    row[1], row[2] = "2021A00055915022", "5915022"   # Vancouver, as one row
+                    row[3] = "Census subdivision"
+                    w.writerow(row)
+            out = subprocess.run([sys.executable, "tools/filter_census.py", "--geo-attr", gaf,
+                                  "--csd", "5915022", "--profile", wrong, "--out-dir", os.path.join(tmp, "o")],
+                                 capture_output=True, text=True)
+            self.assertNotEqual(out.returncode, 0, out.stdout)
+            self.assertIn("NONE of the 3 dissemination areas", out.stderr)
+            self.assertIn("Census subdivision", out.stderr)
+            self.assertIn("98-401-X2021006", out.stderr)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)

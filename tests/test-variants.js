@@ -1,5 +1,8 @@
 const { chromium } = require('playwright');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const { spawnSync } = require('child_process');
 // The build sandbox has no route to tile servers, and an unstubbed tile
 // failure reads as a console error. Serve a 1x1 PNG for every tile request and
 // record which host was asked, so basemap switching can be asserted.
@@ -498,6 +501,100 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     ok('no page errors offline', errs.length === 0, errs.join('|'));
     await page.close();
   }
+
+  /* --- A build with the census layer baked in ------------------------------
+     Preparing census data is four Statistics Canada downloads and a command
+     line; reading the finished map should be opening a file. So the build can
+     bake the layer in, and this checks that a reader who does that gets a
+     working layer with nothing to load -- and, just as importantly, that a
+     build WITHOUT one still works, since the repository ships no census data.
+
+     Everything happens in a temp directory: the committed atlas is built from
+     no payload and must stay that way, so no part of this writes into the
+     working tree. */
+  console.log('\n== A build with the census layer baked in ==');
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-census-'));
+  try {
+    const payload = path.join(work, 'payload');
+    fs.copyFileSync('fixtures/e2e_da.zip', path.join(work, 'lda_000b21a_e_clip.zip'));
+    fs.copyFileSync('fixtures/e2e_census_starter.csv', path.join(work, 'starter.csv'));
+    const made = spawnSync('node', ['tools/make-census-payload.js', '--in', work, '--out', payload],
+      { encoding: 'utf8' });
+    ok('the payload tool runs', made.status === 0, (made.stderr || made.stdout || '').slice(0, 200));
+    ok('it reports every area joining to a variable row',
+       /63 of 63 join to a boundary/.test(made.stdout), made.stdout.slice(0, 200));
+    /* Half a payload must fail loudly: boundaries with no variables draw an
+       empty map and variables with no boundaries have nothing to join to,
+       and either would ship as a working build that shows nothing. */
+    const halfDir = path.join(work, 'half');
+    fs.mkdirSync(halfDir, { recursive: true });
+    fs.copyFileSync(path.join(payload, 'census_da.geojson'), path.join(halfDir, 'census_da.geojson'));
+    const half = spawnSync('python3', ['build.py', '--census', halfDir,
+      '--out', path.join(work, 'half.html')], { encoding: 'utf8' });
+    ok('a half payload refuses to build rather than shipping an empty map',
+       half.status !== 0 && /census_starter\.csv is missing/.test(half.stderr || half.stdout),
+       (half.stderr || half.stdout || '').slice(0, 160));
+
+    const built = path.join(work, 'atlas-census.html');
+    const build = spawnSync('python3', ['build.py', '--census', payload, '--out', built],
+      { encoding: 'utf8' });
+    ok('the build bakes it in', build.status === 0 && /census layer baked in/.test(build.stdout),
+       (build.stderr || build.stdout || '').slice(0, 200));
+
+    const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    const errs = []; page.on('pageerror', (e) => errs.push(e.message));
+    page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
+    await stubTiles(page);
+    await page.goto('file://' + built);
+    await page.waitForTimeout(1000);
+    const st = await page.evaluate(() => {
+      const s = window.vanPoliAtlas.state;
+      return { das: s.da.all.length, active: s.da.active.length, bundled: s.censusBundled,
+               key: s.da.keyProp, vars: s.da.census ? s.da.census.variables.length : 0 };
+    });
+    ok('the areas are there with nothing loaded', st.das === 63 && st.active === 63, JSON.stringify(st));
+    ok('and so are the starter variables', st.vars >= 14, JSON.stringify(st));
+    ok('the id field was found', st.key === 'DAUID', String(st.key));
+    ok('it took the same route into state as a loaded file', st.bundled === true);
+    await page.locator('#tab-data').click();
+    await page.waitForTimeout(200);
+    const daStatus = (await page.locator('#status-da-geo').innerText()).replace(/\s+/g, ' ');
+    ok('the Data tab says it is built in and can be replaced',
+       /built into this file/.test(daStatus) && /replaces them/.test(daStatus), daStatus.slice(0, 160));
+    ok('and carries the Statistics Canada attribution',
+       /Statistics Canada/.test(daStatus), daStatus.slice(-120));
+    /* The layer has to be usable, not merely present: shading by a census
+       variable is the thing a stakeholder opens the file to do. */
+    await page.locator('#tab-map').click();
+    await page.waitForTimeout(200);
+    await page.locator('#shade-da-var').selectOption('median_hh_income');
+    await page.locator('#shade-da-by').selectOption('variable');
+    await page.waitForTimeout(600);
+    const shaded = await page.evaluate(() => [...document.querySelectorAll('.layer-da path')]
+      .filter((n) => n.style.fill && n.style.fill !== 'none').length);
+    ok(`the bundled layer shades by a census variable (${shaded})`, shaded > 40, String(shaded));
+    ok('no page errors with a baked-in layer', errs.length === 0, errs.slice(0, 3).join(' | '));
+    await page.close();
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+
+  /* The committed build has no payload, and must open perfectly well without
+     one -- this repository ships no census data. */
+  const plain = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+  const plainErrs = []; plain.on('pageerror', (e) => plainErrs.push(e.message));
+  await stubTiles(plain);
+  await plain.goto(FILE);
+  await plain.waitForTimeout(700);
+  const none = await plain.evaluate(() => ({
+    das: window.vanPoliAtlas.state.da.all.length,
+    bundled: Boolean(window.vanPoliAtlas.state.censusBundled),
+    fed: window.vanPoliAtlas.state.fed.all.length }));
+  ok('the committed build carries no census payload', none.das === 0 && none.bundled === false,
+     JSON.stringify(none));
+  ok('and is otherwise a complete atlas', none.fed > 1000 && plainErrs.length === 0,
+     JSON.stringify(none) + plainErrs.join('|'));
+  await plain.close();
 
   await browser.close();
   console.log(fails ? `\n${fails} FAILURE(S)\n` : '\nAll variant tests passed.\n');

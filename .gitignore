@@ -225,3 +225,9 @@ shot-*.png
 
 # Node dependencies (Playwright for the browser suites)
 node_modules/
+
+# The census payload baked into a build by tools/make-census-payload.js. It is
+# derived from Statistics Canada downloads that this repository does not
+# redistribute, so it is generated locally, exactly like fixtures/.
+boundaries/census_da.geojson
+boundaries/census_starter.csv

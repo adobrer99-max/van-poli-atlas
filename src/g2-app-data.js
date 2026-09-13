@@ -124,6 +124,37 @@ function clipBox(switchId = 'clip-census') {
 
 const CENSUS_NAMES = { da: 'dissemination areas', db: 'dissemination blocks' };
 
+/* Everything loadCensusLayer does once the bytes are parsed. Split out so the
+   census layer baked into the build at section 4 and a file the reader loads
+   themselves arrive in state by exactly the same route -- a bundled payload
+   that took a private path would be a second thing to keep working. */
+function adoptCensusLayer(kind, loaded) {
+  loaded.features.forEach((f, i) => { f.__idx = i; f.__key = kind + i; });
+  const layer = state[kind];
+  layer.all = loaded.features;
+  layer.meta = loaded;
+  layer.keyProp = Census.suggestGeoKey(loaded.features);
+  if (kind === 'da') {
+    const props = [...new Set(loaded.features.slice(0, 200).flatMap((f) => Object.keys(f.properties || {})))];
+    fillSelect($('da-key'), props, layer.keyProp || props[0]);
+    $('da-key-row').hidden = props.length === 0;
+  }
+  return layer;
+}
+
+/* The same for a profile: readWide and the starter filter, which the bundled
+   starter table needs too. */
+function censusSourceFromWide(table, name) {
+  const wide = Census.readWide(table);
+  const starterKeys = new Set(Census.STARTER.map((s) => s.key));
+  const starters = wide.variables.filter((v) => starterKeys.has(v.key));
+  return { kind: 'wide', all: wide.variables,
+           variables: starters.length ? starters : wide.variables.slice(0, 40),
+           matched: starters.map((v) => ({ key: v.key, id: null, name: v.key })),
+           unmatched: Census.STARTER.map((s) => s.key).filter((k) => !starters.some((v) => v.key === k)),
+           geographies: wide.geographies, name, geoColumn: wide.geoColumn };
+}
+
 async function loadCensusLayer(kind, file) {
   const statusId = `status-${kind}-geo`;
   setStatus(statusId, 'busy', `Reading ${file.name}…`);
@@ -131,16 +162,8 @@ async function loadCensusLayer(kind, file) {
     /* The File itself goes in, so a national archive is read lazily and
        clipped before its geometry is parsed. */
     const loaded = await Ingest.loadBoundaries(file.name, file, { bbox: clipBox() });
-    loaded.features.forEach((f, i) => { f.__idx = i; f.__key = kind + i; });
-    const layer = state[kind];
-    layer.all = loaded.features;
-    layer.meta = loaded;
-    layer.keyProp = Census.suggestGeoKey(loaded.features);
-    if (kind === 'da') {
-      const props = [...new Set(loaded.features.slice(0, 200).flatMap((f) => Object.keys(f.properties || {})))];
-      fillSelect($('da-key'), props, layer.keyProp || props[0]);
-      $('da-key-row').hidden = props.length === 0;
-    }
+    const layer = adoptCensusLayer(kind, loaded);
+    state.censusBundled = false;
     const lines = [
       `Loaded ${fmtInt(loaded.kept)} ${CENSUS_NAMES[kind]}`
         + (loaded.filtered && loaded.records !== loaded.kept
@@ -225,16 +248,10 @@ $('file-census').addEventListener('change', async (e) => {
       source = { kind: 'long', profile, variables: derived.variables, matched: derived.matched,
                  unmatched: derived.unmatched, geographies: profile.geographies, name: table.name };
     } else {
-      const wide = Census.readWide(table);
-      const starterKeys = new Set(Census.STARTER.map((s) => s.key));
-      const starters = wide.variables.filter((v) => starterKeys.has(v.key));
-      source = { kind: 'wide', all: wide.variables,
-                 variables: starters.length ? starters : wide.variables.slice(0, 40),
-                 matched: starters.map((v) => ({ key: v.key, id: null, name: v.key })),
-                 unmatched: Census.STARTER.map((s) => s.key).filter((k) => !starters.some((v) => v.key === k)),
-                 geographies: wide.geographies, name: table.name, geoColumn: wide.geoColumn };
+      source = censusSourceFromWide(table, table.name);
     }
     state.da.census = source;
+    state.censusBundled = false;
     const lines = [source.kind === 'long'
       ? `Census Profile, long layout: ${fmtInt(source.geographies)} geographies${state.da.all.length ? ' in the study area' : ''}, `
         + `${fmtInt(source.profile.characteristics.length)} characteristics, from ${table.name}.`
