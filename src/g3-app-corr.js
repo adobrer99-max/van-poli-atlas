@@ -373,6 +373,13 @@ function refreshCorrelation() {
   if (minVotes > 0) {
     parts.push(`Units under ${fmtInt(minVotes)} votes on either side are left out.`);
   }
+  /* This r moves with apportionment -- apportionUnmatched redistributes
+     per-party votes, so the shares it correlates are not the same shares -- and
+     the control that decides it is on another tab. */
+  if (turnoutBasis().short) {
+    parts.push(`Computed on ${turnoutBasis().short}; apportion the advance and special ballots `
+      + 'on the Turnout tab to include them.');
+  }
   caption.textContent = parts.join(' ');
 }
 

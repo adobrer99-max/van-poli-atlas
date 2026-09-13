@@ -383,6 +383,14 @@ darkScheme.addEventListener('change', () => { if ($('basemap').value === 'auto')
    the map legend, the readout card, the Turnout tab's own tiles -- takes its
    wording from here. A qualifier that lives next to one control does not travel
    with the number, and the number is what gets quoted. */
+/* The same question for one side, because a federal card must not be qualified
+   by the provincial setting or the other way round. */
+function sideBasisShort(side) {
+  const a = state.turnout.apportion || {};
+  const loaded = side === 'fed' ? state.fedResults : state.provResults;
+  return loaded && a[side] === 'none' ? 'election-day ballots only' : '';
+}
+
 function turnoutBasis() {
   const a = state.turnout.apportion || {};
   const loose = [];
@@ -917,6 +925,8 @@ function renderLegend() {
      carried there by the crosswalk. Without one those modes shade nothing, and
      a legend describing them would be describing an empty map. */
   const CROSS_LEVEL = new Set(['prov-party', 'turnout-prov', 'turnout-agg', 'turnout-delta', 'gap']);
+  const RESULT_MODES = new Set(['fed-party', 'prov-party', 'gap', 'turnout-fed', 'turnout-prov',
+                                'turnout-agg', 'turnout-delta']);
   const crossReady = Boolean(state.provOnFed && state.provOnFed.size);
   if (CROSS_LEVEL.has(mode) && !crossReady) {
     items.push(['note', 'This shading needs the crosswalk — build it on the Compare tab.']);
@@ -945,6 +955,15 @@ function renderLegend() {
     items.push(...pointsLegend(mode, 'fed'));
   } else if (MUNI_MODES.has(mode)) {
     items.push(...muniLegend(mode, 'fed', state.muni));
+  }
+  /* Every mode derived from the two elections moves with apportionment -- the
+     turnout ones because the ballots move, the party ones because
+     apportionUnmatched redistributes per-party votes as well. One note rather
+     than a clause appended to nine labels. Municipal and points modes are not
+     derived from these results and are left alone. */
+  if (RESULT_MODES.has(mode) && turnoutBasis().short) {
+    items.push(['note', 'Advance and special ballots are left out — apportion them on the '
+      + 'Turnout tab to include them.']);
   }
   if (state.prov.active.length) {
     if (provMode === 'prov-party' && provParty) {
@@ -1035,10 +1054,15 @@ function redrawSelection() {
   gDa.selectAll('path.selected').raise();
 }
 
-function resultsList(unit, limit = 6) {
+function resultsList(unit, side, limit = 6) {
   if (!unit || !unit.parties.size) return null;
   const rows = [...unit.parties.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit);
   const list = el('ul', 'result-list');
+  /* apportionUnmatched redistributes per-party votes, not only ballot totals,
+     so these shares move with the setting exactly as the turnout figures do --
+     advance voters are spread at their district's advance mix, which is not
+     each poll's election-day mix. */
+  const note = side ? sideBasisShort(side) : '';
   for (const [party, votes] of rows) {
     const li = el('li');
     const dot = el('span', 'dot');
@@ -1047,6 +1071,7 @@ function resultsList(unit, limit = 6) {
       el('span', 'votes tabular-nums', `${fmtInt(votes)} (${fmtPct(unit.total ? votes / unit.total : null)})`));
     list.append(li);
   }
+  if (note) list.append(el('li', 'text-small text-muted', note));
   return list;
 }
 
@@ -1075,9 +1100,9 @@ function renderReadout() {
     const unit = fedValues()?.get(fed.idx);
     if (unit) {
       fedCard.append(el('p', 'text-small', `${fmtInt(unit.total)} valid votes`));
-      const tl = turnoutLine(unit);
+      const tl = turnoutLine(unit, 'fed');
       if (tl) fedCard.append(el('p', 'text-small' + (Turnout.rate(unit) > 1 ? ' text-warning' : ''), tl));
-      const list = resultsList(unit);
+      const list = resultsList(unit, 'fed');
       if (list) fedCard.append(list);
     } else if (state.fedResults) {
       fedCard.append(el('p', 'text-small text-warning', 'No results row matched this polling division.'));
@@ -1103,9 +1128,9 @@ function renderReadout() {
     const unit = provValues()?.get(prov.__idx);
     if (unit) {
       provCard.append(el('p', 'text-small', `${fmtInt(unit.total)} valid votes`));
-      const tl = turnoutLine(unit);
+      const tl = turnoutLine(unit, 'prov');
       if (tl) provCard.append(el('p', 'text-small' + (Turnout.rate(unit) > 1 ? ' text-warning' : ''), tl));
-      const list = resultsList(unit);
+      const list = resultsList(unit, 'prov');
       if (list) provCard.append(list);
     } else if (state.provResults) {
       provCard.append(el('p', 'text-small text-warning',
@@ -1194,12 +1219,16 @@ function renderReadout() {
 }
 
 /* One line of ballots / electors / turnout for a readout card. */
-function turnoutLine(unit) {
+function turnoutLine(unit, side) {
   const t = Turnout.rate(unit);
   if (t == null) return unit.electors ? null : 'No elector count in this file — turnout unavailable.';
   const bits = [`${fmtInt(Turnout.ballots(unit))} ballots`, `${fmtInt(unit.electors)} electors`,
     `turnout ${fmtPct(t)}`];
   if (unit.apportioned) bits.push(`incl. ${fmtInt(unit.apportioned)} apportioned`);
+  /* It named the apportioned ballots when there were some and said nothing when
+     there were none, which is self-describing in one direction only: the silent
+     case is the one where the figure is below the reported turnout. */
+  else if (side && sideBasisShort(side)) bits.push(sideBasisShort(side));
   if (t > 1) bits.push('over 100% — merged or mis-keyed poll');
   return bits.join(' · ');
 }
