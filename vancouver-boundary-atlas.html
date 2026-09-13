@@ -2066,6 +2066,21 @@ html>body{padding:0}
 .choice .form-check { display: flex; align-items: center; gap: .4rem; }
 .choice .form-check + .form-check { margin-top: .15rem; }
 
+/* The plain-language summary. Set at reading width and a notch larger than the
+   caption above it: it is the part somebody quotes, so it should not look like
+   a footnote. */
+.summary {
+  margin-top: .75rem;
+  padding: .75rem .9rem;
+  border-left: 3px solid var(--border);
+  display: grid;
+  gap: .4rem;
+  max-width: 62ch;
+}
+.summary p { margin: 0; text-wrap: pretty; }
+.summary p:first-child { font-weight: var(--font-weight-medium, 500); }
+.summary p:not(:first-child) { color: var(--muted-foreground); font-size: var(--font-size-small, .9rem); }
+
 </style>
 </head>
 <body>
@@ -2693,6 +2708,7 @@ html>body{padding:0}
     <div class="viz-grid" id="corr-stats"></div>
     <svg class="scatter" id="scatter" role="img" aria-label="Scatter plot of federal party vote share against provincial party vote share"></svg>
     <div id="scatter-caption" class="text-small text-muted"></div>
+    <div id="corr-summary" class="summary" hidden></div>
     <div class="viz-controls">
       <button type="button" class="btn" id="export-joined">Download joined table (CSV)</button>
       <button type="button" class="btn" id="export-crosswalk">Download crosswalk (CSV)</button>
@@ -2846,6 +2862,7 @@ html>body{padding:0}
     <div class="turnout-wrap"><table class="turnout-table socio-table" id="socio-table"></table></div>
     <svg class="scatter" id="socio-scatter" role="img" aria-label="Scatter plot of a census variable against the chosen outcome, one dot per dissemination area"></svg>
     <div id="socio-scatter-caption" class="text-small text-muted"></div>
+    <div id="socio-summary" class="summary" hidden></div>
     <div class="viz-controls">
       <button type="button" class="btn" id="export-socio">Download joined table (CSV)</button>
       <span id="socio-note" class="text-small text-muted"></span>
@@ -5201,12 +5218,62 @@ const Analysis = (() => {
     return correlateXY(pts);
   }
 
+
+  /* --- Putting a correlation into words ------------------------------------
+
+     An r and a CI are precise and, to most of the people this atlas is for,
+     mute. This turns a correlateXY result into the pieces of a plain sentence,
+     and it lives here, next to the maths, so the words cannot drift from the
+     numbers they describe and so the bands can be tested.
+
+     What it deliberately does NOT produce is a verb of cause. "Went with" and
+     "tended to be" are the strongest forms available; an area-level
+     correlation cannot support "drove", "led to" or "because", and a summary
+     that a reader can quote is exactly where that would get lost.
+
+     The strength bands are conventional, and stated rather than implied:
+     under 0.1 essentially none, to 0.3 weak, to 0.5 moderate, to 0.7 strong,
+     above that very strong. */
+  const STRENGTH = [[0.1, 'essentially no'], [0.3, 'a weak'], [0.5, 'a moderate'],
+                    [0.7, 'a strong'], [Infinity, 'a very strong']];
+
+  function describeCorrelation(result) {
+    if (!result || result.r == null || !isFinite(result.r)) return null;
+    const r = result.r;
+    const strength = STRENGTH.find(([lim]) => Math.abs(r) < lim)[1];
+    const ci = result.ci && isFinite(result.ci[0]) && isFinite(result.ci[1]) ? result.ci : null;
+    /* A confidence interval that straddles zero does not rule out "no
+       relationship at all", and saying so is the whole point of showing one. */
+    const spansZero = ci ? ci[0] <= 0 && ci[1] >= 0 : null;
+    const slope = result.fit && isFinite(result.fit.slope) ? result.fit.slope : null;
+    return {
+      r,
+      strength,
+      /* Which way y goes as x rises. Flat when there is essentially nothing. */
+      direction: strength === 'essentially no' ? 'flat' : (r < 0 ? 'lower' : 'higher'),
+      /* The raw fitted slope. Turning it into "N points of y per 10 points of x"
+         is the CALLER's job, because it is only that when both axes are shares
+         in the same units: the census variables are percentages 0-100 while
+         turnout is a share 0-1, and a sentence that got that wrong would be
+         worse than no sentence. */
+      slope,
+      ci,
+      spansZero,
+      sources: result.nEffective ?? result.n ?? null,
+      units: result.n ?? null,
+      /* True when one measurement was shared over several map units, which is
+         the difference between the two counts and the reason the interval is
+         as wide as it is. */
+      shared: Boolean(result.grouped) && (result.nEffective ?? 0) < (result.n ?? 0),
+    };
+  }
   return {
     sampleLattice, pointWeights, crosswalkBetween, pairShare, pairIndex,
     crosswalkRunner, crosswalkPairs, coverage, redistribute, repairSmallFeatures,
     emptyUnit, addScaled, scaledUnit,
     pearson, spearman, rankOf, linearFit, pearsonCI,
     comparisonRows, correlate, correlateXY, shareOf, moveVariable,
+    describeCorrelation,
   };
 })();
 
@@ -10628,6 +10695,56 @@ function recomputeProvincialParticipation() {
   state.provPart = new Map(rows.map((r) => [r.f.__idx, r.p]));
 }
 
+/* --- Saying what a correlation means, in a sentence a reader can quote ------
+
+   Three sentences, in this order, because that is the order the questions come
+   in: what is the relationship, how firmly should it be held, and what does it
+   not say.
+
+   The third is not decoration. Every figure on this tab and the next is an
+   AREA-level association, and the step from "areas with more X had more Y" to
+   "people with X did Y" is the ecological fallacy -- which is exactly the step
+   a plain-language summary invites, so the summary is where it has to be
+   refused. No verb of cause appears in any of these strings. */
+function correlationSummary(d, { x, y, unitNoun, perTen = null }) {
+  if (!d) return [];
+  const out = [];
+  if (d.direction === 'flat') {
+    out.push(`Essentially no relationship between ${x} and ${y} across these ${unitNoun}.`);
+  } else {
+    const step = perTen == null ? ''
+      : ` — about ${Math.abs(perTen).toFixed(1)} points ${d.direction} for every 10 points of ${x}`;
+    /* "Areas higher in X tended to be lower in Y" rather than "Where X was
+       higher": x is a noun phrase supplied by the caller and can be singular or
+       plural, so any verb agreeing with it gets one of the two wrong -- "where
+       renter households was higher". This frame agrees with "areas" instead. */
+    out.push(`${d.strength.replace(/^a /, '').replace(/^./, (c) => c.toUpperCase())} `
+      + `${d.r < 0 ? 'negative' : 'positive'} relationship. ${unitNoun.replace(/^./, (c) => c.toUpperCase())} `
+      + `higher in ${x} tended to be ${d.direction} in ${y}${step}.`);
+  }
+  if (d.ci) {
+    const range = `${fmtNum(d.ci[0], 2)} to ${fmtNum(d.ci[1], 2)}`;
+    out.push(d.spansZero
+      ? `Hold it loosely: the plausible range runs from ${range}, which includes no relationship `
+        + 'at all, so the direction is not settled.'
+      : `Hold it loosely: the plausible range runs from ${range}. It stays on one side of zero, `
+        + 'so the direction is probably real.');
+  }
+  if (d.sources != null) {
+    out.push(`That range reflects ${fmtInt(d.sources)} independent source`
+      + `${d.sources === 1 ? '' : 's'}`
+      + (d.shared ? `, not the ${fmtInt(d.units)} map ${unitNoun} they are spread across.` : '.'));
+  }
+  /* Fixed wording, interpolating nothing but the noun: the earlier version
+     dropped x and y into the sentence and produced "the people who make up the
+     higher the Liberal share federally", because those phrases already carry
+     their own articles. The caveat is the one line that must read cleanly. */
+  out.push(`This is about ${unitNoun}, not people. A pattern across whole ${unitNoun} cannot tell `
+    + `you how anybody voted, and two ${unitNoun} with identical figures can be made of very `
+    + 'different people.');
+  return out;
+}
+
 /* --- Correlation view -------------------------------------------------------- */
 
 function correlationInputs() {
@@ -10749,6 +10866,20 @@ function refreshCorrelation() {
       + 'on the Turnout tab to include them.');
   }
   caption.textContent = parts.join(' ');
+  /* Both axes here are shares in the same units, so the fitted slope times ten
+     is "points of y per ten points of x" directly. That is not true on the
+     Neighbourhood profile tab, which is why the conversion is done here rather
+     than inside describeCorrelation. */
+  const described = Analysis.describeCorrelation(result);
+  const summary = $('corr-summary');
+  if (summary) {
+    summary.textContent = '';
+    for (const line of correlationSummary(described, {
+      x: `the ${fedParty} share federally`, y: `the ${provParty} share provincially`,
+      unitNoun: 'areas', perTen: described && described.slope != null ? described.slope * 10 : null,
+    })) summary.append(el('p', null, line));
+    summary.hidden = !described;
+  }
 }
 
 for (const id of ['corr-unit', 'corr-fed-party', 'corr-prov-party', 'corr-min-votes']) {
@@ -11814,6 +11945,22 @@ function drawSocioScatter() {
   /* The unit is whatever the tab is running on; saying "dissemination areas"
      under a voting-area correlation names the wrong geography. */
   const unitName = SOCIO_UNITS[st.unit || 'da'].name;
+  /* No "points per ten points" here. The census variables are percentages on a
+     0-100 scale while turnout is a share on 0-1, so the fitted slope is not in
+     comparable units and a sentence claiming otherwise would be worse than no
+     sentence. Direction, strength and how firmly to hold it all still apply. */
+  const describedSocio = Analysis.describeCorrelation(t);
+  const socioSummary = $('socio-summary');
+  if (socioSummary) {
+    socioSummary.textContent = '';
+    for (const line of correlationSummary(describedSocio, {
+      /* "Aggregate turnout, both elections" is a fine tile label and a poor
+         one mid-sentence; the qualifier after the comma is on the tile above. */
+      x: t.label.toLowerCase(), y: outcome.label.toLowerCase().split(',')[0],
+      unitNoun: unitName,
+    })) socioSummary.append(el('p', null, line));
+    socioSummary.hidden = !describedSocio;
+  }
   caption.textContent = `${t.label} against ${outcome.label.toLowerCase()} across ${fmtInt(t.n)} ${unitName}`
     + (dropped > 0 ? ` (${fmtInt(dropped)} left out for missing values)` : '')
     + `; r = ${fmtNum(t.r, 3)}, electors-weighted r = ${fmtNum(t.rWeighted, 3)}. Dot size follows electors.`

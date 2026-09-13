@@ -570,11 +570,61 @@ const Analysis = (() => {
     return correlateXY(pts);
   }
 
+
+  /* --- Putting a correlation into words ------------------------------------
+
+     An r and a CI are precise and, to most of the people this atlas is for,
+     mute. This turns a correlateXY result into the pieces of a plain sentence,
+     and it lives here, next to the maths, so the words cannot drift from the
+     numbers they describe and so the bands can be tested.
+
+     What it deliberately does NOT produce is a verb of cause. "Went with" and
+     "tended to be" are the strongest forms available; an area-level
+     correlation cannot support "drove", "led to" or "because", and a summary
+     that a reader can quote is exactly where that would get lost.
+
+     The strength bands are conventional, and stated rather than implied:
+     under 0.1 essentially none, to 0.3 weak, to 0.5 moderate, to 0.7 strong,
+     above that very strong. */
+  const STRENGTH = [[0.1, 'essentially no'], [0.3, 'a weak'], [0.5, 'a moderate'],
+                    [0.7, 'a strong'], [Infinity, 'a very strong']];
+
+  function describeCorrelation(result) {
+    if (!result || result.r == null || !isFinite(result.r)) return null;
+    const r = result.r;
+    const strength = STRENGTH.find(([lim]) => Math.abs(r) < lim)[1];
+    const ci = result.ci && isFinite(result.ci[0]) && isFinite(result.ci[1]) ? result.ci : null;
+    /* A confidence interval that straddles zero does not rule out "no
+       relationship at all", and saying so is the whole point of showing one. */
+    const spansZero = ci ? ci[0] <= 0 && ci[1] >= 0 : null;
+    const slope = result.fit && isFinite(result.fit.slope) ? result.fit.slope : null;
+    return {
+      r,
+      strength,
+      /* Which way y goes as x rises. Flat when there is essentially nothing. */
+      direction: strength === 'essentially no' ? 'flat' : (r < 0 ? 'lower' : 'higher'),
+      /* The raw fitted slope. Turning it into "N points of y per 10 points of x"
+         is the CALLER's job, because it is only that when both axes are shares
+         in the same units: the census variables are percentages 0-100 while
+         turnout is a share 0-1, and a sentence that got that wrong would be
+         worse than no sentence. */
+      slope,
+      ci,
+      spansZero,
+      sources: result.nEffective ?? result.n ?? null,
+      units: result.n ?? null,
+      /* True when one measurement was shared over several map units, which is
+         the difference between the two counts and the reason the interval is
+         as wide as it is. */
+      shared: Boolean(result.grouped) && (result.nEffective ?? 0) < (result.n ?? 0),
+    };
+  }
   return {
     sampleLattice, pointWeights, crosswalkBetween, pairShare, pairIndex,
     crosswalkRunner, crosswalkPairs, coverage, redistribute, repairSmallFeatures,
     emptyUnit, addScaled, scaledUnit,
     pearson, spearman, rankOf, linearFit, pearsonCI,
     comparisonRows, correlate, correlateXY, shareOf, moveVariable,
+    describeCorrelation,
   };
 })();
