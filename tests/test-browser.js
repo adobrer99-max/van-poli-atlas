@@ -1194,6 +1194,44 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   ok('each finding says how it was arrived at', badges.length === figures.length, badges.join(' | '));
   ok('and the modelled ones are named as modelled',
      badges.some((b) => /modelled/i.test(b)), badges.join(' | '));
+  /* Electors are registered to a polling division whatever they later do, so
+     the denominator is always everyone; the numerator is not, because the
+     Turnout tab's default leaves advance and special ballots out. That is
+     honest on that tab, where the control says "Leave out (election-day
+     turnout)" -- and it was a wrong number here, headlined "Aggregate turnout"
+     and badged Counted, wrong by however large advance voting was. The name of
+     the measure has to follow the setting. */
+  const findingText = () => page.locator('#overview-findings').innerText();
+  ok('with advance ballots left out the figure is named election-day turnout',
+     /Election-day turnout across the ranked areas/.test(await findingText()),
+     (await findingText()).replace(/\s+/g, ' ').slice(0, 200));
+  ok('and it says which ballots are missing and where to turn them on',
+     /ballots are left out/.test(await findingText())
+     && /Turnout tab/.test(await findingText()),
+     (await findingText()).replace(/\s+/g, ' ').slice(0, 320));
+  const pctOf = async () => parseFloat((/([\d.]+)%/.exec(await findingText()) || [0, '0'])[1]);
+  const dayOnly = await pctOf();
+  await page.locator('#tab-turnout').click();
+  await page.locator('#apportion-fed').selectOption('votes');
+  await page.locator('#apportion-prov').selectOption('votes');
+  await page.waitForTimeout(1200);
+  await page.locator('#tab-overview').click();
+  await page.waitForTimeout(600);
+  const apportioned = await pctOf();
+  ok('apportioning them renames the measure',
+     /Aggregate turnout across the ranked areas/.test(await findingText()),
+     (await findingText()).replace(/\s+/g, ' ').slice(0, 200));
+  ok(`and raises the figure, since the ballots were real (${dayOnly}% -> ${apportioned}%)`,
+     apportioned > dayOnly, `${dayOnly} -> ${apportioned}`);
+  ok('and drops the missing-ballots warning', !/left out/.test(await findingText()),
+     (await findingText()).replace(/\s+/g, ' ').slice(0, 200));
+  await page.locator('#tab-turnout').click();
+  await page.locator('#apportion-fed').selectOption('none');
+  await page.locator('#apportion-prov').selectOption('none');
+  await page.waitForTimeout(1200);
+  await page.locator('#tab-overview').click();
+  await page.waitForTimeout(600);
+
   ok('the briefing states the scope and what is left out',
      /polling divisions/.test(brief) && /Electoral Area A/.test(brief), brief.slice(0, 200));
   ok('it ticks the datasets that are loaded',
@@ -1214,6 +1252,48 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
      && (await page.locator('#overview-stamp').count()) === 1
      && await page.locator('#overview-stamp').isHidden(),
      brief.slice(0, 300));
+
+  /* The same qualifier has to travel with the figure wherever it is printed.
+     The briefing was only the surface that made it obvious; the legend and the
+     readout card show the identical number with no control anywhere near it,
+     and the readout is the one people click. */
+  console.log('\n== The qualifier travels with the number ==');
+  await page.locator('#tab-map').click();
+  await page.waitForTimeout(300);
+  await page.locator('#shade-by').selectOption('turnout-agg');
+  await page.waitForTimeout(600);
+  const legend = async () => page.locator('#map-legend').innerText();
+  ok('the legend names the basis rather than saying plain "Aggregate turnout"',
+     /Election-day turnout/.test(await legend()), (await legend()).replace(/\s+/g, ' ').slice(0, 140));
+  const at = await page.evaluate(() => {
+    for (const path of document.querySelectorAll('.layer-fed path')) {
+      const r = path.getBoundingClientRect();
+      const x = r.x + r.width / 2, y = r.y + r.height / 2;
+      if (document.elementFromPoint(x, y) === path) return { x, y };
+    }
+    return null;
+  });
+  await page.mouse.click(at.x, at.y);
+  await page.waitForTimeout(400);
+  ok('and the readout card carries it beside the per-area figure',
+     /election-day ballots only/.test(await page.locator('#readout').innerText()),
+     (await page.locator('#readout').innerText()).replace(/\s+/g, ' ').slice(-200));
+  await page.locator('#tab-turnout').click();
+  await page.locator('#apportion-fed').selectOption('votes');
+  await page.locator('#apportion-prov').selectOption('votes');
+  await page.waitForTimeout(1200);
+  ok('the Turnout tab tile renames itself too',
+     /aggregate turnout/i.test(await page.locator('#turnout-stats').innerText())
+     && !/election-day/i.test(await page.locator('#turnout-stats').innerText()),
+     (await page.locator('#turnout-stats').innerText()).replace(/\s+/g, ' ').slice(0, 200));
+  await page.locator('#tab-map').click();
+  await page.waitForTimeout(600);
+  ok('and the legend drops the qualifier once the ballots are in',
+     !/Election-day/.test(await legend()), (await legend()).replace(/\s+/g, ' ').slice(0, 140));
+  await page.locator('#tab-turnout').click();
+  await page.locator('#apportion-fed').selectOption('none');
+  await page.locator('#apportion-prov').selectOption('none');
+  await page.waitForTimeout(1200);
 
   console.log('\n== Tabs and method ==');
   await page.locator('#tab-method').click();

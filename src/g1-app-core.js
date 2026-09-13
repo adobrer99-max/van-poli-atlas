@@ -368,6 +368,40 @@ function setBasemap(mode) {
 }
 darkScheme.addEventListener('change', () => { if ($('basemap').value === 'auto') setBasemap('auto'); });
 
+/* What the turnout figures anywhere in this atlas actually divide by what.
+
+   Electors are registered to a polling division whatever they later do, so the
+   denominator is always everyone. The numerator is not: advance and special
+   ballots are reported without a boundary, and the Turnout tab's default is to
+   leave them out, which is honest there because the control says so in as many
+   words -- "Leave out (election-day turnout)".
+
+   A headline that repeats the number without that qualifier turns a defensible
+   election-day figure into a wrong turnout figure, and it is wrong by however
+   large advance voting was. So the name of the measure changes with the
+   setting, and every surface that prints one of these figures -- the briefing,
+   the map legend, the readout card, the Turnout tab's own tiles -- takes its
+   wording from here. A qualifier that lives next to one control does not travel
+   with the number, and the number is what gets quoted. */
+function turnoutBasis() {
+  const a = state.turnout.apportion || {};
+  const loose = [];
+  if (state.fedResults && a.fed === 'none') loose.push('federal advance and special');
+  if (state.provResults && a.prov === 'none') loose.push('provincial advance and absentee');
+  const modelled = Boolean(state.pairs);
+  if (!loose.length) {
+    return { name: 'Aggregate turnout', short: '', badge: modelled ? 'modelled' : 'counted', note: '' };
+  }
+  const whole = loose.length === 2 || !state.pairs;
+  return {
+    name: whole ? 'Election-day turnout' : 'Aggregate turnout, partly election-day',
+    short: whole ? 'election-day ballots only' : 'partly election-day',
+    badge: modelled ? 'modelled' : 'counted',
+    note: ` — ${loose.join(' and ')} ballots are left out, so this is below `
+      + 'the turnout the agency reports. Apportion them on the Turnout tab to include them.',
+  };
+}
+
 function fitAll() {
   const extent = extentOf(state.fed.active) || extentOf(state.prov.active);
   if (extent) map.fitBounds([[extent[1], extent[0]], [extent[3], extent[2]]], { padding: [12, 12], animate: false });
@@ -903,7 +937,7 @@ function renderLegend() {
   } else if (mode === 'turnout-agg') {
     const w = Math.round(state.turnout.weight * 100);
     items.push(['var(--viz-series-1)',
-      `Aggregate turnout, ${w}% federal / ${100 - w}% provincial${range(state.shadeDomain.fed)}`]);
+      `${turnoutBasis().name}, ${w}% federal / ${100 - w}% provincial${range(state.shadeDomain.fed)}`]);
     items.push(['note', 'A poll reached by only one election shows that election alone.']);
   } else if (mode === 'turnout-delta') {
     items.push(['var(--viz-series-1)', 'Federal turnout higher'], ['var(--viz-series-2)', 'Provincial turnout higher']);
@@ -949,7 +983,9 @@ function renderLegend() {
     } else if (DATA_MODES.has(daMode)) {
       const name = daMode === 'variable'
         ? ($('shade-da-var').selectedOptions[0]?.textContent || 'census variable')
-        : { 'turnout-agg': 'Aggregate turnout', 'turnout-fed': '2025 federal turnout', 'turnout-prov': '2024 provincial turnout' }[daMode];
+        : { 'turnout-agg': turnoutBasis().name, 'turnout-fed': '2025 federal turnout',
+            'turnout-prov': '2024 provincial turnout' }[daMode]
+          + (turnoutBasis().short ? ` (${turnoutBasis().short})` : '');
       const dom = state.shadeDomain.da;
       const rangeText = dom ? (daMode === 'variable'
         ? ` — ${fmtNum(dom.lo, 1)} to ${fmtNum(dom.hi, 1)}` : range(dom)) : '';
@@ -1105,6 +1141,10 @@ function renderReadout() {
         if (row.t.fed != null) bits.push(`federal turnout ${fmtPct(row.t.fed)}`);
         if (row.t.prov != null) bits.push(`provincial turnout ${fmtPct(row.t.prov)}`);
         if (row.agg != null) bits.push(`aggregate ${fmtPct(row.agg)}`);
+        /* Clicked one area at a time, with no control in sight, so the figure
+           has to carry what it is rather than rely on a setting three tabs
+           away. */
+        if (bits.length && turnoutBasis().short) bits.push(turnoutBasis().short);
       }
       if (bits.length) daCard.append(el('p', 'text-small', bits.join(' · ')));
       const shown = state.da.variables.filter((v) => v.byFeature.has(da.__idx)).slice(0, 8);

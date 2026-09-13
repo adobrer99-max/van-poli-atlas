@@ -125,7 +125,8 @@ function refreshTurnout() {
   statsHost.append(
     stat('areas ranked', fmtInt(withAgg.length), `${fmtInt(both.length)} with both elections`),
     stat('electors in ranked areas', fmtInt(electors)),
-    stat('pooled aggregate turnout', fmtPct(electors > 0 ? expected / electors : null)),
+    stat(turnoutBasis().name.toLowerCase(), fmtPct(electors > 0 ? expected / electors : null),
+      turnoutBasis().short || null),
     stat('top 20% of areas hold', top20 ? fmtPct(top20.shareOfElectors) : '--', 'of electors'),
   );
 
