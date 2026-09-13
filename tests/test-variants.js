@@ -174,6 +174,117 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     await page.close();
   }
 
+  console.log('\n== Results reported by voting place ==');
+  // Elections BC reported 2024 by place, not by area, so the atlas builds
+  // catchments. Nothing may be lost on the way, and the page has to say
+  // plainly that the catchments are its own work.
+  {
+    const want = JSON.parse(require('fs').readFileSync('fixtures/e2e_expected.json', 'utf8')).places;
+    const page = await browser.newPage({ viewport: { width: 1300, height: 950 } });
+    const errs = []; page.on('pageerror', (e) => errs.push(e.message));
+    await stubTiles(page); await page.goto(FILE); await page.waitForTimeout(500);
+    await page.locator('#tab-data').click();
+    await page.locator('#file-prov-geo').setInputFiles('fixtures/e2e_voting_areas.zip');
+    await page.waitForFunction(() => /Loaded/.test(document.querySelector('#status-prov-geo').innerText),
+      null, { timeout: 20000 });
+    await page.locator('#file-prov-results').setInputFiles('fixtures/e2e_voting_places.csv');
+    await page.waitForFunction(() => /rows:|Could not/.test(document.querySelector('#status-prov-results').innerText),
+      null, { timeout: 30000 });
+    const st = (await page.locator('#status-prov-results').innerText()).replace(/\s+/g, ' ');
+    ok(`the file is recognised as one reported by place: ${want.located} of ${want.rows} rows located`,
+       new RegExp(`${want.rows} rows: ${want.located} with a location, ${want.unlocated} without`).test(st), st.slice(0, 200));
+    ok(`${want.catchments} catchments are built`,
+       new RegExp(`${want.catchments} catchments cover`).test(st), st.slice(0, 260));
+    ok('the page says the catchments are modelled, not published',
+       /modelled here, not published by Elections BC/i.test(st), st.slice(0, 400));
+    ok('and says provincial turnout has no denominator',
+       /no registered-voter count/i.test(st), st.slice(-260));
+
+    const facts = await page.evaluate(() => {
+      const s = window.vanPoliAtlas.state, store = s.provResults;
+      let ballots = 0, withPlace = 0;
+      for (const u of store.values.values()) { ballots += u.total + u.rejected; if (u.place) withPlace++; }
+      return { kind: store.kind, ballots, withPlace, areas: store.values.size,
+               report: store.report, parties: store.parties.map(([n]) => n) };
+    });
+    ok('every ballot in the file lands on a voting area',
+       Math.abs(facts.ballots - want.ballots) < 1, `${facts.ballots} vs ${want.ballots}`);
+    ok('the party columns are read and named',
+       JSON.stringify(facts.parties.slice().sort()) === JSON.stringify(want.parties.slice().sort()),
+       facts.parties.join(','));
+    ok('roughly half the ballots came through a catchment, the rest spread',
+       facts.report.ballotsFromPlaces > 0 && facts.report.ballotsSpread > 0
+       && Math.abs(facts.report.ballotsFromPlaces + facts.report.ballotsSpread - want.ballots) < 1,
+       JSON.stringify([facts.report.ballotsFromPlaces, facts.report.ballotsSpread]));
+    ok('every area is inside a catchment', facts.withPlace === facts.areas,
+       `${facts.withPlace} of ${facts.areas}`);
+
+    await page.locator('#tab-map').click(); await page.waitForTimeout(700);
+    const markers = await page.locator('.layer-places path').count();
+    ok(`the ${want.located} voting places are drawn on the map`, markers === want.located, String(markers));
+    await page.locator('#show-places').uncheck(); await page.waitForTimeout(300);
+    const hidden = await page.evaluate(() =>
+      document.querySelector('.layer-places').style.display);
+    ok('and can be switched off', hidden === 'none', hidden);
+    await page.locator('#show-places').check(); await page.waitForTimeout(200);
+
+    // Reading a voting area must say which place its numbers came from.
+    await page.evaluate(() => {
+      const { state, selectAt } = window.vanPoliAtlas;
+      const f = state.prov.active[Math.floor(state.prov.active.length / 2)];
+      const ring = f.geometry.coordinates[0];
+      const lon = ring.reduce((a, p) => a + p[0], 0) / ring.length;
+      const lat = ring.reduce((a, p) => a + p[1], 0) / ring.length;
+      selectAt([lon, lat]);
+    });
+    await page.waitForTimeout(300);
+    const card = (await page.locator('#readout').innerText()).replace(/\s+/g, ' ');
+    ok('the readout names the place a voting area was assigned to and how far away it is',
+       /Assigned to .*Hall.*\d+ m away/.test(card), card.slice(0, 260));
+    ok('and says how much of the area came from that place',
+       /of its ballots came from that place/.test(card), card.slice(0, 320));
+
+    await page.locator('#tab-data').click();
+    await page.locator('#prov-place-basis').selectOption('catchment');
+    await page.waitForFunction(() => window.vanPoliAtlas.state.provResults.report.basis === 'catchment',
+      null, { timeout: 20000 });
+    const after = await page.evaluate(() => {
+      let ballots = 0;
+      for (const u of window.vanPoliAtlas.state.provResults.values.values()) ballots += u.total + u.rejected;
+      return ballots;
+    });
+    ok('the other spreading basis conserves the same ballots',
+       Math.abs(after - want.ballots) < 1, `${after} vs ${want.ballots}`);
+
+    // With the federal results loaded and a crosswalk built, the correlation
+    // must count independent sources, not polygons.
+    await page.locator('#file-fed-results').setInputFiles('fixtures/e2e_federal_results.csv');
+    await page.waitForFunction(() => /matched/i.test(document.querySelector('#status-fed-results').innerText),
+      null, { timeout: 40000 });
+    await page.locator('#tab-corr').click(); await page.waitForTimeout(300);
+    await page.locator('#build-crosswalk').click();
+    await page.waitForFunction(() => document.querySelector('#corr-stats').innerText.length > 20,
+      null, { timeout: 120000 });
+    const stats = (await page.locator('#corr-stats').innerText()).replace(/\s+/g, ' ');
+    ok('the correlation reports independent sources beside the unit count',
+       /independent sources/.test(stats), stats.slice(0, 240));
+    const nEff = await page.evaluate(() => {
+      const r = window.vanPoliAtlas.state.lastCorrelation.result;
+      return [r.n, r.nEffective, r.grouped];
+    });
+    ok('and there are fewer sources than units', nEff[2] === true && nEff[1] < nEff[0] && nEff[1] > 0,
+       JSON.stringify(nEff));
+    ok('the interval is computed on the sources, so it is wider than the nominal one',
+       await page.evaluate(() => {
+         const r = window.vanPoliAtlas.state.lastCorrelation.result;
+         if (!r.ci || !r.ciNominal) return true;
+         return (r.ci[1] - r.ci[0]) > (r.ciNominal[1] - r.ciNominal[0]);
+       }));
+    ok('no errors anywhere in the voting-place path', errs.length === 0, errs.slice(0, 3).join(' | '));
+    await page.screenshot({ path: 'shot-places.png' });
+    await page.close();
+  }
+
   console.log('\n== Unhelpful input is reported clearly ==');
   {
     const page = await browser.newPage({ viewport:{width:1200,height:900} });

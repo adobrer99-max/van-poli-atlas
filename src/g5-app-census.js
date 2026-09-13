@@ -32,16 +32,21 @@ function socioSources() {
 }
 
 /* The chosen outcome as a function of a scored row; null when unavailable. */
+/* usesProvincial marks an outcome that reads the provincial numbers, which
+   matters when those were modelled from voting places: the areas of one
+   catchment then carry a single measurement between them. */
 function socioOutcome(mode) {
-  if (mode === 'turnout-fed') return { label: 'Federal (2025) turnout', of: (r) => r.t.fed, format: fmtPct };
-  if (mode === 'turnout-prov') return { label: 'Provincial (2024) turnout', of: (r) => r.t.prov, format: fmtPct };
+  if (mode === 'turnout-fed') return { label: 'Federal (2025) turnout', of: (r) => r.t.fed, format: fmtPct, usesProvincial: false };
+  if (mode === 'turnout-prov') return { label: 'Provincial (2024) turnout', of: (r) => r.t.prov, format: fmtPct, usesProvincial: true };
   const m = /^(fed|prov):(.*)$/.exec(mode);
   if (m) {
     const side = m[1], party = m[2];
     return { label: `${party} share, ${side === 'fed' ? 'federal 2025' : 'provincial 2024'}`,
-             of: (r) => Analysis.shareOf(r.by[side], party), format: fmtPct };
+             of: (r) => Analysis.shareOf(r.by[side], party), format: fmtPct,
+             usesProvincial: side === 'prov' };
   }
-  return { label: 'Aggregate turnout, both elections', of: (r) => r.agg, format: fmtPct };
+  return { label: 'Aggregate turnout, both elections', of: (r) => r.agg, format: fmtPct,
+           usesProvincial: true };
 }
 
 /* Every variable currently available on the dissemination areas: the
@@ -101,10 +106,12 @@ function refreshSocio() {
       const y = outcome.of(r);
       const x = v.byFeature.get(r.feature.__idx);
       if (y == null || !isFinite(y) || x == null || !isFinite(x)) continue;
-      pts.push({ x, y, weight: r.electors, label: daLabel(r.feature), key: r.key });
+      pts.push({ x, y, weight: r.electors, label: daLabel(r.feature), key: r.key,
+                 group: outcome.usesProvincial ? daPlaceGroup(r.feature.__idx) : null });
     }
     const c = Analysis.correlateXY(pts);
-    table.push({ key: v.key, label: v.label, n: pts.length, r: c.r, rWeighted: c.rWeighted, rho: c.rho,
+    table.push({ key: v.key, label: v.label, n: pts.length, nEffective: c.nEffective,
+                 grouped: c.grouped, r: c.r, rWeighted: c.rWeighted, rho: c.rho,
                  ci: c.ci, absR: c.r == null ? null : Math.abs(c.r), points: pts, fit: c.fit });
   }
   st.table = table;
@@ -160,6 +167,8 @@ const SOCIO_COLUMNS = [
   { key: 'rWeighted', label: 'Electors-weighted r', get: (t) => t.rWeighted, fmt: (v) => fmtNum(v, 3) },
   { key: 'rho', label: "Spearman's rho", get: (t) => t.rho, fmt: (v) => fmtNum(v, 3) },
   { key: 'absR', label: '|r|', get: (t) => t.absR, fmt: (v) => fmtNum(v, 3) },
+  { key: 'nEffective', label: 'sources', get: (t) => (t.grouped ? t.nEffective : null),
+    fmt: (v) => fmtInt(v) },
   { key: 'ci', label: '95% CI of r', get: (t) => t.ci, fmt: (v) => `${fmtNum(v[0], 2)} to ${fmtNum(v[1], 2)}` },
 ];
 
@@ -340,6 +349,7 @@ $('shade-da-var').addEventListener('change', () => {
   restyleDa();
 });
 $('show-da').addEventListener('input', updateLayerVisibility);
+$('show-places').addEventListener('input', updateLayerVisibility);
 $('find-da').addEventListener('change', (e) => {
   const f = state.da.active.find((x) => x.__key === e.target.value);
   if (f) { selectAt(null, null, null, f); zoomToFeature(f); }

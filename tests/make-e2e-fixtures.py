@@ -410,3 +410,76 @@ expected["ebc"] = {"total": len(ebc_feats), "in_study_area": len(lonlat_feats), 
 json.dump(expected, open("fixtures/e2e_expected.json", "w"), indent=1)
 print(f"Elections BC order fixture: {len(ebc_feats)} areas in {expected['ebc']['districts']} districts "
       f"({os.path.getsize('fixtures/e2e_ebc_order.zip'):,} bytes)")
+
+
+# --- Provincial results reported by voting place, the 2024 layout -------------
+# Elections BC's 2024 file has one row per place per voting opportunity, with
+# the party columns named "<party>_votes" and coordinates only on the rows that
+# have a place at all. Three final-voting places per district earn a catchment;
+# advance voting, the district office, mail and out-of-district rows do not.
+PLACE_HEADER = ['event_year', 'electoral_district_abbreviation', 'electoral_district_name',
+                'voting_location', 'voting_opportunity', 'geocode_ready', 'valid_votes',
+                'rejected_ballots', 'total_ballots', 'bc_ndp_votes', 'bc_conservative_votes',
+                'bc_green_votes', 'longitude', 'latitude', 'street_address', 'building_name',
+                'geocode_source']
+by_district = {}
+for a, poly in zip(attrs, polys):
+    by_district.setdefault(a["ED_NAME"], []).append((a, poly))
+
+place_rows = []
+place_count = located_ballots = spread_ballots = 0
+random.seed(11)
+for ed in sorted(by_district):
+    cells = by_district[ed]
+    # Cell centres in lon/lat, taken from the same grid the polygons came from.
+    centres = []
+    for a, _ in cells:
+        i, j = int(a["VA_CODE"][:2]), int(a["VA_CODE"][2:])
+        centres.append((x0 + i * w + w * 0.79, y0 + j * h + h * 0.91))
+    centres.sort()
+    picks = [centres[len(centres) // 6], centres[len(centres) // 2], centres[-len(centres) // 6]]
+
+    def row(opportunity, lon, lat, ballots, g, name):
+        global place_count, located_ballots, spread_ballots
+        ndp = 0.30 * (1 - g) + 0.14
+        con = 0.16 + 0.26 * (1 - g)
+        grn = 0.10
+        scale = 0.95 / (ndp + con + grn)
+        rejected = max(1, ballots // 120)
+        valid = ballots - rejected
+        cells3 = [int(valid * ndp * scale), int(valid * con * scale)]
+        cells3.append(valid - sum(cells3))
+        located = lon is not None
+        if located:
+            place_count += 1
+            located_ballots += sum(cells3) + rejected
+        else:
+            spread_ballots += sum(cells3) + rejected
+        place_rows.append([2024, ed, ed, name, opportunity, 'yes' if located else 'no',
+                           sum(cells3), rejected, sum(cells3) + rejected, cells3[0], cells3[1], cells3[2],
+                           '' if lon is None else f"{lon:.6f}", '' if lat is None else f"{lat:.6f}",
+                           '' if located else '', name,
+                           'Elections BC Provincial Voting Places' if located else ''])
+
+    for k, (lon, lat) in enumerate(picks):
+        g = (lon - x0) / (x1 - x0)
+        row('Final voting', lon, lat, 900 + 200 * k, g, f"{ed} Hall {k + 1}")
+    mid_lon, mid_lat = picks[1]
+    row('Advance voting', mid_lon, mid_lat, 1400, (mid_lon - x0) / (x1 - x0), f"{ed} Advance")
+    row('DEO office voting', picks[0][0], picks[0][1], 150, (picks[0][0] - x0) / (x1 - x0), f"{ed} District Office")
+    row('Vote by mail', None, None, 500, 0.5, '')
+    row('Final voting - out-of-district', None, None, 120, 0.5, '')
+
+write_csv("fixtures/e2e_voting_places.csv", PLACE_HEADER, place_rows)
+expected["places"] = {
+    "rows": len(place_rows), "located": place_count,
+    "unlocated": len(place_rows) - place_count,
+    "districts": len(by_district),
+    "catchments": 3 * len(by_district),
+    "ballots": located_ballots + spread_ballots,
+    "parties": ['BC NDP', 'BC Conservative', 'BC Green'],
+}
+json.dump(expected, open("fixtures/e2e_expected.json", "w"), indent=1)
+print(f"voting places: {len(place_rows)} rows, {place_count} located, "
+      f"{expected['places']['ballots']:,} ballots "
+      f"({os.path.getsize('fixtures/e2e_voting_places.csv'):,} bytes)")

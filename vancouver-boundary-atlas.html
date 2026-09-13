@@ -1757,6 +1757,14 @@ html>body{padding:0}
   filter: drop-shadow(0 0 2px var(--orange)); }
 .swatch-da { background: none; border: 2px dashed var(--viz-series-3); }
 
+/* Voting places: the points the 2024 provincial count was actually reported
+   at. A final-day place earns a catchment; the others are spread across their
+   whole district, and are drawn hollow and dashed to say so. */
+.place { stroke: var(--viz-series-4); fill: var(--viz-series-4); cursor: pointer; }
+.place-other { fill-opacity: .12; stroke-dasharray: 3 2; }
+.place:hover { stroke-width: 3; }
+.swatch-place { background: var(--viz-series-4); border-radius: 50%; }
+
 .map-legend { position: absolute; left: .6rem; bottom: 1.6rem; z-index: 1001; display: flex;
   flex-direction: column; gap: .25rem; padding: .5rem .6rem; border-radius: var(--radius-md);
   background: color-mix(in oklab, var(--background) 88%, transparent);
@@ -1973,6 +1981,10 @@ html>body{padding:0}
       <input class="form-check-input" type="checkbox" id="show-mobile">
       <span class="form-check-label">Mobile &amp; single-building polls</span>
     </label>
+    <label class="form-check form-switch" id="show-places-wrap" hidden>
+      <input class="form-check-input" type="checkbox" id="show-places" checked>
+      <span class="form-check-label">Provincial (2024) voting places</span>
+    </label>
     <label class="form-check form-switch" id="show-da-wrap" hidden>
       <input class="form-check-input" type="checkbox" id="show-da" checked>
       <span class="form-check-label">Census (2021) dissemination areas</span>
@@ -2085,6 +2097,28 @@ html>body{padding:0}
       Elections BC publishes results by voting area for each electoral district.
       Long files (one row per candidate) and wide files (one column per party) are both read.
     </p>
+    <p class="text-small text-muted">
+      For 2024 there is a catch. It was the first general election where a voter could
+      use any voting place, so Elections BC reports the count by <b>voting place</b> &mdash;
+      a point &mdash; rather than by voting area. A file with longitude and latitude
+      columns is read that way automatically: every voting area is given to the nearest
+      final-voting place of its own electoral district, and that place&rsquo;s ballots are
+      split across the areas it serves in proportion to population, or to ground area
+      when no census is loaded. Advance voting, the district office, vote by mail,
+      special and assisted telephone voting and out-of-district ballots have no place
+      of their own and are spread across the whole district instead.
+      <b>These catchments are modelled here, not published by Elections BC.</b>
+      The status line below says how much of the count took which route, and the
+      <b>Method</b> tab says what that costs a correlation.
+    </p>
+    <div class="viz-controls" id="prov-place-controls" hidden>
+      <label class="form-label grow" for="prov-place-basis">Ballots with no voting place
+        <select class="form-select" id="prov-place-basis">
+          <option value="district">spread across the district by population</option>
+          <option value="catchment">spread in proportion to each catchment&rsquo;s final-day ballots</option>
+        </select>
+      </label>
+    </div>
     <div class="viz-controls">
       <input class="form-control" type="file" id="file-prov-results" accept=".csv,.tsv,.txt,.zip" multiple>
       <button type="button" class="btn" id="clear-prov-results" hidden>Clear provincial results</button>
@@ -2447,6 +2481,49 @@ html>body{padding:0}
         <i>minimum</i> of the two is the stricter "reliable turnout" measure; the
         <i>delta</i> shows where one election drew people the other did not.</li>
     </ul>
+
+    <h3>Voting places, and the catchments this atlas invents</h3>
+    <p>
+      British Columbia's 2024 general election was the first where a voter could use
+      any voting place, so Elections BC reports the count by <b>place</b> rather than by
+      voting area. The voting areas still exist &mdash; every address belongs to one, and
+      Elections BC assigns each of them to a place &mdash; but that assignment is not in the
+      results file, and the count that comes back is attached to a point.
+    </p>
+    <p>
+      To put those numbers on a map at all, this atlas models the assignment: every
+      voting area goes to the <b>nearest final-voting place of its own electoral
+      district</b>, and that place's ballots are divided among the areas it serves in
+      proportion to population, or to ground area when no census is loaded. Ballots cast
+      anywhere else &mdash; advance voting, the district electoral office, vote by mail,
+      special and assisted telephone voting, and out-of-district ballots &mdash; have no
+      location that means anything, and are spread across the whole district instead.
+      Nothing is dropped: every ballot in the file lands on some area, and the Data tab
+      says what fraction took which route.
+    </p>
+    <p>
+      Three things follow, and they matter more than the map looks like they do.
+      <b>Within a catchment, the variation you see is the census, not the election.</b>
+      Every area served by one place carries that place's shares, scaled by its
+      population; differences between neighbouring areas of the same catchment are an
+      artefact of the population weighting. <b>A catchment is a guess at a boundary
+      Elections BC actually drew.</b> Nearest-place is a reasonable guess in a dense city
+      and a worse one where a district is long or a hall sits at one end. And
+      <b>spreading one place's result over five areas does not make five
+      observations.</b> The Correlation and Socioeconomic tabs therefore report the number
+      of independent sources beside the number of units, and compute the confidence
+      interval on the sources; quote a coefficient with that figure, not with the count
+      of polygons.
+    </p>
+    <p>
+      Provincial <b>turnout</b> is a separate matter. The voting-place file carries no
+      registered-voter count, so there is no denominator: provincial turnout is left
+      blank rather than guessed, the combined ranking falls back to the federal side
+      alone and says it is partial, and party shares and ballot counts are unaffected.
+      Loading a file with registered voters by voting area turns it back on.
+      If Elections BC's own voting-area-to-place assignment is loaded one day, it
+      replaces the model entirely and none of these caveats apply.
+    </p>
 
     <h3>Census geography and socioeconomic variables</h3>
     <p>Statistics Canada's dissemination areas are the smallest geography with a full
@@ -4342,6 +4419,7 @@ const Analysis = (() => {
           key: `${pair.fi}|${pair.pi}`,
           label: `${labels.fed(pair.fi)} x ${labels.prov(pair.pi)}`,
           fed: fedPart, prov: provPart,
+          fedIndex: pair.fi, provIndex: pair.pi,
           weight: Math.min(fedPart.total, provPart.total),
         });
       }
@@ -4361,6 +4439,7 @@ const Analysis = (() => {
         key: String(idx),
         label: toProv ? labels.prov(idx) : labels.fed(idx),
         fed: fedUnit, prov: provUnit,
+        fedIndex: toProv ? null : idx, provIndex: toProv ? idx : null,
         weight: Math.min(fedUnit.total, provUnit.total),
       });
     }
@@ -4368,29 +4447,44 @@ const Analysis = (() => {
   }
 
   /* Statistics for any set of (x, y, weight) points. */
-  function correlateXY(pts) {
+  /* points may carry `group`: the independent source each one came from. When
+     a provincial result is spread from one voting place across the five areas
+     of its catchment, those five points are one measurement, not five, and an
+     interval computed on the nominal n would be far too narrow. The effective
+     n is the number of distinct groups, and it is what `ci` uses. Without
+     groups the two are the same and nothing changes. */
+  function correlateXY(pts, options = {}) {
     const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y), ws = pts.map((p) => p.weight);
     const r = pearson(xs, ys);
+    const keys = options.groups || pts.map((p) => p.group);
+    const distinct = new Set();
+    let grouped = false;
+    for (const k of keys) if (k != null) { grouped = true; distinct.add(k); }
+    const nEffective = grouped ? distinct.size : pts.length;
     return {
       points: pts,
       n: pts.length,
+      nEffective,
+      grouped,
       r,
       rWeighted: pearson(xs, ys, ws),
       rho: spearman(xs, ys),
       fit: linearFit(xs, ys),
       fitWeighted: linearFit(xs, ys, ws),
-      ci: pearsonCI(r, pts.length),
+      ci: pearsonCI(r, nEffective),
+      ciNominal: pearsonCI(r, pts.length),
       totalWeight: ws.reduce((a, b) => a + b, 0),
     };
   }
 
   /* Turn comparison rows into plot points plus the statistics for one pairing. */
-  function correlate(rows, fedParty, provParty) {
+  function correlate(rows, fedParty, provParty, options = {}) {
+    const groupOf = options.groupOf || (() => null);
     const pts = [];
     for (const row of rows) {
       const x = shareOf(row.fed, fedParty), y = shareOf(row.prov, provParty);
       if (x == null || y == null) continue;
-      pts.push({ x, y, weight: row.weight, label: row.label, key: row.key });
+      pts.push({ x, y, weight: row.weight, label: row.label, key: row.key, group: groupOf(row) });
     }
     return correlateXY(pts);
   }
@@ -5317,6 +5411,445 @@ const Census = (() => {
   };
 })();
 
+/* --- Results reported by voting place, not by voting area -------------------
+
+   British Columbia's 2024 general election was the first where a voter could
+   use any voting place, so Elections BC reports results per PLACE. The voting
+   areas are still the assignment geography -- every address belongs to one --
+   but the count that comes back is attached to a point, not to a polygon.
+
+   This module turns those points into numbers on the polygons, the only shape
+   the rest of the atlas can carry through a crosswalk:
+
+     - every voting area goes to the nearest final-voting place of its own
+       electoral district, which models the assignment Elections BC itself
+       made and published on its district maps;
+     - a place's ballots are split across the areas of its catchment in
+       proportion to population (or to area, when no census is loaded);
+     - ballots with no place at all -- advance voting, the district office,
+       vote by mail, special and assisted telephone voting, and out-of-district
+       ballots -- are spread across their whole district the same way, because
+       the voters who cast them are not near anything in particular.
+
+   Nothing here is an official boundary. Every number the module produces is a
+   modelled split, and the report it returns says how much of the total took
+   which route so the page can print it. */
+
+const Places = (() => {
+  const norm = (v) => String(v == null ? '' : v).trim();
+  const upper = (v) => norm(v).toUpperCase();
+  const num = (v) => {
+    const n = parseFloat(String(v == null ? '' : v).replace(/[,\s$]/g, ''));
+    return isFinite(n) ? n : 0;
+  };
+  const maybeNum = (v) => {
+    if (norm(v) === '') return null;
+    const n = parseFloat(String(v).replace(/[,\s$]/g, ''));
+    return isFinite(n) ? n : null;
+  };
+
+  /* --- Column detection ---------------------------------------------------
+
+     Named patterns, most specific first, exactly as Results.detectLayout and
+     Census.detectProfileLayout do it: the file is read by what its headers
+     say, never by column position. */
+  const PATTERNS = {
+    district: [/^electoral_district_abbreviation$/i, /district.*abbrev/i, /\bed[_ ]?abbrev/i,
+               /^electoral_district$/i, /electoral district/i, /\bdistrict\b/i],
+    districtName: [/^electoral_district_name$/i, /district.*name/i],
+    opportunity: [/^voting_opportunity$/i, /voting.?opportunity/i, /\bopportunity\b/i, /voting type/i],
+    lon: [/^longitude$/i, /^lon$/i, /^lng$/i, /longitude/i, /^x$/i],
+    lat: [/^latitude$/i, /^lat$/i, /latitude/i, /^y$/i],
+    total: [/^total_ballots$/i, /total.?ballots/i, /ballots.?cast/i, /^ballots$/i],
+    valid: [/^valid_votes$/i, /valid.?votes/i],
+    rejected: [/^rejected_ballots$/i, /rejected/i, /spoil/i],
+    electors: [/registered.?voters/i, /^electors$/i, /\belectors\b/i, /registered/i],
+    place: [/^building_name$/i, /^voting_location$/i, /voting.?place/i, /building/i, /location/i, /place.?name/i],
+    address: [/^street_address$/i, /address/i],
+    ready: [/^geocode_ready$/i, /geocode.?ready/i],
+  };
+
+  function detectColumn(header, kind) {
+    const pats = PATTERNS[kind] || [];
+    for (const re of pats) {
+      const i = header.findIndex((h) => re.test(norm(h)));
+      if (i >= 0) return i;
+    }
+    return -1;
+  }
+
+  /* A party column is one named "<party>_votes" that is not one of the
+     bookkeeping totals. Its readable name is the header without the suffix. */
+  const NOT_A_PARTY = /^(valid|total|rejected|spoiled|cast|advance|final)$/i;
+  const ACRONYMS = new Set(['bc', 'ndp', 'cpc', 'ppc', 'lpc', 'cpbc', 'usa', 'uk']);
+
+  function partyLabel(stem) {
+    return stem.split(/[_\s]+/).filter(Boolean).map((word, i) => {
+      const low = word.toLowerCase();
+      if (ACRONYMS.has(low)) return low.toUpperCase();
+      if (i > 0 && (low === 'of' || low === 'the' || low === 'and')) return low;
+      return low.charAt(0).toUpperCase() + low.slice(1);
+    }).join(' ');
+  }
+
+  function partyColumns(header) {
+    const out = [];
+    header.forEach((h, i) => {
+      const m = /^(.*)_votes$/i.exec(norm(h));
+      if (!m) return;
+      const stem = m[1];
+      if (!stem || NOT_A_PARTY.test(stem)) return;
+      out.push({ index: i, column: norm(h), name: partyLabel(stem) });
+    });
+    return out;
+  }
+
+  /* Returns null when the table is not a voting-place file -- no coordinate
+     columns, or no party columns -- so the caller can fall back to the
+     voting-area reader without having to guess first. */
+  function detectPlaceLayout(header) {
+    const lon = detectColumn(header, 'lon');
+    const lat = detectColumn(header, 'lat');
+    const parties = partyColumns(header);
+    if (lon < 0 || lat < 0 || !parties.length) return null;
+    return {
+      district: detectColumn(header, 'district'),
+      districtName: detectColumn(header, 'districtName'),
+      opportunity: detectColumn(header, 'opportunity'),
+      lon, lat, parties,
+      total: detectColumn(header, 'total'),
+      valid: detectColumn(header, 'valid'),
+      rejected: detectColumn(header, 'rejected'),
+      electors: detectColumn(header, 'electors'),
+      place: detectColumn(header, 'place'),
+      address: detectColumn(header, 'address'),
+      ready: detectColumn(header, 'ready'),
+    };
+  }
+
+  /* --- Reading the rows ---------------------------------------------------- */
+
+  /* Voting on the final day is the only opportunity where being near home is
+     what decides where a ballot is cast, so it is the only one that earns a
+     catchment. Out-of-district rows are cast by voters of this district
+     somewhere else entirely, whatever the row's own wording. */
+  const isFinalVoting = (opportunity) =>
+    /final/i.test(opportunity) && !/out.?of.?district/i.test(opportunity);
+
+  function readPlaces(table, layout) {
+    const { header, rows } = table;
+    const get = (row, i) => (i >= 0 && i < row.length ? row[i] : '');
+    const located = [], unlocated = [];
+    const parties = new Map();
+    const districts = new Set();
+    const warnings = [];
+    let rowsRead = 0, ballots = 0;
+
+    for (const row of rows) {
+      if (!row.length || row.every((c) => norm(c) === '')) continue;
+      const ed = upper(get(row, layout.district));
+      const opportunity = norm(get(row, layout.opportunity));
+      const byParty = new Map();
+      let voteTotal = 0;
+      for (const p of layout.parties) {
+        const v = num(get(row, p.index));
+        byParty.set(p.name, (byParty.get(p.name) || 0) + v);
+        voteTotal += v;
+      }
+      const rejected = layout.rejected >= 0 ? num(get(row, layout.rejected)) : 0;
+      const declared = layout.total >= 0 ? maybeNum(get(row, layout.total)) : null;
+      const valid = layout.valid >= 0 ? maybeNum(get(row, layout.valid)) : null;
+      /* Party columns are the source of truth for the split; the file's own
+         total is kept only to notice a file whose columns disagree. */
+      const total = voteTotal || valid || (declared == null ? 0 : declared - rejected);
+      const electors = layout.electors >= 0 ? num(get(row, layout.electors)) : 0;
+      const lon = maybeNum(get(row, layout.lon));
+      const lat = maybeNum(get(row, layout.lat));
+      const readySaysNo = layout.ready >= 0 && /^(n|no|false|0)$/i.test(norm(get(row, layout.ready)));
+      const place = {
+        ed,
+        district: ed,
+        districtName: layout.districtName >= 0 ? norm(get(row, layout.districtName)) : '',
+        opportunity,
+        name: layout.place >= 0 ? norm(get(row, layout.place)) : '',
+        address: layout.address >= 0 ? norm(get(row, layout.address)) : '',
+        lon, lat, total, rejected, electors, byParty,
+        declaredTotal: declared,
+        final: isFinalVoting(opportunity),
+      };
+      rowsRead++;
+      ballots += total + rejected;
+      if (ed) districts.add(ed);
+      for (const [name, v] of byParty) parties.set(name, (parties.get(name) || 0) + v);
+      const hasPoint = lon != null && lat != null && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+      if (hasPoint && !readySaysNo) located.push(place); else unlocated.push(place);
+    }
+
+    if (!located.length) {
+      warnings.push('No row in this file carries usable coordinates, so every ballot '
+        + 'will be spread across its whole electoral district.');
+    }
+    const mismatched = located.concat(unlocated).filter((p) =>
+      p.declaredTotal != null && Math.abs(p.declaredTotal - (p.total + p.rejected)) > 0.5);
+    if (mismatched.length) {
+      warnings.push(`${mismatched.length} rows have a total that does not equal their `
+        + 'votes plus rejected ballots; the party columns were used.');
+    }
+    return {
+      places: located, unlocated,
+      parties: [...parties.entries()].sort((a, b) => b[1] - a[1]),
+      districts: [...districts].sort(),
+      rowsRead, ballots, warnings,
+    };
+  }
+
+  /* --- Catchments ---------------------------------------------------------- */
+
+  /* Plane distance in metres, good to a fraction of a percent over a city and
+     far cheaper than a great-circle formula on every area-place pair. */
+  function metresBetween(a, b) {
+    const midLat = ((a[1] + b[1]) / 2) * Math.PI / 180;
+    const dx = (a[0] - b[0]) * 111320 * Math.cos(midLat);
+    const dy = (a[1] - b[1]) * 110574;
+    return Math.hypot(dx, dy);
+  }
+
+  /* Each feature goes to the nearest catchment place OF ITS OWN DISTRICT.
+     Staying inside the district matters: a district electoral office can sit
+     across a boundary, and nothing in another district ever serves this one. */
+  function assignAreas(features, places, options = {}) {
+    const districtOf = options.districtOf || ((f) => upper((f.properties || {}).ED_ABBREVIATION));
+    const pointOf = options.pointOf
+      || ((f) => (typeof Geo !== 'undefined' ? Geo.representativePoint(f.geometry) : null));
+    const isCatchment = options.isCatchment || ((p) => p.final);
+
+    const byDistrict = new Map();
+    places.forEach((p, i) => {
+      if (!isCatchment(p)) return;
+      let list = byDistrict.get(p.ed);
+      if (!list) byDistrict.set(p.ed, (list = []));
+      list.push(i);
+    });
+
+    const assignment = new Int32Array(features.length).fill(-1);
+    const distanceM = new Float64Array(features.length).fill(NaN);
+    const featureDistrict = new Array(features.length);
+    const byPlace = new Map();
+    const districtFeatures = new Map();
+    const districtsWithoutPlace = new Set();
+    let placed = 0;
+
+    features.forEach((f, i) => {
+      const d = districtOf(f);
+      featureDistrict[i] = d;
+      let list = districtFeatures.get(d);
+      if (!list) districtFeatures.set(d, (list = []));
+      list.push(i);
+      const candidates = byDistrict.get(d);
+      if (!candidates || !candidates.length) {
+        if (d) districtsWithoutPlace.add(d);
+        return;
+      }
+      const pt = pointOf(f);
+      if (!pt) return;
+      let best = -1, bestD = Infinity;
+      for (const pi of candidates) {
+        const dist = metresBetween(pt, [places[pi].lon, places[pi].lat]);
+        if (dist < bestD) { bestD = dist; best = pi; }
+      }
+      if (best < 0) return;
+      assignment[i] = best;
+      distanceM[i] = bestD;
+      placed++;
+      let members = byPlace.get(best);
+      if (!members) byPlace.set(best, (members = []));
+      members.push(i);
+    });
+
+    return {
+      assignment, distanceM, featureDistrict, byPlace, districtFeatures,
+      districtsWithoutPlace: [...districtsWithoutPlace].sort(),
+      catchments: byPlace.size,
+      placedFeatures: placed,
+    };
+  }
+
+  /* --- Spreading ballots onto the areas ------------------------------------ */
+
+  const emptyUnit = (district, poll) => ({
+    total: 0, parties: new Map(), electors: 0, rejected: 0, rows: 0,
+    district, poll, mergeWith: '', flags: { void: false, noPoll: false },
+    mergedGroup: null, fromPlaces: 0, fromDistrict: 0, place: null, placeDistanceM: null,
+  });
+
+  function addShare(unit, place, share) {
+    if (!(share > 0)) return;
+    unit.total += place.total * share;
+    unit.rejected += place.rejected * share;
+    unit.electors += place.electors * share;
+    for (const [name, v] of place.byParty) {
+      unit.parties.set(name, (unit.parties.get(name) || 0) + v * share);
+    }
+  }
+
+  /* Shares of a list of feature indices, in proportion to weightOf. A group
+     whose members all weigh nothing is split evenly rather than dropped -- a
+     voting area of parkland still holds the ballots cast from it. */
+  function sharesFor(indices, weightOf) {
+    const weights = indices.map((i) => {
+      const w = weightOf(i);
+      return isFinite(w) && w > 0 ? w : 0;
+    });
+    const sum = weights.reduce((a, b) => a + b, 0);
+    if (sum > 0) return weights.map((w) => w / sum);
+    return indices.map(() => 1 / indices.length);
+  }
+
+  /* features + places + an assignment -> one results unit per feature, in the
+     shape Results.join produces, so everything downstream is unchanged.
+
+     options.weightOf(featureIdx)  relative population (or area) of a feature
+     options.pollOf(feature)       the area's own code, for labels
+     options.catchmentBasis        'district' (default) spreads place-less
+                                   ballots over the whole district by weight;
+                                   'catchment' spreads them in proportion to
+                                   each catchment's final-day ballots, which
+                                   assumes advance voters resemble the
+                                   neighbours who voted on the final day. */
+  function spreadToAreas(features, read, assigned, options = {}) {
+    const weightOf = options.weightOf || (() => 1);
+    const pollOf = options.pollOf || ((f) => norm((f.properties || {}).VA_CODE));
+    const basis = options.catchmentBasis === 'catchment' ? 'catchment' : 'district';
+    const values = new Map();
+    const unitFor = (i) => {
+      let u = values.get(i);
+      if (!u) values.set(i, (u = emptyUnit(assigned.featureDistrict[i] || '', pollOf(features[i]))));
+      return u;
+    };
+
+    /* 1. Every place with a catchment, split across the areas it serves. */
+    let placedBallots = 0;
+    for (const [placeIdx, members] of assigned.byPlace) {
+      const place = read.places[placeIdx];
+      const shares = sharesFor(members, weightOf);
+      members.forEach((fi, k) => {
+        const u = unitFor(fi);
+        addShare(u, place, shares[k]);
+        u.fromPlaces += (place.total + place.rejected) * shares[k];
+        u.place = place;
+        u.placeDistanceM = assigned.distanceM[fi];
+      });
+      placedBallots += place.total + place.rejected;
+    }
+
+    /* 2. Everything with no catchment: the located places that do not earn one
+          (advance voting, the district office) and every unlocated row, spread
+          across their district. */
+    const spread = read.places.filter((p, i) => !assigned.byPlace.has(i)).concat(read.unlocated);
+    const byDistrict = new Map();
+    for (const p of spread) {
+      let list = byDistrict.get(p.ed);
+      if (!list) byDistrict.set(p.ed, (list = []));
+      list.push(p);
+    }
+    let spreadBallots = 0, homeless = 0;
+    const districtsMissing = [];
+    /* A district with areas but no results of its own is not a problem to
+       report: a Vancouver-only results file leaves every neighbouring
+       district's polygons empty, which is exactly right. Only a district that
+       has ballots and no place to hang them on is worth a warning. */
+    const spreadWithoutPlace = [];
+    for (const [ed, list] of byDistrict) {
+      const members = assigned.districtFeatures.get(ed);
+      const ballots = list.reduce((a, p) => a + p.total + p.rejected, 0);
+      if (!members || !members.length) {
+        homeless += ballots;
+        districtsMissing.push({ district: ed, ballots });
+        continue;
+      }
+      const hasPlace = [...assigned.byPlace.keys()].some((pi) => read.places[pi].ed === ed);
+      if (!hasPlace && ballots > 0) spreadWithoutPlace.push({ district: ed, ballots });
+      let shares;
+      if (basis === 'catchment') {
+        /* Weight each area by what its own catchment polled on the final day,
+           falling back to plain weight where a catchment polled nothing. */
+        const perPlace = new Map();
+        for (const [placeIdx, mem] of assigned.byPlace) {
+          const place = read.places[placeIdx];
+          if (place.ed !== ed) continue;
+          perPlace.set(placeIdx, place.total + place.rejected);
+        }
+        const any = [...perPlace.values()].some((v) => v > 0);
+        shares = sharesFor(members, (i) => {
+          const pi = assigned.assignment[i];
+          const scale = any && pi >= 0 && perPlace.has(pi) ? perPlace.get(pi) : 0;
+          return any ? scale * weightOf(i) : weightOf(i);
+        });
+      } else {
+        shares = sharesFor(members, weightOf);
+      }
+      for (const p of list) {
+        members.forEach((fi, k) => {
+          const u = unitFor(fi);
+          addShare(u, p, shares[k]);
+          u.fromDistrict += (p.total + p.rejected) * shares[k];
+        });
+      }
+      spreadBallots += ballots;
+    }
+
+    /* Districts whose areas were loaded but whose results never arrived keep
+       no unit at all, so the map shows them empty rather than zeroed. */
+    const sizes = [...assigned.byPlace.values()].map((m) => m.length).sort((a, b) => a - b);
+    const median = sizes.length ? sizes[Math.floor(sizes.length / 2)] : 0;
+    const distances = [...assigned.distanceM].filter((d) => isFinite(d)).sort((a, b) => a - b);
+
+    return {
+      values,
+      report: {
+        rowsRead: read.rowsRead,
+        places: read.places.length,
+        unlocatedRows: read.unlocated.length,
+        catchments: assigned.catchments,
+        areasAssigned: assigned.placedFeatures,
+        areasTotal: features.length,
+        areasPerCatchment: { min: sizes[0] || 0, median, max: sizes[sizes.length - 1] || 0 },
+        medianDistanceM: distances.length ? distances[Math.floor(distances.length / 2)] : null,
+        maxDistanceM: distances.length ? distances[distances.length - 1] : null,
+        ballotsTotal: read.ballots,
+        ballotsFromPlaces: placedBallots,
+        ballotsSpread: spreadBallots,
+        ballotsUnplaced: homeless,
+        districtsMissing,
+        districtsWithoutPlace: spreadWithoutPlace.map((d) => d.district),
+        districtsWithoutPlaceBallots: spreadWithoutPlace,
+        districtsWithAreasButNoResults: assigned.districtsWithoutPlace
+          .filter((d) => !byDistrict.has(d)),
+        basis,
+        electorsColumn: read.places.concat(read.unlocated).some((p) => p.electors > 0),
+        warnings: read.warnings,
+      },
+    };
+  }
+
+  /* How many independent observations a set of areas really carries: spreading
+     one place over five areas does not make five measurements. Areas that only
+     ever received a district-wide spread count once per district. */
+  function sourceUnits(indices, assigned) {
+    const seen = new Set();
+    for (const i of indices) {
+      const pi = assigned.assignment[i];
+      seen.add(pi >= 0 ? `p${pi}` : `d${assigned.featureDistrict[i] || ''}`);
+    }
+    return seen.size;
+  }
+
+  return {
+    detectPlaceLayout, detectColumn, partyColumns, partyLabel, readPlaces,
+    assignAreas, spreadToAreas, sourceUnits, metresBetween, isFinalVoting,
+  };
+})();
+
 </script>
 <script>
 
@@ -5585,6 +6118,13 @@ const fedLayer = L.geoJSON(null, {
 const provLayer = L.geoJSON(null, {
   pane: 'prov', renderer: L.svg({ pane: 'prov' }), className: 'va', fill: false,
 }).addTo(map);
+/* Voting places sit above every polygon: they are the thing the provincial
+   results were actually reported at, and the catchments below them are only a
+   model of who went where. */
+map.createPane('places').classList.add('layer-places');
+map.getPane('places').style.zIndex = 430;
+const placesLayer = L.layerGroup([], { pane: 'places' }).addTo(map);
+
 map.createPane('da').classList.add('layer-da');
 map.getPane('da').style.zIndex = 405;
 const daLayer = L.geoJSON(null, {
@@ -5780,6 +6320,99 @@ let layersSignature = null, extentSignature = null;
 
 /* Recomputes the active sets and indexes; rebuilds the Leaflet layers only
    when the active sets actually changed (results loading merely restyles). */
+/* What the readout says under a voting area whose numbers were modelled from a
+   voting place rather than reported for the area itself. */
+function provPlaceLine(feature, unit) {
+  const store = state.provResults;
+  if (store?.kind !== 'places' || !unit) return null;
+  const bits = [];
+  if (unit.place) {
+    const metres = unit.placeDistanceM;
+    bits.push(`Assigned to ${unit.place.name || 'a voting place'}`
+      + (isFinite(metres) ? `, ${fmtInt(Math.round(metres))} m away` : ''));
+  }
+  const fromPlaces = unit.fromPlaces || 0, fromDistrict = unit.fromDistrict || 0;
+  const all = fromPlaces + fromDistrict;
+  if (all > 0) {
+    bits.push(`${fmtPct(fromPlaces / all)} of its ballots came from that place, `
+      + `the rest spread across the district`);
+  }
+  if (!bits.length) return null;
+  const p = el('p', 'text-small text-muted', bits.join('. ') + '.');
+  return p;
+}
+
+/* --- Voting places ---------------------------------------------------------- */
+
+/* The located places behind the provincial results, or an empty list when the
+   results were reported by voting area in the usual way. */
+function votingPlaces() {
+  return state.provResults?.kind === 'places' ? (state.provResults.read?.places || []) : [];
+}
+
+function drawPlaces() {
+  const places = votingPlaces();
+  const wrap = $('show-places-wrap');
+  if (wrap) wrap.hidden = places.length === 0;
+  placesLayer.clearLayers();
+  if (!places.length) return;
+  if (!$('show-places') || !$('show-places').checked) return;
+  const ballots = places.map((p) => p.total + p.rejected);
+  const biggest = Math.max(1, ...ballots);
+  places.forEach((p, i) => {
+    /* Area, not radius, follows the ballot count, so a hall with four times
+       the ballots looks twice as wide rather than four times. */
+    const r = 4 + 9 * Math.sqrt(ballots[i] / biggest);
+    const marker = L.circleMarker([p.lat, p.lon], {
+      pane: 'places', renderer: L.svg({ pane: 'places' }),
+      className: 'place' + (p.final ? ' place-final' : ' place-other'),
+      radius: r, weight: 1.5, fill: true, fillOpacity: 0.55,
+    });
+    marker.bindTooltip(`${p.name || 'Voting place'} — ${p.opportunity}, `
+      + `${fmtInt(ballots[i])} ballots`, { direction: 'top' });
+    marker.addTo(placesLayer);
+  });
+}
+
+/* --- Effective n -------------------------------------------------------------
+
+   A provincial number on a voting area is a share of what one voting place
+   reported, so the areas of a catchment are one observation between them.
+   These helpers name that observation, so a correlation can count distinct
+   sources instead of polygons. */
+function provPlaceGroup(provIdx) {
+  const store = state.provResults;
+  if (store?.kind !== 'places' || !store.assigned) return null;
+  const pi = store.assigned.assignment[provIdx];
+  return pi >= 0 ? 'place:' + pi : 'district:' + (store.assigned.featureDistrict[provIdx] || '');
+}
+
+/* For a dissemination area, the group of whichever voting area covers most of
+   it. Cached against the crosswalk, and cleared whenever the sample is. */
+let daGroupCache = null;
+function daPlaceGroup(daIdx) {
+  const store = state.provResults;
+  if (store?.kind !== 'places' || !store.assigned) return null;
+  if (!daGroupCache) {
+    daGroupCache = new Map();
+    const cp = state.prov.all.length && state.da.all.length ? crossPair('prov', 'da') : null;
+    if (cp) {
+      const best = new Map();
+      for (const p of cp.pairs) {
+        const da = Analysis.pairIndex(p, 'b'), share = Analysis.pairShare(p, 'b');
+        const prev = best.get(da);
+        if (!prev || share > prev.share) best.set(da, { share, prov: Analysis.pairIndex(p, 'a') });
+      }
+      for (const [da, b] of best) {
+        const feature = state.prov.active[b.prov];
+        if (feature) daGroupCache.set(da, provPlaceGroup(feature.__idx));
+      }
+    }
+  }
+  return daGroupCache.get(daIdx) ?? null;
+}
+function clearPlaceGroups() { daGroupCache = null; }
+
 function draw() {
   state.fed.active = activeFederal();
   const fedExtent = extentOf(state.fed.active);
@@ -5791,7 +6424,7 @@ function draw() {
   state.da.index = state.da.active.length ? Geo.buildIndex(state.da.active) : null;
 
   const signature = [state.fed.active.length, state.prov.active.length, state.prov.all.length,
-    state.da.active.length, state.da.all.length,
+    state.da.active.length, state.da.all.length, votingPlaces().length,
     $('area-filter').value, $('show-mobile').checked,
     state.fed.active[0]?.key, state.fed.active[state.fed.active.length - 1]?.key].join('|');
   if (signature !== layersSignature) {
@@ -5813,6 +6446,7 @@ function draw() {
     }
     bindPaths(daLayer);
   }
+  drawPlaces();
   applyFederalStyle(gFed.selectAll('path'));
   applyProvincialStyle(gProv.selectAll('path'));
   applyDaStyle(gDa.selectAll('path'));
@@ -5830,6 +6464,7 @@ function updateLayerVisibility() {
   map.getPane('fed').style.display = $('show-fed').checked ? '' : 'none';
   map.getPane('prov').style.display = $('show-prov').checked ? '' : 'none';
   map.getPane('da').style.display = $('show-da').checked ? '' : 'none';
+  map.getPane('places').style.display = $('show-places').checked ? '' : 'none';
   gProv.classed('filled', $('shade-prov-by').value !== 'none');
   gDa.classed('filled', $('shade-da-by').value !== 'none');
   const hasDa = state.da.all.length > 0;
@@ -5993,8 +6628,13 @@ function renderReadout() {
       const list = resultsList(unit);
       if (list) provCard.append(list);
     } else if (state.provResults) {
-      provCard.append(el('p', 'text-small text-warning', 'No results row matched this voting area.'));
+      provCard.append(el('p', 'text-small text-warning',
+        state.provResults.kind === 'places'
+          ? 'No voting place served this area — its district reported no results.'
+          : 'No results row matched this voting area.'));
     }
+    const placeLine = provPlaceLine(prov, unit);
+    if (placeLine) provCard.append(placeLine);
   } else if (state.prov.all.length) {
     provCard.append(el('p', 'text-muted', 'No provincial voting area at this point.'));
   } else {
@@ -6260,6 +6900,13 @@ $('clear-prov-geo').addEventListener('click', () => {
 
 function onProvincialLayerChanged() {
   state.selection.prov = null;
+  clearPlaceGroups();
+  if (state.provResults?.kind === 'places') {
+    /* The catchments are built against the layer, so a new layer means new
+       catchments; rejoin before anything downstream reads the old ones. */
+    state.provResults.values = null;
+    setTimeout(rejoinProvincialPlaces, 0);
+  }
   const has = state.prov.all.length > 0;
   $('find-va').disabled = !has;
   $('build-crosswalk').disabled = !has && !state.da.all.length;
@@ -6479,7 +7126,8 @@ for (const id of ['prov-key-district', 'prov-key-va']) {
       district: $('prov-key-district').value || null,
       poll: $('prov-key-va').value || null,
     };
-    if (state.provResults) rejoinProvincialResults();
+    if (state.provResults?.kind === 'places') rejoinProvincialPlaces();
+    else if (state.provResults) rejoinProvincialResults();
     populateFinders();
     renderReadout();
   });
@@ -6513,10 +7161,21 @@ async function loadResultFiles(files, side) {
       const loaded = await Ingest.loadTable(file.name, bytes);
       table = mergeTables(table, { header: loaded.header, rows: loaded.rows, names: [loaded.name] });
     }
+    /* A provincial file carrying coordinates is reported by voting place, not
+       by voting area: 2024 was the first vote-anywhere general election. It
+       takes a different road entirely -- catchments, not a key join. */
+    const placeLayout = side === 'prov' && state.provResults?.kind !== 'areas'
+      ? Places.detectPlaceLayout(table.header) : null;
+    if (placeLayout) {
+      state.provResults = { table, placeLayout, kind: 'places' };
+      $('map-prov-results').hidden = true;
+      rejoinProvincialPlaces();
+      return;
+    }
     const mapping = (side === 'fed' ? state.fedResults?.mapping : state.provResults?.mapping)
       || Results.detectLayout(table.header, table.rows);
     if (side === 'fed') state.fedResults = { table, mapping };
-    else state.provResults = { table, mapping };
+    else state.provResults = { table, mapping, kind: 'areas' };
     renderMappingUi(side);
     rejoin(side);
   } catch (err) {
@@ -6543,8 +7202,10 @@ $('clear-fed-results').addEventListener('click', () => {
 });
 $('clear-prov-results').addEventListener('click', () => {
   state.provResults = null; state.provOnFed = null;
+  clearPlaceGroups();
   $('clear-prov-results').hidden = true;
   $('map-prov-results').hidden = true;
+  $('prov-place-controls').hidden = true;
   setStatus('status-prov-results', 'idle', []);
   refreshPartySelectors();
   draw(); renderReadout(); refreshCorrelation(); refreshTurnout();
@@ -6748,6 +7409,130 @@ function rejoinProvincialResults() {
   recomputeProvincialOnFederal();
   draw(); renderReadout(); refreshCorrelation(); refreshTurnout();
 }
+
+/* --- Results reported by voting place ----------------------------------------
+
+   The ballots come attached to points, so they are spread onto the voting
+   areas through modelled catchments (see f4-places.js) and then behave like
+   any other per-area result. */
+
+/* Relative population per voting area when the census is loaded and the
+   lattice has been sampled, and plain ground area otherwise. The chain is the
+   same one the crosswalk uses, so the two never disagree. */
+function provWeightFunction() {
+  if (state.sample && (state.db.all.length || state.da.all.length)) {
+    try {
+      const cp = crossPair('prov', 'da');
+      if (cp?.cw?.aCount) {
+        const byActive = cp.cw.aCount;
+        const idxOf = new Map(state.prov.active.map((f, i) => [f.__idx, i]));
+        return (i) => {
+          const local = idxOf.get(state.prov.all[i].__idx);
+          return local == null ? 0 : byActive[local];
+        };
+      }
+    } catch (err) { /* fall through to area */ }
+  }
+  const cache = new Map();
+  return (i) => {
+    let a = cache.get(i);
+    if (a == null) cache.set(i, (a = Geo.areaM2(state.prov.all[i].geometry)));
+    return a;
+  };
+}
+
+function rejoinProvincialPlaces() {
+  const store = state.provResults;
+  if (!store || store.kind !== 'places') return;
+  if (!state.prov.all.length) {
+    setStatus('status-prov-results', 'error', [
+      'These results are reported by voting place, so they need the voting-area '
+      + 'boundaries to land on. Load the Elections BC boundary file in section 1 first.']);
+    return;
+  }
+  const keyDistrict = state.prov.keyDef?.district;
+  const read = Places.readPlaces(store.table, store.placeLayout);
+  const assigned = Places.assignAreas(state.prov.all, read.places, {
+    districtOf: (f) => String((keyDistrict ? f.properties[keyDistrict] : '') ?? '').trim().toUpperCase(),
+    pointOf: (f) => (f.__pt || (f.__pt = Geo.representativePoint(f.geometry))),
+  });
+  const spread = Places.spreadToAreas(state.prov.all, read, assigned, {
+    weightOf: provWeightFunction(),
+    pollOf: (f) => String((state.prov.keyDef?.poll ? f.properties[state.prov.keyDef.poll] : '') ?? '').trim(),
+    catchmentBasis: $('prov-place-basis').value,
+  });
+  store.read = read;
+  store.assigned = assigned;
+  store.values = spread.values;
+  store.parties = read.parties;
+  store.report = spread.report;
+  store.keyOpts = { ignoreLeadingZeros: true, ignoreCase: true };
+  /* Nothing is left over to apportion: every ballot of a district with areas,
+     advance and special ones included, has already been spread across them. */
+  const nothingLeft = { values: new Map(), apportioned: 0, districts: 0 };
+  store.apportioned = { votes: nothingLeft, electors: nothingLeft };
+  clearPlaceGroups();
+  $('clear-prov-results').hidden = false;
+  $('prov-place-controls').hidden = false;
+  setStatus('status-prov-results', spread.report.ballotsFromPlaces || spread.report.ballotsSpread
+    ? 'ok' : 'error', [placeReportNode(spread.report)]);
+  refreshPartySelectors();
+  recomputeProvincialOnFederal();
+  draw(); renderReadout(); refreshCorrelation(); refreshTurnout(); refreshSocio();
+}
+
+function placeReportNode(report) {
+  const frag = document.createDocumentFragment();
+  const pct = (v) => (report.ballotsTotal > 0 ? fmtPct(v / report.ballotsTotal) : '--');
+  frag.append(el('p', null,
+    `${fmtInt(report.rowsRead)} rows: ${fmtInt(report.places)} with a location, `
+    + `${fmtInt(report.unlocatedRows)} without.`));
+  frag.append(el('p', null,
+    `${fmtInt(report.catchments)} catchments cover ${fmtInt(report.areasAssigned)} of `
+    + `${fmtInt(report.areasTotal)} voting areas, `
+    + `${fmtInt(report.areasPerCatchment.median)} areas each at the median `
+    + `(${fmtInt(report.areasPerCatchment.min)} to ${fmtInt(report.areasPerCatchment.max)}).`));
+  frag.append(el('p', null,
+    `${pct(report.ballotsFromPlaces)} of ballots came through a catchment; `
+    + `${pct(report.ballotsSpread)} had no place of their own -- advance voting, the `
+    + `district office, mail, special and out-of-district -- and were spread across their district.`));
+  if (report.medianDistanceM != null) {
+    frag.append(el('p', 'text-small text-muted',
+      `An area sits ${fmtInt(Math.round(report.medianDistanceM))} m from its voting place at the `
+      + `median, ${fmtInt(Math.round(report.maxDistanceM))} m at the furthest.`));
+  }
+  frag.append(el('p', 'text-small text-muted',
+    'Catchments are modelled here, not published by Elections BC: each area goes to the '
+    + 'nearest final-voting place of its own district. See the Method tab.'));
+  if (report.districtsWithoutPlace.length) {
+    const n = report.districtsWithoutPlaceBallots.reduce((a, d) => a + d.ballots, 0);
+    frag.append(el('p', 'text-small text-warning',
+      `No final-voting place was found in ${report.districtsWithoutPlace.join(', ')}, `
+      + `so all ${fmtInt(n)} of their ballots were spread across the whole district.`));
+  }
+  if (report.districtsWithAreasButNoResults?.length) {
+    frag.append(el('p', 'text-small text-muted',
+      `${fmtInt(report.districtsWithAreasButNoResults.length)} other districts have areas `
+      + 'loaded but no results in this file, and were left empty: '
+      + `${report.districtsWithAreasButNoResults.slice(0, 8).join(', ')}`
+      + (report.districtsWithAreasButNoResults.length > 8 ? '…' : '') + '.'));
+  }
+  for (const d of report.districtsMissing) {
+    frag.append(el('p', 'text-small text-warning',
+      `${fmtInt(d.ballots)} ballots belong to ${d.district}, which has no voting areas loaded.`));
+  }
+  if (!report.electorsColumn) {
+    frag.append(el('p', 'text-small text-warning',
+      'This file carries no registered-voter count, so provincial turnout stays blank. '
+      + 'Party shares and ballot counts are unaffected.'));
+  }
+  for (const w of report.warnings) frag.append(el('p', 'text-small text-warning', w));
+  return frag;
+}
+
+$('prov-place-basis').addEventListener('change', () => {
+  if (state.provResults?.kind === 'places') rejoinProvincialPlaces();
+});
 
 /* Party menus follow whatever parties actually appear in the loaded results. */
 function refreshPartySelectors() {
@@ -6960,7 +7745,30 @@ function refreshCorrelation() {
   const rows = Analysis.comparisonRows(state.crosswalk, state.pairs,
     inputs.fedValues, inputs.provValues, unit, labels, minVotes);
   const fedParty = $('corr-fed-party').value, provParty = $('corr-prov-party').value;
-  const result = Analysis.correlate(rows, fedParty, provParty);
+  /* When the provincial numbers were modelled from voting places, the areas of
+     one catchment are a single measurement between them; the interval has to
+     be computed on the number of places, not the number of polygons. */
+  /* On the federal geography a poll's provincial numbers are a blend, so the
+     source is taken to be whichever voting area contributed most of it. */
+  let dominant = null;
+  const groupOf = (row) => {
+    if (state.provResults?.kind !== 'places') return null;
+    let pi = row.provIndex;
+    if (pi == null && row.fedIndex != null) {
+      if (!dominant) {
+        dominant = new Map();
+        for (const p of state.pairs) {
+          const fi = Analysis.pairIndex(p, 'a'), share = Analysis.pairShare(p, 'a');
+          const prev = dominant.get(fi);
+          if (!prev || share > prev.share) dominant.set(fi, { share, pi: Analysis.pairIndex(p, 'b') });
+        }
+      }
+      pi = dominant.get(row.fedIndex)?.pi ?? null;
+    }
+    const feature = pi == null ? null : state.crosswalkProv[pi];
+    return feature ? provPlaceGroup(feature.__idx) : null;
+  };
+  const result = Analysis.correlate(rows, fedParty, provParty, { groupOf });
   state.lastCorrelation = { result, rows, unit, fedParty, provParty };
 
   const stat = (label, value, note) => {
@@ -6970,9 +7778,11 @@ function refreshCorrelation() {
     return t;
   };
   host.append(
-    stat('units compared', fmtInt(result.n)),
+    stat('units compared', fmtInt(result.n),
+      result.grouped ? `${fmtInt(result.nEffective)} independent sources` : null),
     stat('Pearson r', fmtNum(result.r),
-      result.ci ? `95% CI ${fmtNum(result.ci[0], 2)} to ${fmtNum(result.ci[1], 2)}` : null),
+      result.ci ? `95% CI ${fmtNum(result.ci[0], 2)} to ${fmtNum(result.ci[1], 2)}`
+        + (result.grouped ? ', on the sources' : '') : null),
     stat('vote-weighted r', fmtNum(result.rWeighted)),
     stat("Spearman's rho", fmtNum(result.rho)),
     stat('slope', result.fit ? fmtNum(result.fit.slope, 2) : '--',
@@ -7526,16 +8336,21 @@ function socioSources() {
 }
 
 /* The chosen outcome as a function of a scored row; null when unavailable. */
+/* usesProvincial marks an outcome that reads the provincial numbers, which
+   matters when those were modelled from voting places: the areas of one
+   catchment then carry a single measurement between them. */
 function socioOutcome(mode) {
-  if (mode === 'turnout-fed') return { label: 'Federal (2025) turnout', of: (r) => r.t.fed, format: fmtPct };
-  if (mode === 'turnout-prov') return { label: 'Provincial (2024) turnout', of: (r) => r.t.prov, format: fmtPct };
+  if (mode === 'turnout-fed') return { label: 'Federal (2025) turnout', of: (r) => r.t.fed, format: fmtPct, usesProvincial: false };
+  if (mode === 'turnout-prov') return { label: 'Provincial (2024) turnout', of: (r) => r.t.prov, format: fmtPct, usesProvincial: true };
   const m = /^(fed|prov):(.*)$/.exec(mode);
   if (m) {
     const side = m[1], party = m[2];
     return { label: `${party} share, ${side === 'fed' ? 'federal 2025' : 'provincial 2024'}`,
-             of: (r) => Analysis.shareOf(r.by[side], party), format: fmtPct };
+             of: (r) => Analysis.shareOf(r.by[side], party), format: fmtPct,
+             usesProvincial: side === 'prov' };
   }
-  return { label: 'Aggregate turnout, both elections', of: (r) => r.agg, format: fmtPct };
+  return { label: 'Aggregate turnout, both elections', of: (r) => r.agg, format: fmtPct,
+           usesProvincial: true };
 }
 
 /* Every variable currently available on the dissemination areas: the
@@ -7595,10 +8410,12 @@ function refreshSocio() {
       const y = outcome.of(r);
       const x = v.byFeature.get(r.feature.__idx);
       if (y == null || !isFinite(y) || x == null || !isFinite(x)) continue;
-      pts.push({ x, y, weight: r.electors, label: daLabel(r.feature), key: r.key });
+      pts.push({ x, y, weight: r.electors, label: daLabel(r.feature), key: r.key,
+                 group: outcome.usesProvincial ? daPlaceGroup(r.feature.__idx) : null });
     }
     const c = Analysis.correlateXY(pts);
-    table.push({ key: v.key, label: v.label, n: pts.length, r: c.r, rWeighted: c.rWeighted, rho: c.rho,
+    table.push({ key: v.key, label: v.label, n: pts.length, nEffective: c.nEffective,
+                 grouped: c.grouped, r: c.r, rWeighted: c.rWeighted, rho: c.rho,
                  ci: c.ci, absR: c.r == null ? null : Math.abs(c.r), points: pts, fit: c.fit });
   }
   st.table = table;
@@ -7654,6 +8471,8 @@ const SOCIO_COLUMNS = [
   { key: 'rWeighted', label: 'Electors-weighted r', get: (t) => t.rWeighted, fmt: (v) => fmtNum(v, 3) },
   { key: 'rho', label: "Spearman's rho", get: (t) => t.rho, fmt: (v) => fmtNum(v, 3) },
   { key: 'absR', label: '|r|', get: (t) => t.absR, fmt: (v) => fmtNum(v, 3) },
+  { key: 'nEffective', label: 'sources', get: (t) => (t.grouped ? t.nEffective : null),
+    fmt: (v) => fmtInt(v) },
   { key: 'ci', label: '95% CI of r', get: (t) => t.ci, fmt: (v) => `${fmtNum(v[0], 2)} to ${fmtNum(v[1], 2)}` },
 ];
 
@@ -7834,6 +8653,7 @@ $('shade-da-var').addEventListener('change', () => {
   restyleDa();
 });
 $('show-da').addEventListener('input', updateLayerVisibility);
+$('show-places').addEventListener('input', updateLayerVisibility);
 $('find-da').addEventListener('change', (e) => {
   const f = state.da.active.find((x) => x.__key === e.target.value);
   if (f) { selectAt(null, null, null, f); zoomToFeature(f); }
@@ -7876,7 +8696,7 @@ new ResizeObserver(() => {
 $('tab-map').addEventListener('click', () => setTimeout(() => map.invalidateSize({ animate: false }), 0));
 /* For the browser console and the test suites: the live state, read-only by
    convention. */
-window.vanPoliAtlas = { state, crossPair };
+window.vanPoliAtlas = { state, crossPair, map, selectAt };
 })();
 
 </script>

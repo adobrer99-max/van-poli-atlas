@@ -25,7 +25,10 @@ Open the file in a browser, then work through the **Data** tab:
 2. **Federal results** — Elections Canada's
    `pollresults_resultatsbureau<riding>.csv`, one riding at a time or zipped.
 3. **Provincial results** — Elections BC results by voting area, in either long
-   (one row per candidate) or wide (one column per party) form.
+   (one row per candidate) or wide (one column per party) form; or, for 2024,
+   results by *voting place* (see
+   [Provincial results for 2024](#provincial-results-for-2024)). A file with
+   longitude and latitude columns is read the second way automatically.
 
 Files are read in the browser tab. Nothing is uploaded anywhere.
 
@@ -82,6 +85,43 @@ BC's district maps with the facility's address — are not polygons in this
 file. Their results stay unmatched, are counted in the results report, and
 are left out of the turnout and crosswalk figures; they are the natural
 first use of the geocoding planned for the municipal electors file.
+
+## Provincial results for 2024
+
+2024 was the first British Columbia general election where a voter could use
+any voting place, so Elections BC reports the count by **voting place** — a
+point — rather than by voting area. Loading such a file (one with `longitude`
+and `latitude` columns) switches the atlas onto a different road:
+
+- every voting area is given to the **nearest final-voting place of its own
+  electoral district**, and that place's ballots are split across the areas it
+  serves in proportion to population, or to ground area when no census is
+  loaded;
+- ballots with no meaningful location — advance voting, the district electoral
+  office, vote by mail, special and assisted telephone voting, and
+  out-of-district ballots — are spread across the whole district instead. A
+  switch offers the alternative of spreading them in proportion to what each
+  catchment polled on the final day.
+
+Nothing is dropped: every ballot in the file lands on some area, and the status
+line says how much took which route. On the real 2024 Vancouver file that is
+162 located places in 118 catchments over 706 voting areas, a median of five
+areas per catchment and 379 m from an area to its place, with 40% of ballots
+arriving through a catchment and 60% spread across a district.
+
+**The catchments are modelled here, not published by Elections BC.** Three
+consequences, all stated on the Method tab: within a catchment the variation
+you see is the census, not the election; nearest-place is a guess at a boundary
+Elections BC actually drew; and spreading one place's result over five areas
+does not make five observations, so the Correlation and Socioeconomic tabs
+report the number of independent sources beside the number of units and compute
+the confidence interval on the sources. Quote a coefficient with that figure.
+
+The file carries no registered-voter count, so **provincial turnout is left
+blank** rather than guessed; the combined ranking falls back to the federal side
+and says it is partial. Party shares and ballot counts are unaffected. A file
+with registered voters by voting area turns turnout back on, and Elections BC's
+own voting-area-to-place assignment would replace the model entirely.
 
 ## Census data
 
@@ -234,14 +274,16 @@ and so on. `tests/run.js` stops at the first failing suite. GitHub Actions (`.gi
 every pull request, plus a check that the committed
 `vancouver-boundary-atlas.html` matches a fresh build.
 
-482 assertions — 338 in the node suites, 144 in the browser ones — plus 13
+557 assertions — 396 in the node suites, 161 in the browser ones — plus 13
 Python tests over the tools in `tools/`. The browser suites drive the real page
 in Chromium through Playwright: loading each boundary format, loading a BC Data
-Catalogue order as delivered and clipped, joining results, building the
-crosswalk, ranking turnout, loading the census layers and correlating a planted
-variable on the Socioeconomic tab, exporting CSV, dark mode, phone-width
-layout, and the basemap with tile requests stubbed — including a run where
-every tile fails, to check the atlas carries on without them.
+Catalogue order as delivered and clipped, joining results, reading results
+reported by voting place and checking every ballot survives the catchments,
+building the crosswalk, ranking turnout, loading the census layers and
+correlating a planted variable on the Socioeconomic tab, exporting CSV, dark
+mode, phone-width layout, and the basemap with tile requests stubbed —
+including a run where every tile fails, to check the atlas carries on without
+them.
 
 The projections are checked against control points produced by independent
 forward implementations in `tests/make-fixtures.py` (BC Albers and Statistics

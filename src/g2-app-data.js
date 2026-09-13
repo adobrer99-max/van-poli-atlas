@@ -91,6 +91,13 @@ $('clear-prov-geo').addEventListener('click', () => {
 
 function onProvincialLayerChanged() {
   state.selection.prov = null;
+  clearPlaceGroups();
+  if (state.provResults?.kind === 'places') {
+    /* The catchments are built against the layer, so a new layer means new
+       catchments; rejoin before anything downstream reads the old ones. */
+    state.provResults.values = null;
+    setTimeout(rejoinProvincialPlaces, 0);
+  }
   const has = state.prov.all.length > 0;
   $('find-va').disabled = !has;
   $('build-crosswalk').disabled = !has && !state.da.all.length;
@@ -310,7 +317,8 @@ for (const id of ['prov-key-district', 'prov-key-va']) {
       district: $('prov-key-district').value || null,
       poll: $('prov-key-va').value || null,
     };
-    if (state.provResults) rejoinProvincialResults();
+    if (state.provResults?.kind === 'places') rejoinProvincialPlaces();
+    else if (state.provResults) rejoinProvincialResults();
     populateFinders();
     renderReadout();
   });
@@ -344,10 +352,21 @@ async function loadResultFiles(files, side) {
       const loaded = await Ingest.loadTable(file.name, bytes);
       table = mergeTables(table, { header: loaded.header, rows: loaded.rows, names: [loaded.name] });
     }
+    /* A provincial file carrying coordinates is reported by voting place, not
+       by voting area: 2024 was the first vote-anywhere general election. It
+       takes a different road entirely -- catchments, not a key join. */
+    const placeLayout = side === 'prov' && state.provResults?.kind !== 'areas'
+      ? Places.detectPlaceLayout(table.header) : null;
+    if (placeLayout) {
+      state.provResults = { table, placeLayout, kind: 'places' };
+      $('map-prov-results').hidden = true;
+      rejoinProvincialPlaces();
+      return;
+    }
     const mapping = (side === 'fed' ? state.fedResults?.mapping : state.provResults?.mapping)
       || Results.detectLayout(table.header, table.rows);
     if (side === 'fed') state.fedResults = { table, mapping };
-    else state.provResults = { table, mapping };
+    else state.provResults = { table, mapping, kind: 'areas' };
     renderMappingUi(side);
     rejoin(side);
   } catch (err) {
@@ -374,8 +393,10 @@ $('clear-fed-results').addEventListener('click', () => {
 });
 $('clear-prov-results').addEventListener('click', () => {
   state.provResults = null; state.provOnFed = null;
+  clearPlaceGroups();
   $('clear-prov-results').hidden = true;
   $('map-prov-results').hidden = true;
+  $('prov-place-controls').hidden = true;
   setStatus('status-prov-results', 'idle', []);
   refreshPartySelectors();
   draw(); renderReadout(); refreshCorrelation(); refreshTurnout();
@@ -579,6 +600,130 @@ function rejoinProvincialResults() {
   recomputeProvincialOnFederal();
   draw(); renderReadout(); refreshCorrelation(); refreshTurnout();
 }
+
+/* --- Results reported by voting place ----------------------------------------
+
+   The ballots come attached to points, so they are spread onto the voting
+   areas through modelled catchments (see f4-places.js) and then behave like
+   any other per-area result. */
+
+/* Relative population per voting area when the census is loaded and the
+   lattice has been sampled, and plain ground area otherwise. The chain is the
+   same one the crosswalk uses, so the two never disagree. */
+function provWeightFunction() {
+  if (state.sample && (state.db.all.length || state.da.all.length)) {
+    try {
+      const cp = crossPair('prov', 'da');
+      if (cp?.cw?.aCount) {
+        const byActive = cp.cw.aCount;
+        const idxOf = new Map(state.prov.active.map((f, i) => [f.__idx, i]));
+        return (i) => {
+          const local = idxOf.get(state.prov.all[i].__idx);
+          return local == null ? 0 : byActive[local];
+        };
+      }
+    } catch (err) { /* fall through to area */ }
+  }
+  const cache = new Map();
+  return (i) => {
+    let a = cache.get(i);
+    if (a == null) cache.set(i, (a = Geo.areaM2(state.prov.all[i].geometry)));
+    return a;
+  };
+}
+
+function rejoinProvincialPlaces() {
+  const store = state.provResults;
+  if (!store || store.kind !== 'places') return;
+  if (!state.prov.all.length) {
+    setStatus('status-prov-results', 'error', [
+      'These results are reported by voting place, so they need the voting-area '
+      + 'boundaries to land on. Load the Elections BC boundary file in section 1 first.']);
+    return;
+  }
+  const keyDistrict = state.prov.keyDef?.district;
+  const read = Places.readPlaces(store.table, store.placeLayout);
+  const assigned = Places.assignAreas(state.prov.all, read.places, {
+    districtOf: (f) => String((keyDistrict ? f.properties[keyDistrict] : '') ?? '').trim().toUpperCase(),
+    pointOf: (f) => (f.__pt || (f.__pt = Geo.representativePoint(f.geometry))),
+  });
+  const spread = Places.spreadToAreas(state.prov.all, read, assigned, {
+    weightOf: provWeightFunction(),
+    pollOf: (f) => String((state.prov.keyDef?.poll ? f.properties[state.prov.keyDef.poll] : '') ?? '').trim(),
+    catchmentBasis: $('prov-place-basis').value,
+  });
+  store.read = read;
+  store.assigned = assigned;
+  store.values = spread.values;
+  store.parties = read.parties;
+  store.report = spread.report;
+  store.keyOpts = { ignoreLeadingZeros: true, ignoreCase: true };
+  /* Nothing is left over to apportion: every ballot of a district with areas,
+     advance and special ones included, has already been spread across them. */
+  const nothingLeft = { values: new Map(), apportioned: 0, districts: 0 };
+  store.apportioned = { votes: nothingLeft, electors: nothingLeft };
+  clearPlaceGroups();
+  $('clear-prov-results').hidden = false;
+  $('prov-place-controls').hidden = false;
+  setStatus('status-prov-results', spread.report.ballotsFromPlaces || spread.report.ballotsSpread
+    ? 'ok' : 'error', [placeReportNode(spread.report)]);
+  refreshPartySelectors();
+  recomputeProvincialOnFederal();
+  draw(); renderReadout(); refreshCorrelation(); refreshTurnout(); refreshSocio();
+}
+
+function placeReportNode(report) {
+  const frag = document.createDocumentFragment();
+  const pct = (v) => (report.ballotsTotal > 0 ? fmtPct(v / report.ballotsTotal) : '--');
+  frag.append(el('p', null,
+    `${fmtInt(report.rowsRead)} rows: ${fmtInt(report.places)} with a location, `
+    + `${fmtInt(report.unlocatedRows)} without.`));
+  frag.append(el('p', null,
+    `${fmtInt(report.catchments)} catchments cover ${fmtInt(report.areasAssigned)} of `
+    + `${fmtInt(report.areasTotal)} voting areas, `
+    + `${fmtInt(report.areasPerCatchment.median)} areas each at the median `
+    + `(${fmtInt(report.areasPerCatchment.min)} to ${fmtInt(report.areasPerCatchment.max)}).`));
+  frag.append(el('p', null,
+    `${pct(report.ballotsFromPlaces)} of ballots came through a catchment; `
+    + `${pct(report.ballotsSpread)} had no place of their own -- advance voting, the `
+    + `district office, mail, special and out-of-district -- and were spread across their district.`));
+  if (report.medianDistanceM != null) {
+    frag.append(el('p', 'text-small text-muted',
+      `An area sits ${fmtInt(Math.round(report.medianDistanceM))} m from its voting place at the `
+      + `median, ${fmtInt(Math.round(report.maxDistanceM))} m at the furthest.`));
+  }
+  frag.append(el('p', 'text-small text-muted',
+    'Catchments are modelled here, not published by Elections BC: each area goes to the '
+    + 'nearest final-voting place of its own district. See the Method tab.'));
+  if (report.districtsWithoutPlace.length) {
+    const n = report.districtsWithoutPlaceBallots.reduce((a, d) => a + d.ballots, 0);
+    frag.append(el('p', 'text-small text-warning',
+      `No final-voting place was found in ${report.districtsWithoutPlace.join(', ')}, `
+      + `so all ${fmtInt(n)} of their ballots were spread across the whole district.`));
+  }
+  if (report.districtsWithAreasButNoResults?.length) {
+    frag.append(el('p', 'text-small text-muted',
+      `${fmtInt(report.districtsWithAreasButNoResults.length)} other districts have areas `
+      + 'loaded but no results in this file, and were left empty: '
+      + `${report.districtsWithAreasButNoResults.slice(0, 8).join(', ')}`
+      + (report.districtsWithAreasButNoResults.length > 8 ? '…' : '') + '.'));
+  }
+  for (const d of report.districtsMissing) {
+    frag.append(el('p', 'text-small text-warning',
+      `${fmtInt(d.ballots)} ballots belong to ${d.district}, which has no voting areas loaded.`));
+  }
+  if (!report.electorsColumn) {
+    frag.append(el('p', 'text-small text-warning',
+      'This file carries no registered-voter count, so provincial turnout stays blank. '
+      + 'Party shares and ballot counts are unaffected.'));
+  }
+  for (const w of report.warnings) frag.append(el('p', 'text-small text-warning', w));
+  return frag;
+}
+
+$('prov-place-basis').addEventListener('change', () => {
+  if (state.provResults?.kind === 'places') rejoinProvincialPlaces();
+});
 
 /* Party menus follow whatever parties actually appear in the loaded results. */
 function refreshPartySelectors() {

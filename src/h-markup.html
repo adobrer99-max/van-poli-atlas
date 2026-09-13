@@ -103,6 +103,10 @@
       <input class="form-check-input" type="checkbox" id="show-mobile">
       <span class="form-check-label">Mobile &amp; single-building polls</span>
     </label>
+    <label class="form-check form-switch" id="show-places-wrap" hidden>
+      <input class="form-check-input" type="checkbox" id="show-places" checked>
+      <span class="form-check-label">Provincial (2024) voting places</span>
+    </label>
     <label class="form-check form-switch" id="show-da-wrap" hidden>
       <input class="form-check-input" type="checkbox" id="show-da" checked>
       <span class="form-check-label">Census (2021) dissemination areas</span>
@@ -215,6 +219,28 @@
       Elections BC publishes results by voting area for each electoral district.
       Long files (one row per candidate) and wide files (one column per party) are both read.
     </p>
+    <p class="text-small text-muted">
+      For 2024 there is a catch. It was the first general election where a voter could
+      use any voting place, so Elections BC reports the count by <b>voting place</b> &mdash;
+      a point &mdash; rather than by voting area. A file with longitude and latitude
+      columns is read that way automatically: every voting area is given to the nearest
+      final-voting place of its own electoral district, and that place&rsquo;s ballots are
+      split across the areas it serves in proportion to population, or to ground area
+      when no census is loaded. Advance voting, the district office, vote by mail,
+      special and assisted telephone voting and out-of-district ballots have no place
+      of their own and are spread across the whole district instead.
+      <b>These catchments are modelled here, not published by Elections BC.</b>
+      The status line below says how much of the count took which route, and the
+      <b>Method</b> tab says what that costs a correlation.
+    </p>
+    <div class="viz-controls" id="prov-place-controls" hidden>
+      <label class="form-label grow" for="prov-place-basis">Ballots with no voting place
+        <select class="form-select" id="prov-place-basis">
+          <option value="district">spread across the district by population</option>
+          <option value="catchment">spread in proportion to each catchment&rsquo;s final-day ballots</option>
+        </select>
+      </label>
+    </div>
     <div class="viz-controls">
       <input class="form-control" type="file" id="file-prov-results" accept=".csv,.tsv,.txt,.zip" multiple>
       <button type="button" class="btn" id="clear-prov-results" hidden>Clear provincial results</button>
@@ -577,6 +603,49 @@
         <i>minimum</i> of the two is the stricter "reliable turnout" measure; the
         <i>delta</i> shows where one election drew people the other did not.</li>
     </ul>
+
+    <h3>Voting places, and the catchments this atlas invents</h3>
+    <p>
+      British Columbia's 2024 general election was the first where a voter could use
+      any voting place, so Elections BC reports the count by <b>place</b> rather than by
+      voting area. The voting areas still exist &mdash; every address belongs to one, and
+      Elections BC assigns each of them to a place &mdash; but that assignment is not in the
+      results file, and the count that comes back is attached to a point.
+    </p>
+    <p>
+      To put those numbers on a map at all, this atlas models the assignment: every
+      voting area goes to the <b>nearest final-voting place of its own electoral
+      district</b>, and that place's ballots are divided among the areas it serves in
+      proportion to population, or to ground area when no census is loaded. Ballots cast
+      anywhere else &mdash; advance voting, the district electoral office, vote by mail,
+      special and assisted telephone voting, and out-of-district ballots &mdash; have no
+      location that means anything, and are spread across the whole district instead.
+      Nothing is dropped: every ballot in the file lands on some area, and the Data tab
+      says what fraction took which route.
+    </p>
+    <p>
+      Three things follow, and they matter more than the map looks like they do.
+      <b>Within a catchment, the variation you see is the census, not the election.</b>
+      Every area served by one place carries that place's shares, scaled by its
+      population; differences between neighbouring areas of the same catchment are an
+      artefact of the population weighting. <b>A catchment is a guess at a boundary
+      Elections BC actually drew.</b> Nearest-place is a reasonable guess in a dense city
+      and a worse one where a district is long or a hall sits at one end. And
+      <b>spreading one place's result over five areas does not make five
+      observations.</b> The Correlation and Socioeconomic tabs therefore report the number
+      of independent sources beside the number of units, and compute the confidence
+      interval on the sources; quote a coefficient with that figure, not with the count
+      of polygons.
+    </p>
+    <p>
+      Provincial <b>turnout</b> is a separate matter. The voting-place file carries no
+      registered-voter count, so there is no denominator: provincial turnout is left
+      blank rather than guessed, the combined ranking falls back to the federal side
+      alone and says it is partial, and party shares and ballot counts are unaffected.
+      Loading a file with registered voters by voting area turns it back on.
+      If Elections BC's own voting-area-to-place assignment is loaded one day, it
+      replaces the model entirely and none of these caveats apply.
+    </p>
 
     <h3>Census geography and socioeconomic variables</h3>
     <p>Statistics Canada's dissemination areas are the smallest geography with a full

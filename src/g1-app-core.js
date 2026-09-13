@@ -195,6 +195,13 @@ const fedLayer = L.geoJSON(null, {
 const provLayer = L.geoJSON(null, {
   pane: 'prov', renderer: L.svg({ pane: 'prov' }), className: 'va', fill: false,
 }).addTo(map);
+/* Voting places sit above every polygon: they are the thing the provincial
+   results were actually reported at, and the catchments below them are only a
+   model of who went where. */
+map.createPane('places').classList.add('layer-places');
+map.getPane('places').style.zIndex = 430;
+const placesLayer = L.layerGroup([], { pane: 'places' }).addTo(map);
+
 map.createPane('da').classList.add('layer-da');
 map.getPane('da').style.zIndex = 405;
 const daLayer = L.geoJSON(null, {
@@ -390,6 +397,99 @@ let layersSignature = null, extentSignature = null;
 
 /* Recomputes the active sets and indexes; rebuilds the Leaflet layers only
    when the active sets actually changed (results loading merely restyles). */
+/* What the readout says under a voting area whose numbers were modelled from a
+   voting place rather than reported for the area itself. */
+function provPlaceLine(feature, unit) {
+  const store = state.provResults;
+  if (store?.kind !== 'places' || !unit) return null;
+  const bits = [];
+  if (unit.place) {
+    const metres = unit.placeDistanceM;
+    bits.push(`Assigned to ${unit.place.name || 'a voting place'}`
+      + (isFinite(metres) ? `, ${fmtInt(Math.round(metres))} m away` : ''));
+  }
+  const fromPlaces = unit.fromPlaces || 0, fromDistrict = unit.fromDistrict || 0;
+  const all = fromPlaces + fromDistrict;
+  if (all > 0) {
+    bits.push(`${fmtPct(fromPlaces / all)} of its ballots came from that place, `
+      + `the rest spread across the district`);
+  }
+  if (!bits.length) return null;
+  const p = el('p', 'text-small text-muted', bits.join('. ') + '.');
+  return p;
+}
+
+/* --- Voting places ---------------------------------------------------------- */
+
+/* The located places behind the provincial results, or an empty list when the
+   results were reported by voting area in the usual way. */
+function votingPlaces() {
+  return state.provResults?.kind === 'places' ? (state.provResults.read?.places || []) : [];
+}
+
+function drawPlaces() {
+  const places = votingPlaces();
+  const wrap = $('show-places-wrap');
+  if (wrap) wrap.hidden = places.length === 0;
+  placesLayer.clearLayers();
+  if (!places.length) return;
+  if (!$('show-places') || !$('show-places').checked) return;
+  const ballots = places.map((p) => p.total + p.rejected);
+  const biggest = Math.max(1, ...ballots);
+  places.forEach((p, i) => {
+    /* Area, not radius, follows the ballot count, so a hall with four times
+       the ballots looks twice as wide rather than four times. */
+    const r = 4 + 9 * Math.sqrt(ballots[i] / biggest);
+    const marker = L.circleMarker([p.lat, p.lon], {
+      pane: 'places', renderer: L.svg({ pane: 'places' }),
+      className: 'place' + (p.final ? ' place-final' : ' place-other'),
+      radius: r, weight: 1.5, fill: true, fillOpacity: 0.55,
+    });
+    marker.bindTooltip(`${p.name || 'Voting place'} — ${p.opportunity}, `
+      + `${fmtInt(ballots[i])} ballots`, { direction: 'top' });
+    marker.addTo(placesLayer);
+  });
+}
+
+/* --- Effective n -------------------------------------------------------------
+
+   A provincial number on a voting area is a share of what one voting place
+   reported, so the areas of a catchment are one observation between them.
+   These helpers name that observation, so a correlation can count distinct
+   sources instead of polygons. */
+function provPlaceGroup(provIdx) {
+  const store = state.provResults;
+  if (store?.kind !== 'places' || !store.assigned) return null;
+  const pi = store.assigned.assignment[provIdx];
+  return pi >= 0 ? 'place:' + pi : 'district:' + (store.assigned.featureDistrict[provIdx] || '');
+}
+
+/* For a dissemination area, the group of whichever voting area covers most of
+   it. Cached against the crosswalk, and cleared whenever the sample is. */
+let daGroupCache = null;
+function daPlaceGroup(daIdx) {
+  const store = state.provResults;
+  if (store?.kind !== 'places' || !store.assigned) return null;
+  if (!daGroupCache) {
+    daGroupCache = new Map();
+    const cp = state.prov.all.length && state.da.all.length ? crossPair('prov', 'da') : null;
+    if (cp) {
+      const best = new Map();
+      for (const p of cp.pairs) {
+        const da = Analysis.pairIndex(p, 'b'), share = Analysis.pairShare(p, 'b');
+        const prev = best.get(da);
+        if (!prev || share > prev.share) best.set(da, { share, prov: Analysis.pairIndex(p, 'a') });
+      }
+      for (const [da, b] of best) {
+        const feature = state.prov.active[b.prov];
+        if (feature) daGroupCache.set(da, provPlaceGroup(feature.__idx));
+      }
+    }
+  }
+  return daGroupCache.get(daIdx) ?? null;
+}
+function clearPlaceGroups() { daGroupCache = null; }
+
 function draw() {
   state.fed.active = activeFederal();
   const fedExtent = extentOf(state.fed.active);
@@ -401,7 +501,7 @@ function draw() {
   state.da.index = state.da.active.length ? Geo.buildIndex(state.da.active) : null;
 
   const signature = [state.fed.active.length, state.prov.active.length, state.prov.all.length,
-    state.da.active.length, state.da.all.length,
+    state.da.active.length, state.da.all.length, votingPlaces().length,
     $('area-filter').value, $('show-mobile').checked,
     state.fed.active[0]?.key, state.fed.active[state.fed.active.length - 1]?.key].join('|');
   if (signature !== layersSignature) {
@@ -423,6 +523,7 @@ function draw() {
     }
     bindPaths(daLayer);
   }
+  drawPlaces();
   applyFederalStyle(gFed.selectAll('path'));
   applyProvincialStyle(gProv.selectAll('path'));
   applyDaStyle(gDa.selectAll('path'));
@@ -440,6 +541,7 @@ function updateLayerVisibility() {
   map.getPane('fed').style.display = $('show-fed').checked ? '' : 'none';
   map.getPane('prov').style.display = $('show-prov').checked ? '' : 'none';
   map.getPane('da').style.display = $('show-da').checked ? '' : 'none';
+  map.getPane('places').style.display = $('show-places').checked ? '' : 'none';
   gProv.classed('filled', $('shade-prov-by').value !== 'none');
   gDa.classed('filled', $('shade-da-by').value !== 'none');
   const hasDa = state.da.all.length > 0;
@@ -603,8 +705,13 @@ function renderReadout() {
       const list = resultsList(unit);
       if (list) provCard.append(list);
     } else if (state.provResults) {
-      provCard.append(el('p', 'text-small text-warning', 'No results row matched this voting area.'));
+      provCard.append(el('p', 'text-small text-warning',
+        state.provResults.kind === 'places'
+          ? 'No voting place served this area — its district reported no results.'
+          : 'No results row matched this voting area.'));
     }
+    const placeLine = provPlaceLine(prov, unit);
+    if (placeLine) provCard.append(placeLine);
   } else if (state.prov.all.length) {
     provCard.append(el('p', 'text-muted', 'No provincial voting area at this point.'));
   } else {

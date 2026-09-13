@@ -11,6 +11,7 @@ fetches at runtime. This file records what applies to what.
 -------------------------
    src/a-geo.js, src/b-text.js, src/c-binary.js, src/d-ingest.js,
    src/e-analysis.js, src/f-results.js, src/f2-turnout.js, src/f3-census.js,
+   src/f4-places.js,
    src/g1-app-core.js, src/g2-app-data.js, src/g3-app-corr.js,
    src/g4-app-turnout.js, src/g5-app-census.js, src/g9-app-start.js,
    src/h-markup.html, src/i-atlas.css, src/design.css, src/tabs.js, build.py,
@@ -125,8 +126,9 @@ fetches at runtime. This file records what applies to what.
 
 6. Data not distributed here
 ----------------------------
-   Provincial voting-area boundaries, federal poll-by-poll results and
-   provincial results are never redistributed in this repository. The atlas
+   Provincial voting-area boundaries, provincial results by voting place or
+   voting area, and federal poll-by-poll results are never redistributed in
+   this repository. The atlas
    reads them at runtime from files the user downloads, and they remain
    subject to whatever terms Elections BC and Elections Canada attach to them.
 

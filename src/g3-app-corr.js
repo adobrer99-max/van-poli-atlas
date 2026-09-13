@@ -171,7 +171,30 @@ function refreshCorrelation() {
   const rows = Analysis.comparisonRows(state.crosswalk, state.pairs,
     inputs.fedValues, inputs.provValues, unit, labels, minVotes);
   const fedParty = $('corr-fed-party').value, provParty = $('corr-prov-party').value;
-  const result = Analysis.correlate(rows, fedParty, provParty);
+  /* When the provincial numbers were modelled from voting places, the areas of
+     one catchment are a single measurement between them; the interval has to
+     be computed on the number of places, not the number of polygons. */
+  /* On the federal geography a poll's provincial numbers are a blend, so the
+     source is taken to be whichever voting area contributed most of it. */
+  let dominant = null;
+  const groupOf = (row) => {
+    if (state.provResults?.kind !== 'places') return null;
+    let pi = row.provIndex;
+    if (pi == null && row.fedIndex != null) {
+      if (!dominant) {
+        dominant = new Map();
+        for (const p of state.pairs) {
+          const fi = Analysis.pairIndex(p, 'a'), share = Analysis.pairShare(p, 'a');
+          const prev = dominant.get(fi);
+          if (!prev || share > prev.share) dominant.set(fi, { share, pi: Analysis.pairIndex(p, 'b') });
+        }
+      }
+      pi = dominant.get(row.fedIndex)?.pi ?? null;
+    }
+    const feature = pi == null ? null : state.crosswalkProv[pi];
+    return feature ? provPlaceGroup(feature.__idx) : null;
+  };
+  const result = Analysis.correlate(rows, fedParty, provParty, { groupOf });
   state.lastCorrelation = { result, rows, unit, fedParty, provParty };
 
   const stat = (label, value, note) => {
@@ -181,9 +204,11 @@ function refreshCorrelation() {
     return t;
   };
   host.append(
-    stat('units compared', fmtInt(result.n)),
+    stat('units compared', fmtInt(result.n),
+      result.grouped ? `${fmtInt(result.nEffective)} independent sources` : null),
     stat('Pearson r', fmtNum(result.r),
-      result.ci ? `95% CI ${fmtNum(result.ci[0], 2)} to ${fmtNum(result.ci[1], 2)}` : null),
+      result.ci ? `95% CI ${fmtNum(result.ci[0], 2)} to ${fmtNum(result.ci[1], 2)}`
+        + (result.grouped ? ', on the sources' : '') : null),
     stat('vote-weighted r', fmtNum(result.rWeighted)),
     stat("Spearman's rho", fmtNum(result.rho)),
     stat('slope', result.fit ? fmtNum(result.fit.slope, 2) : '--',

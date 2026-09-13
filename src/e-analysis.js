@@ -449,6 +449,7 @@ const Analysis = (() => {
           key: `${pair.fi}|${pair.pi}`,
           label: `${labels.fed(pair.fi)} x ${labels.prov(pair.pi)}`,
           fed: fedPart, prov: provPart,
+          fedIndex: pair.fi, provIndex: pair.pi,
           weight: Math.min(fedPart.total, provPart.total),
         });
       }
@@ -468,6 +469,7 @@ const Analysis = (() => {
         key: String(idx),
         label: toProv ? labels.prov(idx) : labels.fed(idx),
         fed: fedUnit, prov: provUnit,
+        fedIndex: toProv ? null : idx, provIndex: toProv ? idx : null,
         weight: Math.min(fedUnit.total, provUnit.total),
       });
     }
@@ -475,29 +477,44 @@ const Analysis = (() => {
   }
 
   /* Statistics for any set of (x, y, weight) points. */
-  function correlateXY(pts) {
+  /* points may carry `group`: the independent source each one came from. When
+     a provincial result is spread from one voting place across the five areas
+     of its catchment, those five points are one measurement, not five, and an
+     interval computed on the nominal n would be far too narrow. The effective
+     n is the number of distinct groups, and it is what `ci` uses. Without
+     groups the two are the same and nothing changes. */
+  function correlateXY(pts, options = {}) {
     const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y), ws = pts.map((p) => p.weight);
     const r = pearson(xs, ys);
+    const keys = options.groups || pts.map((p) => p.group);
+    const distinct = new Set();
+    let grouped = false;
+    for (const k of keys) if (k != null) { grouped = true; distinct.add(k); }
+    const nEffective = grouped ? distinct.size : pts.length;
     return {
       points: pts,
       n: pts.length,
+      nEffective,
+      grouped,
       r,
       rWeighted: pearson(xs, ys, ws),
       rho: spearman(xs, ys),
       fit: linearFit(xs, ys),
       fitWeighted: linearFit(xs, ys, ws),
-      ci: pearsonCI(r, pts.length),
+      ci: pearsonCI(r, nEffective),
+      ciNominal: pearsonCI(r, pts.length),
       totalWeight: ws.reduce((a, b) => a + b, 0),
     };
   }
 
   /* Turn comparison rows into plot points plus the statistics for one pairing. */
-  function correlate(rows, fedParty, provParty) {
+  function correlate(rows, fedParty, provParty, options = {}) {
+    const groupOf = options.groupOf || (() => null);
     const pts = [];
     for (const row of rows) {
       const x = shareOf(row.fed, fedParty), y = shareOf(row.prov, provParty);
       if (x == null || y == null) continue;
-      pts.push({ x, y, weight: row.weight, label: row.label, key: row.key });
+      pts.push({ x, y, weight: row.weight, label: row.label, key: row.key, group: groupOf(row) });
     }
     return correlateXY(pts);
   }

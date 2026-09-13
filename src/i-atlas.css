@@ -60,6 +60,14 @@
   filter: drop-shadow(0 0 2px var(--orange)); }
 .swatch-da { background: none; border: 2px dashed var(--viz-series-3); }
 
+/* Voting places: the points the 2024 provincial count was actually reported
+   at. A final-day place earns a catchment; the others are spread across their
+   whole district, and are drawn hollow and dashed to say so. */
+.place { stroke: var(--viz-series-4); fill: var(--viz-series-4); cursor: pointer; }
+.place-other { fill-opacity: .12; stroke-dasharray: 3 2; }
+.place:hover { stroke-width: 3; }
+.swatch-place { background: var(--viz-series-4); border-radius: 50%; }
+
 .map-legend { position: absolute; left: .6rem; bottom: 1.6rem; z-index: 1001; display: flex;
   flex-direction: column; gap: .25rem; padding: .5rem .6rem; border-radius: var(--radius-md);
   background: color-mix(in oklab, var(--background) 88%, transparent);
