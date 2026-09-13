@@ -58,6 +58,79 @@ for (const target of ['prov', 'fed', 'atom']) {
 const fedOnly = T.score(T.rowsOnUnit('fed', [{ id: 'fed', values: fedU, pairs: null }], labels), { weights: { fed: 1 } });
 ok(`federal-only rows: ${fedOnly.length} of ${fed.length}, none partial`, fedOnly.length === fed.length && fedOnly.every((r) => !r.partial && Math.abs(r.agg - 0.6) < 1e-12));
 
+console.log('\n== A target geography whose own source has no electors ==');
+/* The real case: 2024 provincial results arrive per voting place with no
+   elector column, and Elections BC publishes registered voters per electoral
+   district only. So a voting area has ballots and electors of zero, and a
+   reference count taken from the native source would be zero for every row --
+   and the "drop areas under 50 electors" default would then empty the table. */
+const noE = new Map();
+prov.forEach((f, i) => noE.set(i, unit(0.55 * (350 + 11 * i), 0, 0.05 * (350 + 11 * i))));
+const mixed = [{ id: 'fed', values: fedU, pairs }, { id: 'prov', values: noE, pairs }];
+const kept = T.score(T.rowsOnUnit('prov', mixed, labels, { minElectors: 50 }),
+                     { weights: { fed: 0.5, prov: 0.5 } });
+ok(`rows survive the default minimum: ${kept.length} of ${prov.length}`, kept.length > 0);
+ok('the reference count is the federal electors carried in, never zero',
+   kept.every((r) => r.electors > 0 && r.by.fed && Math.abs(r.electors - r.by.fed.electors) < 1e-9));
+ok('a provincial row with no electors still reports no provincial turnout',
+   kept.every((r) => r.t.prov === null && r.partial));
+ok('and expected ballots stop being zero', kept.every((r) => r.expected > 0));
+const strict = T.rowsOnUnit('prov', mixed, labels, { minElectors: 1e9 });
+ok('the minimum still filters, on a count that means something', strict.length === 0);
+
+console.log('\n== Two denominators, neither of them an electorate ==');
+/* Provincial ballots over the federal electors already on the row, and over a
+   census count supplied from outside. Never written to t, agg or expected. */
+const part = T.participation(kept.map((r) => ({ ...r })), {
+  side: 'prov',
+  adultsOf: (r) => r.by.fed.electors * 1.25,   // more residents than registrants
+});
+const one = part[0];
+near('ballots over the federal electors carried onto this row',
+     one.p.perFedElector, T.ballots(one.by.prov) / one.by.fed.electors);
+near('ballots over the supplied resident count',
+     one.p.perAdult, T.ballots(one.by.prov) / (one.by.fed.electors * 1.25));
+near('the spread is the difference between the two',
+     one.p.spread, one.p.perFedElector - one.p.perAdult);
+ok('a larger denominator always gives the smaller ratio',
+   part.every((r) => r.p.perAdult < r.p.perFedElector && r.p.spread > 0));
+ok('both denominators travel with the ratio, so a reader can recompute',
+   part.every((r) => r.p.fedElectors > 0 && r.p.adults > 0));
+ok('nothing here reaches turnout: t, agg and expected are untouched',
+   part.every((r, i) => r.t.prov === null && r.agg === kept[i].agg && r.expected === kept[i].expected));
+
+const edge = T.participation([
+  { by: { prov: unit(100, 0, 4), fed: { electors: 0 } } },
+  { by: { prov: unit(0, 0, 0), fed: { electors: 250 } } },
+  { by: { fed: { electors: 250 } } },
+], { side: 'prov', adultsOf: (r) => (r.by.prov ? null : 300) });
+ok('a denominator of zero gives null, never Infinity and never zero',
+   edge[0].p.perFedElector === null && edge[0].p.fedElectors === null);
+near('zero ballots over a real denominator is zero, not null', edge[1].p.perFedElector, 0);
+ok('and a missing resident count leaves only the spread absent',
+   edge[1].p.perAdult === null && edge[1].p.spread === null);
+ok('a row with no provincial ballots at all reports nothing',
+   edge[2].p.ballots === null && edge[2].p.perFedElector === null && edge[2].p.perAdult === null);
+ok('rows over 100% are counted rather than hidden',
+   T.overOne(T.participation([{ by: { prov: unit(400, 0, 0), fed: { electors: 100 } } }],
+                             { side: 'prov' }), 'perFedElector') === 1);
+
+console.log('\n== The two denominators reach the export ==');
+const pcsv = T.toCsv(T.rank(part, 'agg'));
+const ph = pcsv[0];
+ok('both ratios, the census denominator and the spread are columns',
+   ['residents_15_plus', 'prov_per_fed_elector', 'prov_per_resident_15_plus', 'denominator_spread']
+     .every((c) => ph.includes(c)), ph.join(','));
+ok('the federal denominator is already a column and is not repeated',
+   ph.filter((c) => c === 'fed_electors').length === 1);
+ok('every row is the same width', new Set(pcsv.map((r) => r.length)).size === 1);
+near('a ratio reaches the file as the number it is',
+     parseFloat(pcsv[1][ph.indexOf('prov_per_fed_elector')]),
+     T.rank(part, 'agg')[0].p.perFedElector, 1e-6);
+const plainCsv = T.toCsv(kept);
+ok('a ranking with no participation carries no participation columns',
+   !plainCsv[0].includes('prov_per_fed_elector'));
+
 console.log('\n== Apportionment of ballots that have no polygon ==');
 const vals = new Map();
 fed.forEach((f, i) => vals.set(i, unit(100 + 15 * i, 300 + 20 * i, 1 + (i % 4), { district: i < 8 ? '59035' : '59036' })));
@@ -85,6 +158,92 @@ for (const basis of ['votes', 'electors']) {
   near(`${basis}: party votes conserved`, [...ap.values()].reduce((a, u) => a + u.parties.get('A'), 0),
        [...vals.values()].reduce((a, u) => a + u.parties.get('A'), 0) + 600, 1e-9);
 }
+
+console.log('\n== A district that straddles the edge of the study area ==');
+/* Vancouver Fraserview--South Burnaby is two thirds Vancouver by electors. Its
+   advance ballots were cast by the whole riding, so handing all of them to the
+   two thirds that is on screen inflates it. Only that share is spread, and
+   only over the units inside. */
+const half = new Set([0, 1, 2, 3]);                 // four of district 59035's eight
+const straddle = T.apportionUnmatched(vals, new Map([['59035', extra.get('59035')]]),
+  { basis: 'electors', inArea: half, share: new Map([['59035', 0.5]]) });
+const pool = extra.get('59035').total + extra.get('59035').rejected;
+near('only the district\'s own share is spread', straddle.apportioned, pool * 0.5, 1e-9);
+near('and the rest is withheld rather than dropped quietly', straddle.withheld, pool * 0.5, 1e-9);
+let got = 0, outside = 0;
+for (const [i, u] of straddle.values) {
+  if (half.has(i)) got += u.apportioned || 0;
+  else outside += u.apportioned || 0;
+}
+near('every apportioned ballot lands inside the study area', got, pool * 0.5, 1e-9);
+ok('and not one lands outside it', outside === 0, String(outside));
+ok('units outside keep exactly the ballots they were reported with',
+   [...straddle.values].filter(([i]) => !half.has(i) && i < 8)
+     .every(([i, u]) => u.total === vals.get(i).total && u.rejected === vals.get(i).rejected));
+/* Without either option the behaviour is the one every other file gets. */
+const plain = T.apportionUnmatched(vals, extra, { basis: 'electors' });
+near('no study area and no share: the whole pool is spread, as before',
+     plain.apportioned, 1310, 1e-9);
+near('and nothing is withheld', plain.withheld, 0, 1e-9);
+let plainSum = 0;
+for (const u of new Set(plain.values.values())) plainSum += u.apportioned || 0;
+near('which is still conserved across the units', plainSum, 1310, 1e-6);
+
+console.log('\n== Advance polls land on the divisions that fed them ==');
+/* Elections Canada names the advance poll each ordinary division reported to,
+   so nearly half the federal vote can go to the ten or so divisions that fed
+   an advance poll instead of the two hundred in its riding. */
+const advOf = (i) => (i < 4 ? '600' : i < 8 ? '601' : null);   // 59035 has two advance polls
+const advPools = new Map([
+  ['59035|600', { total: 400, rejected: 4, parties: new Map([['A', 240], ['B', 160]]), units: 1,
+                  district: '59035', advPoll: '600' }],
+  ['59035|601', { total: 200, rejected: 0, parties: new Map([['A', 120], ['B', 80]]), units: 1,
+                  district: '59035', advPoll: '601' }],
+]);
+const byAdv = T.apportionUnmatched(vals, new Map(), { basis: 'electors', byAdvance: advPools, advOf });
+near('every advance ballot is placed', byAdv.apportioned, 604, 1e-9);
+ok('both pools were spread, and the served sets counted',
+   byAdv.advancePools === 2 && byAdv.advanceUnitsMean === 4,
+   `${byAdv.advancePools} pools, mean ${byAdv.advanceUnitsMean}`);
+let got600 = 0, got601 = 0, elsewhere = 0;
+for (const [i, u] of byAdv.values) {
+  const a = u.apportioned || 0;
+  if (i < 4) got600 += a; else if (i < 8) got601 += a; else elsewhere += a;
+}
+near('poll 600 goes only to the four divisions that fed it', got600, 404, 1e-9);
+near('and poll 601 only to its own four', got601, 200, 1e-9);
+ok('no division outside a served set receives anything', elsewhere === 0, String(elsewhere));
+/* Electors, not equal shares: the divisions of a served set are roughly but
+   not exactly the same size, and vals gives each a different count. */
+const share0 = (byAdv.values.get(0).apportioned) / 404;
+const even = 1 / 4;
+ok(`a bigger division takes a bigger share (${share0.toFixed(3)} against ${even} if split evenly)`,
+   Math.abs(share0 - even) > 1e-6);
+near('but the shares still add to one',
+     [0, 1, 2, 3].reduce((a, i) => a + byAdv.values.get(i).apportioned / 404, 0), 1, 1e-9);
+
+/* A pool whose divisions are all outside the study area gives this area
+   nothing -- no share to assume, no early-voting rate to guess at. */
+const onlyFirst = new Set([0, 1, 2, 3]);
+const narrowed = T.apportionUnmatched(vals, new Map(),
+  { basis: 'electors', byAdvance: advPools, advOf, inArea: onlyFirst });
+near('an advance poll serving only ground outside the area gives it nothing',
+     narrowed.apportioned, 404, 1e-9);
+near('and those ballots are withheld, not moved somewhere else', narrowed.withheld, 200, 1e-9);
+
+/* A pool the boundary file knows no divisions for falls back to the district,
+   rather than vanishing. */
+const unknown = new Map([['59035|699', { total: 100, rejected: 0, parties: new Map([['A', 100]]),
+                                         units: 1, district: '59035', advPoll: '699' }]]);
+const fall = T.apportionUnmatched(vals, new Map(), { basis: 'electors', byAdvance: unknown, advOf });
+near('an advance poll with no known divisions falls back to the district', fall.apportioned, 100, 1e-9);
+ok('and it lands district-wide rather than on one served set',
+   fall.advancePools === 0 && [...fall.values].filter(([i]) => i < 8).every(([i, u]) => u.apportioned > 0));
+
+/* Nothing here touches a file that has no advance mapping at all. */
+const none = T.apportionUnmatched(vals, extra, { basis: 'electors' });
+near('a file with no advance data behaves exactly as before', none.apportioned, 1310, 1e-9);
+ok('and reports no advance pools', none.advancePools === 0 && none.advanceUnitsMean === null);
 
 console.log('\n== Merged polls ==');
 const keyOpts = { ignoreLeadingZeros: true, ignoreCase: true };
@@ -155,11 +314,15 @@ const mapping = R.detectLayout(H, rowsT);
 ok('bookkeeping columns detected', mapping.mergeWith === 4 && mapping.voidPoll === 2 && mapping.noPoll === 3);
 const feats = ['1-0', '2-0', '3-0', '4-0'].map((poll) => ({ type: 'Feature', properties: { fed: '59035', poll }, geometry: null }));
 const joined = R.join(feats, { district: 'fed', poll: 'poll', federalSuffixes: true }, table, mapping);
-const byD = joined.report.unmatchedByDistrict;
-near('district 59035 unmatched total', byD.get('59035').total, 500, 1e-9);
-near('district 59035 unmatched rejected', byD.get('59035').rejected, 9, 1e-9);
-near('district 59036 unmatched total', byD.get('59036').total, 120, 1e-9);
-near('sum over districts equals unmatchedVotes', [...byD.values()].reduce((a, d) => a + d.total, 0), joined.report.unmatchedVotes, 1e-9);
+/* Polls 600 and 601 are advance polls, so they sit in their own bucket now,
+   waiting for the divisions that fed them. The bookkeeping is the same. */
+const byA = joined.report.unmatchedByAdvancePoll;
+near('district 59035 unmatched total', byA.get('59035|600').total, 500, 1e-9);
+near('district 59035 unmatched rejected', byA.get('59035|600').rejected, 9, 1e-9);
+near('district 59036 unmatched total', byA.get('59036|601').total, 120, 1e-9);
+near('sum over every unmatched pool equals unmatchedVotes',
+     [...byA.values(), ...joined.report.unmatchedByDistrict.values()]
+       .reduce((a, d) => a + d.total, 0), joined.report.unmatchedVotes, 1e-9);
 ok('void poll counted and carries no ballots', joined.report.voidPolls === 1 && joined.values.get(3).total === 0 && joined.values.get(3).flags.void);
 near('electorsMatched sums matched units once', joined.report.electorsMatched, 1500, 1e-9);
 ok('electors column flagged present', joined.report.electorsColumn === true);

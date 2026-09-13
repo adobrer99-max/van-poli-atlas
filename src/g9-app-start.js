@@ -15,6 +15,7 @@ refreshPartySelectors();
 refreshTurnout();
 refreshDaShadeVars();
 refreshSocio();
+refreshResults(true);
 
 /* Watch the map's own box, not #atlas: the atlas changes height on every tab
    switch, and a Leaflet map only needs telling when its container resized. */
@@ -35,5 +36,5 @@ new ResizeObserver(() => {
 $('tab-map').addEventListener('click', () => setTimeout(() => map.invalidateSize({ animate: false }), 0));
 /* For the browser console and the test suites: the live state, read-only by
    convention. */
-window.vanPoliAtlas = { state, crossPair };
+window.vanPoliAtlas = { state, crossPair, map, selectAt, fedValues, provValues };
 })();

@@ -449,6 +449,7 @@ const Analysis = (() => {
           key: `${pair.fi}|${pair.pi}`,
           label: `${labels.fed(pair.fi)} x ${labels.prov(pair.pi)}`,
           fed: fedPart, prov: provPart,
+          fedIndex: pair.fi, provIndex: pair.pi,
           weight: Math.min(fedPart.total, provPart.total),
         });
       }
@@ -468,36 +469,103 @@ const Analysis = (() => {
         key: String(idx),
         label: toProv ? labels.prov(idx) : labels.fed(idx),
         fed: fedUnit, prov: provUnit,
+        fedIndex: toProv ? null : idx, provIndex: toProv ? idx : null,
         weight: Math.min(fedUnit.total, provUnit.total),
       });
     }
     return rows;
   }
 
+  /* Move a per-feature variable from one side of a crosswalk to the other.
+
+     `redistribute` above moves election counts, and it is right to sum those:
+     half a poll's votes go with half the poll. A census variable cannot always
+     be treated that way. A population may be summed, but a percentage, a rate
+     or a median may not -- adding two medians is meaningless -- so those come
+     back as a mean over the source areas, weighted by the mass the crosswalk
+     assigns to each overlap (population where the lattice was weighted by it,
+     ground area otherwise).
+
+     kind: 'count' sums, anything else takes the weighted mean.
+     Targets with no source value at all are absent from the result rather than
+     zero, so a missing value stays missing. */
+  function moveVariable(pairs, values, options = {}) {
+    const from = options.from === 'b' || options.from === 'prov' ? 'b' : 'a';
+    const to = from === 'a' ? 'b' : 'a';
+    const out = new Map();
+    if (options.kind === 'count') {
+      for (const p of pairs) {
+        const v = values.get(pairIndex(p, from));
+        if (v == null || !isFinite(v)) continue;
+        const dst = pairIndex(p, to);
+        out.set(dst, (out.get(dst) || 0) + v * pairShare(p, from));
+      }
+      return out;
+    }
+    const num = new Map(), den = new Map();
+    const plainSum = new Map(), plainN = new Map();
+    for (const p of pairs) {
+      const v = values.get(pairIndex(p, from));
+      if (v == null || !isFinite(v)) continue;
+      const dst = pairIndex(p, to);
+      const w = p.count;
+      if (w > 0) {
+        num.set(dst, (num.get(dst) || 0) + v * w);
+        den.set(dst, (den.get(dst) || 0) + w);
+      }
+      /* Kept for the case below: every overlap of this target weighs nothing,
+         which happens to a target made only of unpopulated areas under
+         population weighting. A plain mean of the values that are there beats
+         reporting nothing at all. */
+      plainSum.set(dst, (plainSum.get(dst) || 0) + v);
+      plainN.set(dst, (plainN.get(dst) || 0) + 1);
+    }
+    for (const [dst, n] of plainN) {
+      const d = den.get(dst) || 0;
+      out.set(dst, d > 0 ? num.get(dst) / d : plainSum.get(dst) / n);
+    }
+    return out;
+  }
+
   /* Statistics for any set of (x, y, weight) points. */
-  function correlateXY(pts) {
+  /* points may carry `group`: the independent source each one came from. When
+     a provincial result is spread from one voting place across the five areas
+     of its catchment, those five points are one measurement, not five, and an
+     interval computed on the nominal n would be far too narrow. The effective
+     n is the number of distinct groups, and it is what `ci` uses. Without
+     groups the two are the same and nothing changes. */
+  function correlateXY(pts, options = {}) {
     const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y), ws = pts.map((p) => p.weight);
     const r = pearson(xs, ys);
+    const keys = options.groups || pts.map((p) => p.group);
+    const distinct = new Set();
+    let grouped = false;
+    for (const k of keys) if (k != null) { grouped = true; distinct.add(k); }
+    const nEffective = grouped ? distinct.size : pts.length;
     return {
       points: pts,
       n: pts.length,
+      nEffective,
+      grouped,
       r,
       rWeighted: pearson(xs, ys, ws),
       rho: spearman(xs, ys),
       fit: linearFit(xs, ys),
       fitWeighted: linearFit(xs, ys, ws),
-      ci: pearsonCI(r, pts.length),
+      ci: pearsonCI(r, nEffective),
+      ciNominal: pearsonCI(r, pts.length),
       totalWeight: ws.reduce((a, b) => a + b, 0),
     };
   }
 
   /* Turn comparison rows into plot points plus the statistics for one pairing. */
-  function correlate(rows, fedParty, provParty) {
+  function correlate(rows, fedParty, provParty, options = {}) {
+    const groupOf = options.groupOf || (() => null);
     const pts = [];
     for (const row of rows) {
       const x = shareOf(row.fed, fedParty), y = shareOf(row.prov, provParty);
       if (x == null || y == null) continue;
-      pts.push({ x, y, weight: row.weight, label: row.label, key: row.key });
+      pts.push({ x, y, weight: row.weight, label: row.label, key: row.key, group: groupOf(row) });
     }
     return correlateXY(pts);
   }
@@ -507,6 +575,6 @@ const Analysis = (() => {
     crosswalkRunner, crosswalkPairs, coverage, redistribute, repairSmallFeatures,
     emptyUnit, addScaled, scaledUnit,
     pearson, spearman, rankOf, linearFit, pearsonCI,
-    comparisonRows, correlate, correlateXY, shareOf,
+    comparisonRows, correlate, correlateXY, shareOf, moveVariable,
   };
 })();

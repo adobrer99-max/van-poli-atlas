@@ -31,7 +31,9 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   ok('title set', (await page.title()).includes('Vancouver'));
   const fedPaths = await page.locator('.layer-fed path').count();
   ok(`federal polls rendered (${fedPaths})`, fedPaths > 1000, `got ${fedPaths}`);
-  ok('mobile polls hidden by default', fedPaths === 1031, `got ${fedPaths}`);
+  /* 1017, not 1031: the sixteen Vancouver Fraserview--South Burnaby polls that
+     sit in Burnaby are tagged out-of-city and the default area excludes them. */
+  ok('mobile polls hidden by default, and so are the Burnaby polls', fedPaths === 1017, `got ${fedPaths}`);
   ok('empty-provincial notice shown', await page.locator('#prov-missing').isVisible());
   const finder = await page.locator('#find-poll option').count();
   ok(`poll finder populated (${finder})`, finder === fedPaths + 1);
@@ -70,7 +72,7 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.locator('#show-mobile').check();
   await page.waitForTimeout(400);
   const withMobile = await page.locator('.layer-fed path').count();
-  ok(`mobile polls can be shown (${fedPaths} -> ${withMobile})`, withMobile === 1103, `got ${withMobile}`);
+  ok(`mobile polls can be shown (${fedPaths} -> ${withMobile})`, withMobile === 1087, `got ${withMobile}`);
   await page.locator('#show-mobile').uncheck();
   await page.waitForTimeout(300);
 
@@ -116,7 +118,7 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.locator('#file-fed-results').setInputFiles('fixtures/e2e_federal_results.csv');
   await page.waitForTimeout(2500);
   status = await page.locator('#status-fed-results').innerText();
-  ok('federal results joined', /1,031 \/ 1,031/.test(status.replace(/\s+/g,' ')), status.replace(/\s+/g,' ').slice(0,220));
+  ok('federal results joined', /1,017 \/ 1,017/.test(status.replace(/\s+/g,' ')), status.replace(/\s+/g,' ').slice(0,220));
   ok('advance polls reported as unmatched', /advance polls/i.test(status), status.slice(0, 300));
   const coverage = status.match(/(\d+\.\d)%/);
   ok(`vote coverage reported (${coverage ? coverage[0] : 'none'})`, !!coverage);
@@ -152,6 +154,68 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.locator('#shade-by').selectOption('fed-party');
   await page.waitForTimeout(300);
   ok('legend shown', await page.locator('#map-legend').isVisible());
+
+  console.log('\n== Results tab ==');
+  // What the files say, before any of it is moved. The figures here must agree
+  // with the file itself, so they are checked against sums taken from the CSV.
+  {
+    const fs = require('fs');
+    const lines = fs.readFileSync('fixtures/e2e_provincial_results.csv', 'utf8').split(/\r?\n/).filter(Boolean);
+    const head = lines[0].split(',');
+    const iRej = head.indexOf('Rejected Ballots');
+    const parties = head.slice(3, iRej);
+    let valid = 0, rejected = 0;
+    const byParty = new Map(parties.map((p) => [p, 0]));
+    for (const line of lines.slice(1)) {
+      const c = line.split(',');
+      rejected += Number(c[iRej]);
+      parties.forEach((p, k) => { const v = Number(c[3 + k]); valid += v; byParty.set(p, byParty.get(p) + v); });
+    }
+    const top = [...byParty.entries()].sort((a, b) => b[1] - a[1])[0];
+
+    await page.locator('#tab-results').click();
+    await page.waitForTimeout(500);
+    ok('both loaded elections are on offer',
+       (await page.locator('#results-side option').allTextContents()).join('|') === 'Federal (2025)|Provincial (2024)',
+       (await page.locator('#results-side option').allTextContents()).join('|'));
+    const fedStatus = (await page.locator('#results-status').innerText()).replace(/\s+/g, ' ');
+    ok('the federal side reports polling divisions', /polling divisions/.test(fedStatus), fedStatus.slice(0, 140));
+    await page.locator('#results-side').selectOption('prov');
+    await page.waitForTimeout(400);
+    const status = (await page.locator('#results-status').innerText()).replace(/\s+/g, ' ');
+    ok('switching election changes the figures', status !== fedStatus, status.slice(0, 140));
+    ok(`the tab totals match the file itself (${valid + rejected} ballots)`,
+       status.includes((valid + rejected).toLocaleString()), status.slice(0, 160));
+    const tiles = (await page.locator('#results-stats').innerText()).replace(/\s+/g, ' ');
+    ok(`the leading party is the one with the most votes (${top[0]})`, tiles.includes(top[0]), tiles.slice(0, 160));
+    ok(`rejected ballots are counted (${rejected})`, tiles.includes(rejected.toLocaleString()), tiles.slice(0, 160));
+    const partyText = (await page.locator('#results-parties').innerText()).replace(/\s+/g, ' ');
+    ok('every party in the file has a bar',
+       parties.every((p) => partyText.includes(p)), partyText.slice(0, 200));
+    ok(`the top party's votes are shown (${top[1]})`, partyText.includes(top[1].toLocaleString()), partyText.slice(0, 200));
+    const dRows = await page.locator('#results-districts tbody tr').count();
+    ok(`every district is listed (${dRows})`, dRows === 12, String(dRows));
+    ok('a voting-area file shows no channel breakdown',
+       await page.locator('#results-channels-card').isHidden());
+    ok('the largest units are named for the geography',
+       /Largest voting areas/.test(await page.locator('#results-largest-title').innerText()));
+
+    // Sorting the district table by a heading reorders it.
+    const firstBefore = await page.locator('#results-districts tbody tr td').first().innerText();
+    await page.locator('#results-districts thead th[data-key="name"]').click();
+    await page.waitForTimeout(300);
+    const firstAfter = await page.locator('#results-districts tbody tr td').first().innerText();
+    ok('clicking a heading sorts the districts', firstBefore !== firstAfter, `${firstBefore} -> ${firstAfter}`);
+
+    const rdl = page.waitForEvent('download', { timeout: 15000 });
+    await page.locator('#export-results').click();
+    const rcsv = require('fs').readFileSync(await (await rdl).path(), 'utf8').split(/\r?\n/).filter(Boolean);
+    ok(`the summary exports (${rcsv.length - 1} rows) with one section column`,
+       /^﻿?section,name,detail,ballots/.test(rcsv[0]), rcsv[0].slice(0, 90));
+    const totalRow = rcsv.find((r) => /^total,/.test(r));
+    ok('and its total row carries the same ballots as the tab',
+       totalRow && totalRow.split(',')[3] === String(valid + rejected), totalRow);
+  }
 
   console.log('\n== Crosswalk and correlation ==');
   await page.locator('#tab-corr').click();
@@ -257,7 +321,41 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   const after = await rowCells(expected.named[0].label);
   ok(`apportioning advance ballots raises turnout (${before[3]} -> ${after[3]}) and leaves electors alone`,
      parseFloat(after[3]) > parseFloat(before[3]) && after[8] === before[8]);
-  ok('status warns that apportioned figures are estimates', /estimates/.test(await page.locator('#turnout-status').innerText()));
+  ok('status warns that an apportioned figure is not a measurement',
+     /neither is a measurement/.test(await page.locator('#turnout-status').innerText()),
+     (await page.locator('#turnout-status').innerText()).replace(/\s+/g, ' ').slice(0, 240));
+
+  /* Advance polls land on the divisions that fed them, not on the riding.
+     The fixture's advance polls are 600-605, which the payload carries served
+     sets for, so this exercises the published mapping rather than a stub. */
+  const advNote = (await page.locator('#turnout-status').innerText()).replace(/\s+/g, ' ');
+  ok('the tab counts advance pools and the divisions each served',
+     /advance ballots went to the divisions that fed each of \d+ advance polls/.test(advNote)
+     && /divisions each on average/.test(advNote), advNote.slice(0, 300));
+  const advSpread = await page.evaluate(() => {
+    const a = window.vanPoliAtlas.state.fedResults.apportioned.votes;
+    return { pools: a.advancePools, mean: a.advanceUnitsMean,
+             advance: a.advanceApportioned, all: a.apportioned };
+  });
+  ok(`${advSpread.pools} advance pools spread over ${advSpread.mean?.toFixed(1)} divisions each, `
+     + `far fewer than a riding`, advSpread.pools > 0 && advSpread.mean > 1 && advSpread.mean < 40,
+     JSON.stringify(advSpread));
+  ok('and they account for most of what was apportioned',
+     advSpread.advance > advSpread.all * 0.5, JSON.stringify(advSpread));
+  /* Ballots are conserved: what sits on units afterwards is what was matched
+     plus what was apportioned, exactly. */
+  const conserved = await page.evaluate(() => {
+    const st = window.vanPoliAtlas.state;
+    const ball = (u) => (u.total || 0) + (u.rejected || 0);
+    let before = 0;
+    for (const u of new Set(st.fedResults.values.values())) before += ball(u);
+    const a = st.fedResults.apportioned.votes;
+    let after = 0;
+    for (const u of new Set(a.values.values())) after += ball(u);
+    return after - (before + a.apportioned);
+  });
+  ok(`apportionment creates and loses nothing (${conserved.toFixed(6)})`, Math.abs(conserved) < 1e-6);
+
   await page.locator('#apportion-fed').selectOption('none');
   await page.waitForTimeout(500);
 
@@ -320,7 +418,7 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.waitForTimeout(1500);
   status = await page.locator('#status-census').innerText();
   ok('long profile read for the study area', new RegExp(`long layout: ${expected.census.dissemination_areas} geographies`).test(status), status);
-  ok('all 14 starter variables matched by name', /14 starter variables matched/.test(status), status);
+  ok('all 15 starter variables matched by name', /15 starter variables matched/.test(status), status);
 
   await page.locator('#tab-map').click();
   await page.waitForTimeout(600);
@@ -342,7 +440,7 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   ok('dissemination areas carry the aggregate turnout', /dissemination areas carry aggregate turnout/.test(socioStatus), socioStatus);
   const socioRows = page.locator('#socio-table tbody tr');
   const nVars = await socioRows.count();
-  ok(`table lists the 14 starter variables (${nVars})`, nVars === 14);
+  ok(`table lists the 15 starter variables (${nVars})`, nVars === 15);
   // Rows as cells: [variable, n, r, electors-weighted r, rho, |r|, CI].
   const socioCells = async () => socioRows.evaluateAll((trs) => trs.map((tr) => [...tr.children].map((td) => td.innerText.trim())));
   let cells = await socioCells();
@@ -369,19 +467,141 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.locator('#socio-outcome').selectOption({ label: /Liberal share, federal 2025/.test(await page.locator('#socio-outcome').innerText()) ? 'Liberal share, federal 2025' : 'Federal (2025) turnout' });
   await page.waitForTimeout(800);
   const texts2 = (await socioCells()).map((c) => c.join(' '));
-  ok('switching the outcome recomputes every row', texts2.length === 14 && texts2.join('|') !== texts.join('|'));
+  ok('switching the outcome recomputes every row', texts2.length === 15 && texts2.join('|') !== texts.join('|'));
+
+  // The same correlation on the provincial voting areas: the census is carried
+  // the other way, counts shared out and rates averaged by population. A
+  // planted relationship must survive the move, sign and all.
+  await page.locator('#socio-outcome').selectOption('turnout-agg');
+  await page.waitForTimeout(600);
+  const daRenter = rOf(rowFor(/Renter/));
+  const units = await page.locator('#socio-unit option').allTextContents();
+  ok('the voting areas are offered as a second geography',
+     units.some((t) => /voting areas/i.test(t)), units.join(' | '));
+  await page.locator('#socio-unit').selectOption('prov');
+  await page.waitForTimeout(1200);
+  const provStatus = await page.locator('#socio-status').innerText();
+  ok('the tab now reports voting areas', /provincial voting areas carry aggregate turnout/.test(provStatus),
+     provStatus.replace(/\s+/g, ' ').slice(0, 160));
+  cells = await socioCells();
+  const provRenter = rowFor(/Renter/);
+  ok(`the planted variable keeps its sign on the other geography (${rOf(provRenter)} vs ${daRenter})`,
+     rOf(provRenter) < -0.5 && daRenter < -0.5, `${rOf(provRenter)} / ${daRenter}`);
+  const picker = await page.locator('#socio-picker').innerText();
+  ok('the picker says how each variable was carried across',
+     /population-weighted mean/.test(picker), picker.replace(/\s+/g, ' ').slice(0, 200));
+  const provTiles = await page.locator('#socio-stats').innerText();
+  ok('and the tiles count voting areas, not dissemination areas',
+     /provincial voting areas/.test(provTiles), provTiles.replace(/\s+/g, ' ').slice(0, 160));
+  await page.locator('#socio-unit').selectOption('da');
+  await page.waitForTimeout(900);
+  cells = await socioCells();
+  ok('switching back restores the dissemination-area figures',
+     Math.abs(rOf(rowFor(/Renter/)) - daRenter) < 1e-9, `${rOf(rowFor(/Renter/))} vs ${daRenter}`);
   await page.locator('#socio-outcome').selectOption('turnout-agg');
   await page.waitForTimeout(600);
   await page.locator('#socio-search').fill('2 persons');
   await page.waitForTimeout(300);
   await page.locator('#socio-search-results button').first().click();
   await page.waitForTimeout(800);
-  ok('a characteristic added by name joins the table', (await socioRows.count()) === 15 && /2 persons/.test((await socioCells()).map((c) => c[0]).join(' ')));
+  ok('a characteristic added by name joins the table', (await socioRows.count()) === 16 && /2 persons/.test((await socioCells()).map((c) => c[0]).join(' ')));
   const sdl = page.waitForEvent('download', { timeout: 15000 });
   await page.locator('#export-socio').click();
   const scsv = require('fs').readFileSync(await (await sdl).path(), 'utf8').split(/\r?\n/).filter(Boolean);
   ok(`DA table exported (${scsv.length - 1} rows) with turnout, party shares and variables`,
      scsv.length - 1 >= minAreas && /turnout_agg/.test(scsv[0]) && /pct_renter/.test(scsv[0]) && /fed_share_/.test(scsv[0]) && /population_2021/.test(scsv[0]), scsv[0]);
+  ok('the export carries the columns needed to cluster on the real source',
+     /(^|,)source_unit(,|$)/.test(scsv[0]) && /(^|,)catchment_share(,|$)/.test(scsv[0]), scsv[0]);
+
+  console.log('\n== Two provincial denominators, side by side ==');
+  /* With the census loaded and the crosswalk built, both denominators resolve:
+     federal electors come across the crosswalk, residents 15+ come from the age
+     table. Neither is turnout, and the tab has to say so. */
+  await page.locator('#tab-turnout').click();
+  await page.waitForTimeout(400);
+  await page.locator('#turnout-unit').selectOption('prov');
+  await page.waitForTimeout(900);
+  const headers = await page.$$eval('#turnout-table thead th', (ns) => ns.map((n) => n.textContent));
+  ok(`both denominators are columns, with the spread between them (${headers.join(' | ')})`,
+     headers.includes('Per fed elector') && headers.includes('Per resident 15+') && headers.includes('Spread'),
+     headers.join(' | '));
+  ok('neither is headed as a turnout',
+     !/turnout/i.test(headers[headers.indexOf('Per fed elector')] + headers[headers.indexOf('Per resident 15+')]));
+  const partRows = await page.evaluate(() => {
+    const head = [...document.querySelectorAll('#turnout-table thead th')].map((n) => n.textContent);
+    const iE = head.indexOf('Per fed elector'), iA = head.indexOf('Per resident 15+'),
+          iS = head.indexOf('Spread'), iF = head.indexOf('Federal 2025');
+    return [...document.querySelectorAll('#turnout-table tbody tr')].map((r) => {
+      const c = [...r.children].map((td) => td.textContent);
+      const n = (t) => (t === '--' ? null : parseFloat(t));
+      return { e: n(c[iE]), a: n(c[iA]), s: n(c[iS]), fed: n(c[iF]) };
+    });
+  });
+  const withFed = partRows.filter((r) => r.e != null);
+  const withAdult = partRows.filter((r) => r.a != null);
+  const withBoth = partRows.filter((r) => r.e != null && r.a != null);
+  // The federal denominator rides on the same carried federal unit as the
+  // federal turnout, so it is present on exactly the areas the crosswalk
+  // reaches -- no more, and never on one it does not. The fixture census is a
+  // 44-area patch, so the resident denominator reaches fewer still. Both are
+  // reported where they exist and blank where they do not, never filled in.
+  ok(`the federal denominator is present on exactly the areas the crosswalk reaches (${withFed.length}/${partRows.length})`,
+     withFed.length > 0 && partRows.every((r) => (r.e != null) === (r.fed != null)));
+  ok(`the census denominator reaches the areas the census covers (${withAdult.length})`,
+     withAdult.length >= 10 && withAdult.length < partRows.length);
+  ok(`areas outside the census patch leave it blank rather than guessing`,
+     partRows.some((r) => r.e != null && r.a == null && r.s == null));
+  ok(`the spread is the difference between the two, in points (${withBoth.length} areas)`,
+     withBoth.length > 0 && withBoth.every((r) => Math.abs(r.s - (r.e - r.a)) < 0.15),
+     JSON.stringify(withBoth.slice(0, 3)));
+  const tstatus2 = await page.locator('#turnout-status').innerText();
+  ok('the tab says in words that these are not turnout',
+     /not turnout/i.test(tstatus2) && /registered voters per electoral district/i.test(tstatus2),
+     tstatus2.slice(0, 260));
+  // Sorting on a denominator orders by it, like any other column.
+  await page.locator('#turnout-table thead th', { hasText: 'Per fed elector' }).click();
+  await page.waitForTimeout(700);
+  const sortedByPart = await page.evaluate(() => {
+    const head = [...document.querySelectorAll('#turnout-table thead th')].map((n) => n.textContent);
+    const i = head.indexOf('Per fed elector');
+    return [...document.querySelectorAll('#turnout-table tbody tr')].slice(0, 6)
+      .map((r) => parseFloat(r.children[i].textContent)).filter((v) => isFinite(v));
+  });
+  ok(`a denominator column sorts (${sortedByPart.join(' ≥ ')})`,
+     sortedByPart.every((v, i) => i === 0 || sortedByPart[i - 1] >= v));
+
+  const pdl = page.waitForEvent('download', { timeout: 15000 });
+  await page.locator('#export-turnout').click();
+  const pcsv = require('fs').readFileSync(await (await pdl).path(), 'utf8').trim().split(/\r?\n/);
+  ok('the export carries both ratios and both denominators',
+     ['residents_15_plus', 'prov_per_fed_elector', 'prov_per_resident_15_plus', 'denominator_spread',
+      'fed_electors'].every((c) => pcsv[0].split(',').includes(c)), pcsv[0]);
+
+  await page.locator('#tab-map').click();
+  await page.waitForTimeout(400);
+  for (const [mode, wanted] of [['prov-per-elector', /federal elector/i], ['prov-per-resident', /resident aged 15/i]]) {
+    await page.locator('#shade-prov-by').selectOption(mode);
+    await page.waitForTimeout(600);
+    const shade = await page.evaluate(() => [...document.querySelectorAll('.layer-prov path')].map((n) => {
+      const cs = getComputedStyle(n); return { fill: cs.fill, op: parseFloat(cs.fillOpacity) }; }));
+    // A ramped area is one the mode actually valued; 0.04 is the "no value"
+    // wash, so counting distinct ramped opacities is what proves it shaded.
+    const ramped = shade.filter((v) => v.op > 0.05);
+    ok(`${mode} shades the areas it has a value for (${ramped.length}/${shade.length}, ${new Set(ramped.map((v) => v.op.toFixed(2))).size} opacities)`,
+       ramped.length >= 10 && new Set(ramped.map((v) => v.op.toFixed(2))).size > 5);
+    const legend = await page.locator('#map-legend').innerText();
+    ok(`${mode}: the legend names the denominator and refuses the word turnout`,
+       wanted.test(legend) && /Not turnout/i.test(legend), legend.slice(0, 200));
+  }
+  await page.locator('#shade-prov-by').selectOption('none');
+  await page.waitForTimeout(300);
+  ok('the Method tab explains both denominators and their biases',
+     /Two denominators that are not an electorate/.test(await page.evaluate(() => document.querySelector('#panel-method').textContent)));
+  await page.locator('#tab-turnout').click();
+  await page.locator('#turnout-unit').selectOption('fed');
+  await page.waitForTimeout(600);
+  await page.locator('#tab-socio').click();
+  await page.waitForTimeout(400);
 
   console.log('\n== Census on the map ==');
   await page.locator('#tab-map').click();

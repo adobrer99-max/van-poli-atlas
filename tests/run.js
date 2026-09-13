@@ -14,16 +14,18 @@ const path = require('path');
 
 const root = path.join(__dirname, '..');
 const NODE_SUITES = ['test-geo', 'test-lcc', 'test-text', 'test-binary', 'test-ingest', 'test-analysis',
-  'test-sample', 'test-slivers', 'test-repair', 'test-results', 'test-turnout', 'test-census', 'test-perf'];
+  'test-sample', 'test-slivers', 'test-repair', 'test-results', 'test-turnout', 'test-census',
+  'test-places', 'test-summary', 'test-perf'];
 const BROWSER_SUITES = ['test-browser', 'test-variants'];
 /* Python suites cover the local tools in tools/; they run with the node ones. */
-const PYTHON_SUITES = ['test-shp-tools', 'test-filter-census'];
+const PYTHON_SUITES = ['test-shp-tools', 'test-filter-census', 'test-clip-geojson'];
 
 const args = new Set(process.argv.slice(2));
 const suites = args.has('--all') ? NODE_SUITES.concat(BROWSER_SUITES)
   : args.has('--browser') ? BROWSER_SUITES : NODE_SUITES;
 
-const fixtures = ['fixtures/albers_control.json', 'fixtures/va_shapefile.zip', 'fixtures/e2e_expected.json'];
+const fixtures = ['fixtures/albers_control.json', 'fixtures/va_shapefile.zip', 'fixtures/e2e_expected.json',
+  'fixtures/e2e_ebc_order.zip'];
 const missing = fixtures.filter((f) => !fs.existsSync(path.join(root, f)));
 if (missing.length) {
   console.error(`Test fixtures are missing (${missing.join(', ')}). Generate them first:\n  npm run fixtures`);

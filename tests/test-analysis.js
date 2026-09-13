@@ -111,5 +111,47 @@ const none = drain(An.crosswalkRunner(fed, far, { spacingM: 200 }));
 ok('no overlap flagged', none.overlap === false);
 ok('no pairs', An.crosswalkPairs(none).length === 0);
 
+console.log('\n== Moving a census variable across a crosswalk ==');
+// Two source areas, each split evenly into targets: a0 -> b0, b1 and a1 -> b1, b2.
+// The overlaps carry mass 10, 10, 30, 30, so b1 is a quarter a0 and three
+// quarters a1 by population even though it is half of each by area.
+const mvPairs = [
+  { ai:0, bi:0, fi:0, pi:0, count:10, shareOfA:0.5, shareOfB:1.0, shareOfFed:0.5, shareOfProv:1.0 },
+  { ai:0, bi:1, fi:0, pi:1, count:10, shareOfA:0.5, shareOfB:0.5, shareOfFed:0.5, shareOfProv:0.5 },
+  { ai:1, bi:1, fi:1, pi:1, count:30, shareOfA:0.5, shareOfB:0.5, shareOfFed:0.5, shareOfProv:0.5 },
+  { ai:1, bi:2, fi:1, pi:2, count:30, shareOfA:0.5, shareOfB:1.0, shareOfFed:0.5, shareOfProv:1.0 },
+];
+const counted = An.moveVariable(mvPairs, new Map([[0, 400], [1, 800]]), { from:'a', kind:'count' });
+near('a count is split, not averaged: b0', counted.get(0), 200, 1e-9);
+near('b1 takes half of each source', counted.get(1), 600, 1e-9);
+near('b2 takes the rest', counted.get(2), 400, 1e-9);
+near('and the total is conserved',
+     [...counted.values()].reduce((a, b) => a + b, 0), 1200, 1e-9);
+
+const rates = new Map([[0, 10], [1, 40]]);
+const meaned = An.moveVariable(mvPairs, rates, { from:'a', kind:'rate' });
+near('a rate is a weighted mean, not a sum: b0', meaned.get(0), 10, 1e-9);
+near('b1 weights by overlap mass, not by area', meaned.get(1), (10*10 + 40*30) / 40, 1e-9);
+near('b2 keeps its single source', meaned.get(2), 40, 1e-9);
+ok('a rate never exceeds the range of its sources',
+   [...meaned.values()].every((v) => v >= 10 - 1e-9 && v <= 40 + 1e-9));
+
+const uniform = An.moveVariable(mvPairs, new Map([[0, 7], [1, 7]]), { from:'a' });
+ok('a variable with the same value everywhere survives the move unchanged',
+   [...uniform.values()].every((v) => Math.abs(v - 7) < 1e-12), JSON.stringify([...uniform]));
+
+const weightless = An.moveVariable(mvPairs.map((p) => ({ ...p, count: 0 })), rates, { from:'a' });
+near('a target whose overlaps all weigh nothing falls back to a plain mean',
+     weightless.get(1), 25, 1e-9);
+ok('rather than vanishing or reading zero', weightless.size === 3, String(weightless.size));
+
+const sparse = An.moveVariable(mvPairs, new Map([[1, 5]]), { from:'a' });
+ok('a target with no source value at all is absent, not zero',
+   !sparse.has(0) && sparse.get(1) === 5 && sparse.get(2) === 5,
+   JSON.stringify([...sparse]));
+const reversed = An.moveVariable(mvPairs, new Map([[0, 3], [1, 3], [2, 3]]), { from:'b' });
+ok('it moves the other way too', [...reversed.values()].every((v) => Math.abs(v - 3) < 1e-12),
+   JSON.stringify([...reversed]));
+
 console.log(fails ? `\n${fails} FAILURE(S)\n` : '\nAll analysis tests passed.\n');
 process.exit(fails ? 1 : 0);

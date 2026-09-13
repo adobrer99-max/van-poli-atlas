@@ -140,6 +140,308 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     await page.close();
   }
 
+  console.log('\n== A BC Data Catalogue order loads as delivered ==');
+  // The real order is one .geojson of every voting area in the province, zipped
+  // next to the order's metadata .json. The fixture has that shape: areas over
+  // the study area, one district far away, and the metadata entry as a decoy.
+  {
+    const ebc = JSON.parse(require('fs').readFileSync('fixtures/e2e_expected.json', 'utf8')).ebc;
+    const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    const errs = []; page.on('pageerror', (e) => errs.push(e.message));
+    await stubTiles(page); await page.goto(FILE); await page.waitForTimeout(500);
+    await page.locator('#tab-data').click();
+    const load = async () => {
+      await page.locator('#file-prov-geo').setInputFiles('fixtures/e2e_ebc_order.zip');
+      await page.waitForFunction(() => /Loaded|Could not/.test(document.querySelector('#status-prov-geo').innerText),
+        null, { timeout: 30000 });
+      return (await page.locator('#status-prov-geo').innerText()).replace(/\s+/g, ' ');
+    };
+    let st = await load();
+    ok(`order zip clipped to the study area: ${ebc.in_study_area} of ${ebc.total} areas`,
+       new RegExp(`Loaded ${ebc.in_study_area} voting areas of ${ebc.total} in`).test(st)
+       && /EBC_VOTING_AREAS_BS11_POLY_SVW\.geojson/.test(st), st.slice(0, 200));
+    ok('Elections BC key fields chosen without being told',
+       /Keyed by ED_ABBREVIATION \+ VA_CODE/.test(st), st.slice(0, 200));
+    await page.locator('#tab-map').click(); await page.waitForTimeout(600);
+    ok('the kept areas are drawn', (await page.locator('.layer-prov path').count()) === ebc.in_study_area);
+    await page.locator('#tab-data').click();
+    await page.locator('#clear-prov-geo').click();
+    await page.locator('#clip-prov').uncheck();
+    st = await load();
+    ok(`unclipped, the whole province loads: ${ebc.total} areas`,
+       new RegExp(`Loaded ${ebc.total} voting areas from`).test(st), st.slice(0, 200));
+    ok('no errors loading the order', errs.length === 0, errs.join(' | '));
+    await page.close();
+  }
+
+  console.log('\n== Results reported by voting place ==');
+  // Elections BC reported 2024 by place, not by area, so the atlas builds
+  // catchments. Nothing may be lost on the way, and the page has to say
+  // plainly that the catchments are its own work.
+  {
+    const want = JSON.parse(require('fs').readFileSync('fixtures/e2e_expected.json', 'utf8')).places;
+    const page = await browser.newPage({ viewport: { width: 1300, height: 950 } });
+    const errs = []; page.on('pageerror', (e) => errs.push(e.message));
+    await stubTiles(page); await page.goto(FILE); await page.waitForTimeout(500);
+    await page.locator('#tab-data').click();
+    await page.locator('#file-prov-geo').setInputFiles('fixtures/e2e_voting_areas.zip');
+    await page.waitForFunction(() => /Loaded/.test(document.querySelector('#status-prov-geo').innerText),
+      null, { timeout: 20000 });
+    await page.locator('#file-prov-results').setInputFiles('fixtures/e2e_voting_places.csv');
+    await page.waitForFunction(() => /rows:|Could not/.test(document.querySelector('#status-prov-results').innerText),
+      null, { timeout: 30000 });
+    const st = (await page.locator('#status-prov-results').innerText()).replace(/\s+/g, ' ');
+    ok(`the file is recognised as one reported by place: ${want.located} of ${want.rows} rows located`,
+       new RegExp(`${want.rows} rows: ${want.located} with a location, ${want.unlocated} without`).test(st), st.slice(0, 200));
+    ok(`${want.catchments} catchments are built`,
+       new RegExp(`${want.catchments} catchments cover`).test(st), st.slice(0, 260));
+    ok('the page says the catchments are modelled, not published',
+       /modelled here, not published by Elections BC/i.test(st), st.slice(0, 400));
+    ok('and says provincial turnout has no denominator',
+       /no registered-voter count/i.test(st), st.slice(-260));
+
+    const facts = await page.evaluate(() => {
+      const s = window.vanPoliAtlas.state, store = s.provResults;
+      let ballots = 0, withPlace = 0;
+      for (const u of store.values.values()) { ballots += u.total + u.rejected; if (u.place) withPlace++; }
+      return { kind: store.kind, ballots, withPlace, areas: store.values.size,
+               report: store.report, parties: store.parties.map(([n]) => n) };
+    });
+    ok('every ballot in the file lands on a voting area',
+       Math.abs(facts.ballots - want.ballots) < 1, `${facts.ballots} vs ${want.ballots}`);
+    ok('the party columns are read and named',
+       JSON.stringify(facts.parties.slice().sort()) === JSON.stringify(want.parties.slice().sort()),
+       facts.parties.join(','));
+    ok('roughly half the ballots came through a catchment, the rest spread',
+       facts.report.ballotsFromPlaces > 0 && facts.report.ballotsSpread > 0
+       && Math.abs(facts.report.ballotsFromPlaces + facts.report.ballotsSpread - want.ballots) < 1,
+       JSON.stringify([facts.report.ballotsFromPlaces, facts.report.ballotsSpread]));
+    ok('every area is inside a catchment', facts.withPlace === facts.areas,
+       `${facts.withPlace} of ${facts.areas}`);
+
+    await page.locator('#tab-map').click(); await page.waitForTimeout(700);
+    const markers = await page.locator('.layer-places path').count();
+    ok(`the ${want.located} voting places are drawn on the map`, markers === want.located, String(markers));
+    await page.locator('#show-places').uncheck(); await page.waitForTimeout(300);
+    const hidden = await page.evaluate(() =>
+      document.querySelector('.layer-places').style.display);
+    ok('and can be switched off', hidden === 'none', hidden);
+    await page.locator('#show-places').check(); await page.waitForTimeout(200);
+
+    // The catchments decide where every provincial number lands, so they have
+    // to be visible, and the legend has to say they are arbitrary colours.
+    ok('the catchment shading is offered once results came by place',
+       !(await page.$eval('#shade-prov-by option[value=catchment]', (o) => o.hidden)));
+    await page.locator('#shade-prov-by').selectOption('catchment');
+    await page.waitForTimeout(600);
+    const fills = await page.$$eval('.layer-prov path',
+      (ps) => ps.map((p) => p.style.fill).filter(Boolean));
+    ok('areas are filled by catchment, in more than one colour',
+       new Set(fills).size > 2 && fills.length > 100, `${new Set(fills).size} colours over ${fills.length} areas`);
+    const legend = (await page.locator('#map-legend').innerText()).replace(/\s+/g, ' ');
+    ok('the legend names the catchment count and calls the colours repeating',
+       new RegExp(`${want.catchments} catchments`).test(legend) && /repeating/.test(legend), legend.slice(0, 200));
+    await page.locator('#shade-prov-by').selectOption('none'); await page.waitForTimeout(300);
+
+    // The Results tab is the one place that reports a place file as it arrived:
+    // by channel, with the located share stated rather than implied.
+    await page.locator('#tab-results').click(); await page.waitForTimeout(600);
+    const rs = (await page.locator('#results-status').innerText()).replace(/\s+/g, ' ');
+    ok('the summary counts every ballot in the file',
+       rs.includes(want.ballots.toLocaleString()), rs.slice(0, 180));
+    ok('and names rows and places separately, since they differ',
+       new RegExp(`${want.rows} reported rows across ${want.located} voting places`).test(rs), rs.slice(0, 200));
+    ok('a file with no elector column says there is no turnout to report',
+       /no registered-voter count/.test(rs), rs.slice(0, 260));
+    const channels = (await page.locator('#results-channels').innerText()).replace(/\s+/g, ' ');
+    ok('how people voted is broken out by opportunity',
+       /Final voting/.test(channels) && /Advance voting/.test(channels) && /Vote by mail/.test(channels),
+       channels.slice(0, 200));
+    ok('the busiest voting places are listed',
+       /Busiest voting places/.test(await page.locator('#results-largest-title').innerText()));
+    const turnoutCols = await page.$$eval('#results-districts thead th', (ths) => ths.map((t) => t.innerText));
+    ok('and the turnout column is dropped rather than shown as dashes',
+       !turnoutCols.includes('Turnout'), turnoutCols.join(','));
+
+    // Elections BC keeps the denominator in the Statement of Votes. Given it,
+    // turnout is a measurement: ballots over registered voters.
+    await page.locator('#tab-data').click();
+    await page.locator('#file-prov-electors').setInputFiles('fixtures/e2e_prov_electors.csv');
+    await page.waitForFunction(() => /registered voters|Could not/.test(document.querySelector('#status-prov-electors').innerText),
+      null, { timeout: 20000 });
+    const est = (await page.locator('#status-prov-electors').innerText()).replace(/\s+/g, ' ');
+    ok('the denominator column is read, not the "who voted" column beside it',
+       /from Electoral District and Registered voters\./.test(est), est.slice(0, 200));
+    await page.locator('#tab-results').click(); await page.waitForTimeout(700);
+    const withT = await page.$$eval('#results-districts thead th', (ths) => ths.map((t) => t.innerText));
+    ok('the turnout column comes back once there is a denominator',
+       withT.includes('Turnout'), withT.join(','));
+    const firstRow = await page.$$eval('#results-districts tbody tr td', (tds) => tds.slice(0, 3).map((t) => t.innerText));
+    ok(`and it is a real rate, not a dash or 100% (${firstRow[2]})`,
+       /^\d/.test(firstRow[2]) && parseFloat(firstRow[2]) > 20 && parseFloat(firstRow[2]) < 99, firstRow.join(' | '));
+    const rstat = (await page.locator('#results-status').innerText()).replace(/\s+/g, ' ');
+    ok('and the tab says where the denominator came from',
+       /denominator taken from the file you loaded/.test(rstat), rstat.slice(0, 220));
+    await page.locator('#tab-map').click(); await page.waitForTimeout(200);
+    await page.locator('#tab-map').click(); await page.waitForTimeout(300);
+
+    // Reading a voting area must say which place its numbers came from.
+    await page.evaluate(() => {
+      const { state, selectAt } = window.vanPoliAtlas;
+      const f = state.prov.active[Math.floor(state.prov.active.length / 2)];
+      const ring = f.geometry.coordinates[0];
+      const lon = ring.reduce((a, p) => a + p[0], 0) / ring.length;
+      const lat = ring.reduce((a, p) => a + p[1], 0) / ring.length;
+      selectAt([lon, lat]);
+    });
+    await page.waitForTimeout(300);
+    const card = (await page.locator('#readout').innerText()).replace(/\s+/g, ' ');
+    ok('the readout names the place a voting area was assigned to and how far away it is',
+       /Assigned to .*Hall.*\d+ m away/.test(card), card.slice(0, 260));
+    ok('and says how much of the area came from that place',
+       /of its ballots came from that place/.test(card), card.slice(0, 320));
+
+    await page.locator('#tab-data').click();
+    await page.locator('#prov-place-basis').selectOption('catchment');
+    await page.waitForFunction(() => window.vanPoliAtlas.state.provResults.report.basis === 'catchment',
+      null, { timeout: 20000 });
+    const after = await page.evaluate(() => {
+      let ballots = 0;
+      for (const u of window.vanPoliAtlas.state.provResults.values.values()) ballots += u.total + u.rejected;
+      return ballots;
+    });
+    ok('the other spreading basis conserves the same ballots',
+       Math.abs(after - want.ballots) < 1, `${after} vs ${want.ballots}`);
+
+    // The split is by ground area until the census layers and the lattice
+    // exist, and by population afterwards. That change must happen when the
+    // crosswalk is built, not silently at some later unrelated click.
+    ok('until the census is loaded the split is by ground area',
+       (await page.evaluate(() => window.vanPoliAtlas.state.provResults.report.splitBasis)) === 'ground area');
+    for (const [id, file] of [['#file-db-geo', 'fixtures/e2e_db.zip'], ['#file-da-geo', 'fixtures/e2e_da.zip'],
+                              ['#file-geo-attr', 'fixtures/e2e_geo_attr.csv'], ['#file-census', 'fixtures/e2e_census_long.csv']]) {
+      await page.locator(id).setInputFiles(file);
+      await page.waitForTimeout(900);
+    }
+
+    // With the federal results loaded and a crosswalk built, the correlation
+    // must count independent sources, not polygons.
+    await page.locator('#file-fed-results').setInputFiles('fixtures/e2e_federal_results.csv');
+    await page.waitForFunction(() => /matched/i.test(document.querySelector('#status-fed-results').innerText),
+      null, { timeout: 40000 });
+    await page.locator('#tab-corr').click(); await page.waitForTimeout(300);
+    await page.locator('#build-crosswalk').click();
+    await page.waitForFunction(() => document.querySelector('#corr-stats').innerText.length > 20,
+      null, { timeout: 120000 });
+    const weighted = await page.evaluate(() => {
+      let ballots = 0;
+      for (const u of window.vanPoliAtlas.state.provResults.values.values()) ballots += u.total + u.rejected;
+      return { ballots, basis: window.vanPoliAtlas.state.provResults.report.splitBasis };
+    });
+    ok('building the crosswalk switches the split to population there and then',
+       weighted.basis === 'population', weighted.basis);
+    ok('and not one ballot moves in or out in the process',
+       Math.abs(weighted.ballots - want.ballots) < 1, `${weighted.ballots} vs ${want.ballots}`);
+    const said = (await page.locator('#status-prov-results').innerText()).replace(/\s+/g, ' ');
+    ok('the report says which basis produced its numbers',
+       /in proportion to population/.test(said), said.slice(-260));
+
+    const stats = (await page.locator('#corr-stats').innerText()).replace(/\s+/g, ' ');
+    ok('the correlation reports independent sources beside the unit count',
+       /independent sources/.test(stats), stats.slice(0, 240));
+    const nEff = await page.evaluate(() => {
+      const r = window.vanPoliAtlas.state.lastCorrelation.result;
+      return [r.n, r.nEffective, r.grouped];
+    });
+    ok('and there are fewer sources than units', nEff[2] === true && nEff[1] < nEff[0] && nEff[1] > 0,
+       JSON.stringify(nEff));
+    ok('the interval is computed on the sources, so it is wider than the nominal one',
+       await page.evaluate(() => {
+         const r = window.vanPoliAtlas.state.lastCorrelation.result;
+         if (!r.ci || !r.ciNominal) return true;
+         return (r.ci[1] - r.ci[0]) > (r.ciNominal[1] - r.ciNominal[0]);
+       }));
+    // --- Two denominators, on the geography the ballots actually landed on ---
+    // This is the shape of the real thing: results by voting place, no elector
+    // column anywhere in them, a census loaded and a crosswalk built. Neither
+    // denominator is a provincial electorate, and both have to be right.
+    await page.locator('#tab-turnout').click();
+    await page.locator('#turnout-unit').selectOption('prov');
+    await page.waitForTimeout(1200);
+    const part = await page.evaluate(() => {
+      const st = window.vanPoliAtlas.state;
+      const out = { areas: 0, withFed: 0, withAdult: 0, withBoth: 0, badRatio: 0, badSpread: 0,
+                    ballots: 0, electors: 0, adults: 0, differ: 0 };
+      for (const p of (st.provPart || new Map()).values()) {
+        out.areas++;
+        if (p.perFedElector != null) {
+          out.withFed++;
+          if (Math.abs(p.perFedElector - p.ballots / p.fedElectors) > 1e-9) out.badRatio++;
+        }
+        if (p.perAdult != null) {
+          out.withAdult++;
+          if (Math.abs(p.perAdult - p.ballots / p.adults) > 1e-9) out.badRatio++;
+        }
+        if (p.perFedElector != null && p.perAdult != null) {
+          out.withBoth++;
+          if (Math.abs(p.spread - (p.perFedElector - p.perAdult)) > 1e-12) out.badSpread++;
+          if (Math.abs(p.spread) > 1e-6) out.differ++;
+          out.ballots += p.ballots; out.electors += p.fedElectors; out.adults += p.adults;
+        }
+      }
+      return out;
+    });
+    ok(`both denominators land on voting areas (${part.withFed} federal, ${part.withAdult} resident, `
+       + `${part.withBoth} with both, of ${part.areas})`,
+       part.withFed > 0 && part.withAdult > 0 && part.withBoth > 0);
+    ok('every ratio is its own ballots over its own denominator', part.badRatio === 0, String(part.badRatio));
+    ok('and the spread is exactly the difference between them', part.badSpread === 0, String(part.badSpread));
+    ok('the two denominators disagree, which is the reason for reporting both',
+       part.differ > part.withBoth * 0.9, `${part.differ}/${part.withBoth}`);
+    // Conservation: a count shared out across a crosswalk can lose mass where the
+    // target layer does not reach, but it can never gain any. Without this, a
+    // share bug would show up only as an implausible-looking ratio.
+    const carried = await page.evaluate(() => {
+      const st = window.vanPoliAtlas.state;
+      let native = 0;
+      for (const f of st.fed.active) {
+        const u = st.fedResults.values.get(f.idx);
+        if (u && u.electors > 0) native += u.electors;
+      }
+      let onProv = 0;
+      for (const p of (st.provPart || new Map()).values()) onProv += p.fedElectors || 0;
+      return { native, onProv };
+    });
+    ok(`federal electors carried onto voting areas conserve mass `
+       + `(${Math.round(carried.onProv).toLocaleString()} of ${Math.round(carried.native).toLocaleString()})`,
+       carried.onProv > 0 && carried.onProv <= carried.native * 1.0001,
+       JSON.stringify(carried));
+    const pooled = { fed: part.ballots / part.electors, adult: part.ballots / part.adults };
+    ok(`pooled over the covered areas: ${(pooled.fed * 100).toFixed(1)}% of federal electors vs `
+       + `${(pooled.adult * 100).toFixed(1)}% of residents 15+`,
+       isFinite(pooled.fed) && isFinite(pooled.adult) && pooled.fed > 0 && pooled.adult > 0);
+    // A district-level registered-voter count is loaded further up. It gives the
+    // Results tab a real turnout per district, and must not make either of these
+    // one: a proxy that quietly becomes "turnout" once any elector file exists
+    // is exactly the failure this is built to avoid.
+    const stillProxy = await page.evaluate(() => {
+      const rows = window.vanPoliAtlas.state.turnout.rows || [];
+      const withP = rows.filter((r) => r.p && (r.p.perFedElector != null || r.p.perAdult != null));
+      return { rows: rows.length, withP: withP.length, anyProvTurnout: rows.some((r) => r.t.prov != null) };
+    });
+    ok(`a district elector file does not turn a proxy into turnout `
+       + `(${stillProxy.withP} rows carry a denominator, provincial turnout per area: `
+       + `${stillProxy.anyProvTurnout ? 'reported' : 'still blank'})`,
+       stillProxy.withP > 0 && stillProxy.anyProvTurnout === false);
+    const theads = await page.$$eval('#turnout-table thead th', (ns) => ns.map((n) => n.textContent));
+    ok(`the ranked table heads them by their denominators (${theads.slice(-3).join(' | ')})`,
+       theads.includes('Per fed elector') && theads.includes('Per resident 15+') && theads.includes('Spread'));
+
+    ok('no errors anywhere in the voting-place path', errs.length === 0, errs.slice(0, 3).join(' | '));
+    await page.screenshot({ path: 'shot-places.png' });
+    await page.close();
+  }
+
   console.log('\n== Unhelpful input is reported clearly ==');
   {
     const page = await browser.newPage({ viewport:{width:1200,height:900} });
@@ -153,19 +455,28 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     let s = await page.locator('#status-prov-geo').innerText();
     ok('bad file explained, page still alive', /Could not read/i.test(s) && errs.length === 0,
        s.replace(/\s+/g,' ').slice(0,140));
-    // A boundary file that does not overlap Vancouver at all.
+    // A boundary file that does not overlap Vancouver at all. Clipping is on by
+    // default, so this stops with a message that names the way out...
     fs.writeFileSync('fixtures/elsewhere.geojson', JSON.stringify({type:'FeatureCollection',features:[
       {type:'Feature',properties:{ED_NAME:'Far Away',VA_CODE:'1'},geometry:{type:'Polygon',
         coordinates:[[[10,50],[11,50],[11,51],[10,51],[10,50]]]}}]}));
     await page.locator('#file-prov-geo').setInputFiles('fixtures/elsewhere.geojson');
     await page.waitForTimeout(900);
     s = await page.locator('#status-prov-geo').innerText();
-    ok('non-overlapping layer loads without crashing', /Loaded 1 voting area/.test(s), s.replace(/\s+/g,' ').slice(0,140));
-    await page.locator('#tab-corr').click(); await page.waitForTimeout(300);
-    await page.locator('#build-crosswalk').click(); await page.waitForTimeout(1500);
-    const cs = await page.locator('#status-crosswalk').innerText();
-    ok('crosswalk says the layers do not meet', /empty|Nothing to cross|fall outside/i.test(cs),
-       cs.replace(/\s+/g,' ').slice(0,160));
+    ok('a file outside the study area says so, and says to untick clipping',
+       /touch the study area/i.test(s) && /untick/i.test(s), s.replace(/\s+/g,' ').slice(0,160));
+    // ...and unticking it does load the layer whole.
+    await page.locator('#clip-prov').uncheck();
+    await page.locator('#file-prov-geo').setInputFiles('fixtures/elsewhere.geojson');
+    await page.waitForTimeout(900);
+    s = await page.locator('#status-prov-geo').innerText();
+    ok('unclipped, the non-overlapping layer loads without crashing', /Loaded 1 voting area/.test(s),
+       s.replace(/\s+/g,' ').slice(0,140));
+    await page.locator('#tab-corr').click(); await page.waitForTimeout(400);
+    const cs = (await page.locator('#status-crosswalk').innerText()).replace(/\s+/g, ' ');
+    ok('the crosswalk says the layers do not meet, before anything is pressed',
+       /do not overlap the study area/i.test(cs), cs.slice(0, 200));
+    ok('and the build button is not offered', await page.locator('#build-crosswalk').isDisabled());
     ok('no errors from bad input', errs.length === 0, errs.join('|'));
     await page.close();
   }

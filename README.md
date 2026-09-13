@@ -14,15 +14,28 @@ switched off.
 
 Open the file in a browser, then work through the **Data** tab:
 
-1. **Provincial voting-area boundaries** — from
-   [Elections BC GIS spatial data](https://elections.bc.ca/resources/maps/gis-spatial-data/)
-   or the [BC Data Catalogue](https://catalogue.data.gov.bc.ca/). A zipped
-   shapefile (`.shp` + `.dbf` + `.prj`), `.kml`, `.kmz` or `.geojson` all work.
-   BC Albers (EPSG:3005), UTM zone 10N and lon/lat are converted automatically.
+1. **Provincial voting-area boundaries** — the 2024 set is *Provincial
+   Electoral District Voting Areas – Gazetted 09/19/2024* on the
+   [BC Data Catalogue](https://catalogue.data.gov.bc.ca/dataset/2a73ba6d-0707-4335-9f4f-7f8a6d922654),
+   ordered as GeoJSON; the order's `.zip` loads as delivered and is clipped to
+   the study area while it is read (see [Provincial voting areas](#provincial-voting-areas)).
+   A zipped shapefile (`.shp` + `.dbf` + `.prj`), `.kml`, `.kmz` or `.geojson`
+   from anywhere else works too. BC Albers (EPSG:3005), UTM zone 10N and
+   lon/lat are converted automatically.
 2. **Federal results** — Elections Canada's
    `pollresults_resultatsbureau<riding>.csv`, one riding at a time or zipped.
+   Take this file, not `pollbypoll_bureauparbureau<riding>.csv`: the poll-by-poll
+   summary heads its columns with candidate names and carries no party at all,
+   so nothing can be compared across ridings. Both the 2016-era `Merge With`
+   column and the 2025 `Combined with No.` spelling are read. A division split
+   on the day — reported as `10A` and `10B` while the boundary file still draws
+   one polygon, `10-0` — is pooled back into that polygon, since the halves are
+   one polling division between them.
 3. **Provincial results** — Elections BC results by voting area, in either long
-   (one row per candidate) or wide (one column per party) form.
+   (one row per candidate) or wide (one column per party) form; or, for 2024,
+   results by *voting place* (see
+   [Provincial results for 2024](#provincial-results-for-2024)). A file with
+   longitude and latitude columns is read the second way automatically.
 
 Files are read in the browser tab. Nothing is uploaded anywhere.
 
@@ -35,13 +48,192 @@ the federal polling division, the provincial voting area and the dissemination
 area at whatever point you click. Each layer
 is shaded by its own election's results — party share or turnout — and the
 federal layer can also carry provincial results redistributed through the
-crosswalk. The **Correlation** tab builds the crosswalk and plots one vote share
+crosswalk. The **Results** tab says what the loaded files themselves contain,
+before anything is joined or moved: party totals and shares, a district table
+with the leading party and its margin, how people voted by opportunity where
+the file records it, the busiest places, and a summary CSV. The **Correlation**
+tab builds the crosswalk and plots one vote share
 against the other. The **Turnout** tab ranks every area by turnout combined
 across both elections, draws the "top X % of areas hold Y % of electors" curve,
 pools any set of areas into a basket, and exports the ranking. The
-**Socioeconomic** tab moves both elections' results onto dissemination areas
-and correlates turnout, or any party's share, with census variables. The
-**Method** tab states the assumptions; read it before quoting a coefficient.
+**Socioeconomic** tab correlates turnout, or any party's share, with census
+variables, on either geography: dissemination areas, where the census lives and
+the election results are carried in, or provincial voting areas, where the
+provincial results live and the census is carried in instead — counts shared
+out, rates averaged by population, and the picker says which happened to each
+variable. Its export names the voting place behind every row and how much of
+that row came from it, so a clustered standard error can be computed
+elsewhere. The **Method** tab states the assumptions; read it before quoting a
+coefficient.
+
+## Provincial voting areas
+
+Elections BC publishes the voting-area polygons through the BC Data
+Catalogue as `WHSE_ADMIN_BOUNDARIES.EBC_VOTING_AREAS_BS11_POLY_SVW`
+(boundary set 11, the 2024 general election). Ordering it as GeoJSON delivers
+a `BCGW_….zip` holding one `.geojson` for the whole province — 5,778 areas,
+about 100 MB — next to the order's metadata and licence files. Two ways to use
+it:
+
+- **Load the `.zip` as delivered.** With *Clip the file to the study area
+  while loading* ticked (the default), only the areas touching the federal
+  extent plus 2 km are kept; the status line reports how many of the
+  province's areas that was. Everything else about the file is ignored.
+- **Cut it down once** and keep a small file:
+
+  ```
+  python3 tools/clip_geojson.py BCGW_order.zip --list                 # district codes, counts, extents
+  python3 tools/clip_geojson.py BCGW_order.zip --study-area --out va_vancouver.geojson
+  python3 tools/clip_geojson.py BCGW_order.zip --ed VHA VKE VLA VLM VNP --out five_districts.geojson
+  ```
+
+  `--study-area` is the City of Vancouver federal ridings plus 2 km, the same
+  box the atlas clips to; `--like other.geojson` takes another file's extent;
+  `--bbox W S E N` is explicit. Properties and coordinates are written
+  unchanged unless `--precision 7` is given (about 1 cm). Standard library only.
+
+The file identifies districts by `ED_ABBREVIATION` (`VHA`, `VKE`, …) and
+areas by the three-digit `VA_CODE`; `EDVA_CODE` joins the two. The atlas
+picks those fields itself and says so in the status line; the results file
+has to name districts the same way, or the district field can be set to
+"none" when the results carry the combined code.
+
+**The dataset is areal only.** All 5,778 records in the province are
+`VA_TYPE: Areal`, none has a null geometry, and no `VA_CODE` ends in a letter,
+so every voting area in it is a polygon. Whatever geography Elections BC uses
+for voting at a care home, a hospital or a correctional centre, this product
+does not carry it.
+
+What that leaves unplaced is the **Special voting** channel in the results:
+3,418 ballots city-wide, 1.35% of the 2024 vote, reported as **one row per
+electoral district** with no location. Those ballots are counted in the results
+report and spread across their district like the other channels that have no
+geography. Geocoding the facilities would not change that, because the
+numerator is published per district and not per facility — splitting it would
+be a model dressed as a measurement, which is the same reason per-area
+provincial turnout stays blank.
+
+## Provincial results for 2024
+
+2024 was the first British Columbia general election where a voter could use
+any voting place, so Elections BC reports the count by **voting place** — a
+point — rather than by voting area. Loading such a file (one with `longitude`
+and `latitude` columns) switches the atlas onto a different road:
+
+- every voting area is given to the **nearest final-voting place of its own
+  electoral district**, and that place's ballots are split across the areas it
+  serves in proportion to population, or to ground area when no census is
+  loaded;
+- ballots with no meaningful location — advance voting, the district electoral
+  office, vote by mail, special and assisted telephone voting, and
+  out-of-district ballots — are spread across the whole district instead. A
+  switch offers the alternative of spreading them in proportion to what each
+  catchment polled on the final day.
+
+Nothing is dropped: every ballot in the file lands on some area, and the status
+line says how much took which route. On the real 2024 Vancouver file that is
+162 located places in 118 catchments over 706 voting areas, a median of five
+areas per catchment and 379 m from an area to its place, with 40% of ballots
+arriving through a catchment and 60% spread across a district.
+
+**The catchments are modelled here, not published by Elections BC.** Three
+consequences, all stated on the Method tab: within a catchment the variation
+you see is the census, not the election; nearest-place is a guess at a boundary
+Elections BC actually drew; and spreading one place's result over five areas
+does not make five observations, so the Correlation and Socioeconomic tabs
+report the number of independent sources beside the number of units and compute
+the confidence interval on the sources. Quote a coefficient with that figure.
+
+The results file carries no registered-voter count, so turnout is not computed
+from it. Elections BC defines turnout as the share of **registered voters who
+voted**, and publishes that denominator per electoral district in the
+[Statement of Votes](https://elections.bc.ca/docs/rpt/statement-of-votes-2024-provincial-election.pdf),
+not in the results file. Load a two-column table — district, registered voters —
+in section 3 of the Data tab and the Results tab reports turnout per district
+and city-wide. Either the abbreviation (`VFV`) or the full name
+(`Vancouver-Fraserview`) matches, and a column naming the voters who *voted* is
+ignored, since that is the numerator the atlas already has. Checked against the
+Statement of Votes: Vancouver-Fraserview, 20,865 ballots over 39,801 registered,
+reads 52.4%.
+
+### Advance polls land on the divisions that fed them
+
+Forty-three per cent of the 2025 federal ballots in Vancouver were cast at an
+advance poll, which has no boundary of its own. Elections Canada's
+polling-division file records which advance poll every ordinary division
+reported to, so those ballots go to the three-to-fourteen divisions that fed
+each advance poll — ten on average — instead of to the ~190 in its riding.
+`tools/add-advance-polls.js` copies that column into the payload from
+`PD_CA_2025_EN.dbf`; only the attribute table is needed, not the 175 MB `.shp`,
+because the geometry is already there.
+
+Within a served set the split is **proportional to electors**, not equal: the
+divisions are roughly the same size but not exactly, typically 1.5× between
+largest and smallest and once 6×, so an even split would be off by about 13%.
+
+On the real six-riding file: 105 advance pools, 98 of them spread over a served
+set averaging 10.4 divisions, and the share of ballots sitting on a division or
+in a named set of about ten rises from **44.2% to 84.3%**. Ballots are conserved
+exactly — what lands on units equals what was matched plus what was
+apportioned, on either basis.
+
+Unlike the provincial catchments this atlas invents, **this is published**. The
+Method tab says so, and says which is which.
+
+### Ridings that leave the city
+
+Two of the six federal ridings cross the City of Vancouver line: Vancouver
+Quadra reaches into UBC and the University Endowment Lands, and Vancouver
+Fraserview—South Burnaby is **a third Burnaby by electors**. Polls outside the
+city are tagged in the boundary file (`tools/tag-jurisdiction.js` derives the
+tag by measuring each poll against a municipal boundary you supply), and the
+**Area** control decides what to do with them: *City of Vancouver* excludes
+both, *+ UBC / UEL* adds UBC alone, *Everything in the file* adds the rest of
+Metro Vancouver.
+
+Excluding a poll is only half of it. A straddling riding cast its advance and
+special ballots across the whole riding, and those have no polygon at all, so
+apportioning them onto the polls that remain would hand Burnaby's share to
+Vancouver. Instead each district's pool is scaled by the share of its
+electorate inside the study area — measured from the file, not assumed — and
+only that share is spread, onto the polls inside. On the real 2025 files that
+is 66% for Fraserview—South Burnaby and 87% for Quadra; every other riding is
+100% and nothing about it changes. Ordinary polls with no boundary in the study
+area are kept apart from advance polls, which look the same to a join and are
+not the same thing at all.
+
+The **Results** tab still reports the file exactly as loaded, because it is the
+one unmodelled check in the atlas — but it names how many of those ballots were
+cast outside the chosen area, so a city total is never quoted by accident.
+
+Checked against Elections Canada's 2025 electoral district boundaries: the poll
+payload tiles five of the six ridings exactly, and covers 78% of Vancouver
+Fraserview—South Burnaby (26.1 of 33.5 km²). The missing 7.4 km² is the Burnaby
+end, whose fifty polls have no polygon here — which is why they are reported as
+ground outside the study area rather than spread across it. Quadra is fully
+covered, UBC included, and its UBC polls are tagged.
+
+That denominator is per district, so it is **not** spread onto voting areas:
+one number per district split across its areas would be a model, not a
+measurement. Until an elector count by voting area exists, per-area provincial
+turnout stays blank and the combined ranking falls back to the federal side and
+says it is partial. Party shares and ballot counts are unaffected throughout.
+Elections BC's own voting-area-to-place assignment would replace the catchment
+model entirely.
+
+What the Turnout tab reports per area instead is the ballots over the two
+counts that *are* available there, side by side and never called turnout:
+
+| column | denominator | what it is not |
+| --- | --- | --- |
+| Per fed elector | 2025 federal electors, carried across the crosswalk | the 2024 provincial roll |
+| Per resident 15+ | census residents aged 15 and over | registered voters |
+| Spread | the difference, in percentage points | — |
+
+Each appears only where its denominator resolves, and the tab counts the areas
+that come out over 100% rather than hiding them, because that is what a
+borrowed denominator looks like where it does not fit. Both can shade the map,
+and the legend names the denominator every time.
 
 ## Census data
 
@@ -194,12 +386,18 @@ and so on. `tests/run.js` stops at the first failing suite. GitHub Actions (`.gi
 every pull request, plus a check that the committed
 `vancouver-boundary-atlas.html` matches a fresh build.
 
-480+ assertions. The browser suites drive the real page in Chromium through
-Playwright: loading each boundary format, joining results, building the
-crosswalk, ranking turnout, loading the census layers and correlating a planted
-variable on the Socioeconomic tab, exporting CSV, dark mode, phone-width
-layout, and the basemap with tile requests stubbed — including a run where
-every tile fails, to check the atlas carries on without them.
+749 assertions — 523 in the node suites, 226 in the browser ones — plus 13
+Python tests over the tools in `tools/`. The browser suites drive the real page
+in Chromium through Playwright: loading each boundary format, loading a BC Data
+Catalogue order as delivered and clipped, joining results, reading results
+reported by voting place and checking every ballot survives the catchments,
+building the crosswalk, ranking turnout, spreading advance ballots onto the
+divisions that fed each advance poll, reporting provincial ballots against
+both denominators that can be had for a voting area, loading the census layers
+and correlating a planted variable on the Socioeconomic tab, exporting CSV, dark
+mode, phone-width layout, and the basemap with tile requests stubbed —
+including a run where every tile fails, to check the atlas carries on without
+them.
 
 The projections are checked against control points produced by independent
 forward implementations in `tests/make-fixtures.py` (BC Albers and Statistics

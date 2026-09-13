@@ -40,11 +40,63 @@ const Results = (() => {
     return [...variants];
   }
 
+  /* Elections Canada splits a busy polling division on the day: poll 10 is
+     reported as 10A and 10B. The boundary file still draws one polygon for it,
+     numbered 10-0, and neither half matches that. Left alone both halves read
+     as polls with no boundary, and the polygon reads as a poll with no result.
+
+     They share one polygon because they are one polling division, so they are
+     pooled back into it -- but only when the file carries no row for the
+     parent itself, so a file that already reports both is never double
+     counted. Electors add: the halves split the division's list between them.
+
+     Returns the number of parents synthesised. */
+  function poolSplitPolls(units, keyOpts) {
+    const groups = new Map();
+    for (const unit of units.values()) {
+      const m = /^(\d+)\s*[A-Za-z]$/.exec(String(unit.poll == null ? '' : unit.poll).trim());
+      if (!m) continue;
+      const key = makeKey([unit.district, m[1]], keyOpts);
+      if (units.has(key)) continue;
+      if (!groups.has(key)) groups.set(key, { poll: m[1], list: [] });
+      groups.get(key).list.push(unit);
+    }
+    let pooled = 0;
+    for (const [key, { poll, list }] of groups) {
+      /* A lone half is still the whole division: its sibling may be a mobile
+         referral with no votes of its own, and the polygon is still this one. */
+      const acc = {
+        total: 0, parties: new Map(), electors: 0, rejected: 0, rows: 0,
+        district: list[0].district, poll, mergeWith: '',
+        flags: { void: list.every((u) => u.flags.void), noPoll: list.every((u) => u.flags.noPoll) },
+        mergedGroup: null, splitFrom: list.map((u) => u.poll),
+      };
+      for (const u of list) {
+        acc.total += u.total;
+        acc.electors += u.electors;
+        acc.rejected += u.rejected;
+        acc.rows += u.rows;
+        for (const [party, v] of u.parties) acc.parties.set(party, (acc.parties.get(party) || 0) + v);
+      }
+      units.set(key, acc);
+      /* The halves are not units of their own any more -- their votes, their
+         electors and their rows now live in the parent. Leaving them behind
+         would count every split poll twice: once on its polygon and once as a
+         poll that has none. */
+      for (const u of list) {
+        for (const [k2, v] of units) if (v === u) { units.delete(k2); break; }
+      }
+      pooled++;
+    }
+    return pooled;
+  }
+
   /* --- Column detection -------------------------------------------------- */
 
   const PATTERNS = {
     district: [/electoral district number/i,
-               /\bed[_ ]?(number|num|code|id|name|abbr|abbrev)\b/i,
+               /\bed[_ ]?(number|num|code|id|name|abbr|abbrev|abbreviation)\b/i,
+               /electoral district (abbreviation|abbrev|code)/i,
                /district.*(number|code|id|name)/i, /\bfed(num|_num|eral)?\b/i,
                /circonscription/i, /electoral district/i, /\bdistrict\b/i,
                /\briding\b/i, /^ed$/i],
@@ -62,7 +114,11 @@ const Results = (() => {
     /* Elections Canada bookkeeping columns. A merged poll reports its votes
        under another poll; a void poll or a poll where no vote was held has
        none at all. Turnout is wrong for all three unless they are recognised. */
-    mergeWith: [/merge with/i, /merged with/i, /fusionn/i],
+    /* Elections Canada wrote "Merge With/Fusionne avec" for years and
+       "Combined with No./Resultats combines a ceux du n" in 2025. Both name
+       the poll whose count absorbed this one. */
+    mergeWith: [/merge with/i, /merged with/i, /combined with/i,
+                /fusionn/i, /r[ée]sultats combin/i],
     voidPoll: [/void poll/i, /bureau supprim/i],
     noPoll: [/no poll held/i, /sans scrutin/i],
   };
@@ -263,13 +319,24 @@ const Results = (() => {
      studying. Results still join to every feature, but the match rate is
      reported against the focus -- loading one riding's results should not read
      as a 90% failure just because the boundary file spans a whole region. */
-  function join(features, keyDef, table, mapping, focus) {
+  /* inArea, when given, is the set of features inside the study area as a
+     matter of geography. It is not the same thing as focus: focus is what the
+     reader is looking at, and it narrows when mobile polls are hidden, which
+     is a display choice. Apportionment must not move when a checkbox does, so
+     the in-area share below is computed from inArea and defaults to focus only
+     when no separate study area was given. */
+  function join(features, keyDef, table, mapping, focus, inArea) {
     const attempts = [];
     for (const ignoreLeadingZeros of [true, false]) {
       const keyOpts = { ignoreLeadingZeros, ignoreCase: true };
       const agg = aggregate(table, mapping, keyOpts);
+      /* Merges first, pooling second. A row can name a half as its merge target
+         -- "combined with No. 1A" -- and pooling 1A into 1 before that is read
+         would leave the reference dangling. Resolved in this order the votes
+         land on 1A and are then carried into 1 with it. */
       agg.merges = mapping.mergeWith >= 0
         ? resolveMerges(agg.units, keyOpts) : { groups: 0, unresolved: [] };
+      agg.splitPolls = keyDef && keyDef.federalSuffixes ? poolSplitPolls(agg.units, keyOpts) : 0;
       const keys = featureKeys(features, keyDef, keyOpts);
       const values = new Map();
       const usedKeys = new Set();
@@ -292,6 +359,7 @@ const Results = (() => {
     const best = attempts[0];
 
     const inFocus = (i) => !focus || focus.has(i);
+    const inStudyArea = (i) => (inArea ? inArea.has(i) : inFocus(i));
     const unmatchedFeatures = [];
     let focusCount = 0, focusMatched = 0;
     features.forEach((f, i) => {
@@ -299,12 +367,60 @@ const Results = (() => {
       focusCount++;
       if (best.values.has(i)) focusMatched++; else unmatchedFeatures.push(i);
     });
+    /* Elections Canada numbers ordinary polls below 500, mobile polls from 500
+       and advance polls from 600. So an unmatched row carrying an ordinary
+       number is a poll that ought to have a polygon and has none: a gap in the
+       boundary file, which for a riding clipped to a study area means the poll
+       sits outside it. An unmatched row numbered 500 or above, or not numbered
+       at all, has no geography by nature and is the district's to spread.
+
+       Only the Elections Canada numbering is read this way. Any other key
+       spelling parses as NaN and falls through to riding-wide, which is what
+       every other file did before this existed. */
+    const ORDINARY_BELOW = 500;
+    const ADVANCE_FROM = 600;
+    const pollNumber = (unit) => {
+      if (!keyDef || !keyDef.federalSuffixes) return null;
+      const n = parseInt(String(unit.poll == null ? '' : unit.poll).replace(/[^0-9].*$/, ''), 10);
+      return isFinite(n) && n > 0 ? n : null;
+    };
+    const isOrdinaryPoll = (unit) => {
+      const n = pollNumber(unit);
+      return n != null && n < ORDINARY_BELOW;
+    };
+    /* An advance poll has no boundary, but it is not riding-wide either: the
+       divisions that reported to it are named in the boundary file, so its
+       ballots can land on those alone. Kept in its own bucket for the caller,
+       which is the only side that knows which divisions those are. */
+    const advanceNumber = (unit) => {
+      const n = pollNumber(unit);
+      return n != null && n >= ADVANCE_FROM ? String(n) : null;
+    };
+
     const unmatchedRows = [];
-    /* Every unmatched row, by district, so the votes that have no polygon --
-       in practice advance polls and special ballots -- can be apportioned back
+    /* Riding-wide rows, by district, so the votes that have no polygon -- in
+       practice advance polls and special ballots -- can be apportioned back
        onto the district's mapped polls. Void and no-poll rows carry nothing. */
     const unmatchedByDistrict = new Map();
-    let voidPolls = 0, noPollUnits = 0;
+    /* Ordinary polls with no boundary at all, kept apart: they are not the
+       district's to spread, because they were cast somewhere the study area
+       does not cover. */
+    const noPolygonByDistrict = new Map();
+    /* Advance polls, keyed district and poll number, for the caller to spread
+       over the divisions that fed each one. A pool the caller finds no
+       divisions for is folded back into the district-wide spread there. */
+    const unmatchedByAdvancePoll = new Map();
+    let voidPolls = 0, noPollUnits = 0, noPolygonUnits = 0, noPolygonVotes = 0;
+    const into = (m, d, unit, extra) => {
+      let acc = m.get(d);
+      if (!acc) m.set(d, (acc = Object.assign(
+        { total: 0, rejected: 0, electors: 0, parties: new Map(), units: 0 }, extra)));
+      acc.total += unit.total;
+      acc.rejected += unit.rejected;
+      acc.electors += unit.electors || 0;
+      acc.units++;
+      for (const [p, v] of unit.parties) acc.parties.set(p, (acc.parties.get(p) || 0) + v);
+    };
     for (const [k, unit] of best.agg.units) {
       if (unit.flags.void) voidPolls++;
       if (unit.flags.noPoll) noPollUnits++;
@@ -312,13 +428,55 @@ const Results = (() => {
       unmatchedRows.push({ key: k, unit });
       if (unit.flags.void || unit.flags.noPoll) continue;
       const d = normalizePart(unit.district, best.keyOpts);
-      let acc = unmatchedByDistrict.get(d);
-      if (!acc) unmatchedByDistrict.set(d, (acc = { total: 0, rejected: 0, parties: new Map(), units: 0 }));
-      acc.total += unit.total;
-      acc.rejected += unit.rejected;
-      acc.units++;
-      for (const [p, v] of unit.parties) acc.parties.set(p, (acc.parties.get(p) || 0) + v);
+      const adv = advanceNumber(unit);
+      if (isOrdinaryPoll(unit)) {
+        noPolygonUnits++;
+        noPolygonVotes += unit.total + unit.rejected;
+        into(noPolygonByDistrict, d, unit);
+      } else if (adv) {
+        into(unmatchedByAdvancePoll, `${d}|${adv}`, unit, { district: d, advPoll: adv });
+      } else {
+        into(unmatchedByDistrict, d, unit);
+      }
     }
+
+    /* How much of each district's electorate sits inside the study area. A
+       district wholly inside has a share of 1 and nothing downstream changes
+       for it; one that straddles the edge has its advance ballots scaled to
+       the part that is actually on screen.
+
+       Merged polls share one unit between two features, so a unit is counted
+       once, on the side of whichever feature is seen first. Merged polls are
+       adjacent, so that only matters for a pair split by the study boundary. */
+    const electorsInArea = new Map(), electorsOutside = new Map();
+    const counted = new Set();
+    /* Ballots cast outside the study area: on a polygon that is outside it, or
+       at an ordinary poll the boundary file does not cover. The Results tab
+       reports the file as loaded, so it needs this number to say how much of
+       what it is showing the rest of the atlas leaves out. */
+    let outOfAreaVotes = 0;
+    best.values.forEach((unit, i) => {
+      if (counted.has(unit)) return;
+      counted.add(unit);
+      const d = normalizePart(unit.district, best.keyOpts);
+      const inside = inStudyArea(i);
+      const m = inside ? electorsInArea : electorsOutside;
+      m.set(d, (m.get(d) || 0) + (unit.electors || 0));
+      if (!inside) outOfAreaVotes += unit.total + unit.rejected;
+    });
+    outOfAreaVotes += noPolygonVotes;
+    for (const [d, acc] of noPolygonByDistrict) {
+      electorsOutside.set(d, (electorsOutside.get(d) || 0) + acc.electors);
+    }
+    const inAreaShare = new Map();
+    const straddling = [];
+    for (const d of new Set([...electorsInArea.keys(), ...electorsOutside.keys()])) {
+      const inside = electorsInArea.get(d) || 0, outside = electorsOutside.get(d) || 0;
+      const share = inside + outside > 0 ? inside / (inside + outside) : 1;
+      inAreaShare.set(d, share);
+      if (share < 0.999 && share > 0) straddling.push({ district: d, share, inside, outside });
+    }
+    straddling.sort((a, b) => a.share - b.share);
     unmatchedRows.sort((a, b) => b.unit.total - a.unit.total);
     let electorsMatched = 0;
     for (const unit of new Set(best.values.values())) electorsMatched += unit.electors;
@@ -339,6 +497,7 @@ const Results = (() => {
         matchedOutsideFocus: best.matchedFeatures - focusMatched,
         totalFeatures: features.length,
         tableUnits: best.agg.units.size,
+        splitPolls: best.agg.splitPolls || 0,
         matchedVotes: best.matchedVotes,
         tableVotes: best.agg.totalVotes,
         unmatchedFeatures,
@@ -346,6 +505,13 @@ const Results = (() => {
         unmatchedRowCount: unmatchedRows.length,
         unmatchedVotes: best.agg.totalVotes - best.matchedVotes,
         unmatchedByDistrict,
+        unmatchedByAdvancePoll,
+        noPolygonByDistrict,
+        noPolygonUnits,
+        noPolygonVotes,
+        outOfAreaVotes,
+        inAreaShare,
+        straddling,
         electorsMatched,
         electorsColumn: mapping.electors >= 0,
         mergedGroups: best.agg.merges.groups,

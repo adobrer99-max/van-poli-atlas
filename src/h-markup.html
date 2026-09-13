@@ -10,6 +10,7 @@
 <nav class="nav nav-pills" role="tablist" aria-label="Atlas sections">
   <button class="nav-link active" role="tab" id="tab-map" aria-controls="panel-map" aria-selected="true" type="button">Map</button>
   <button class="nav-link" role="tab" id="tab-data" aria-controls="panel-data" aria-selected="false" type="button">Data</button>
+  <button class="nav-link" role="tab" id="tab-results" aria-controls="panel-results" aria-selected="false" type="button">Results</button>
   <button class="nav-link" role="tab" id="tab-corr" aria-controls="panel-corr" aria-selected="false" type="button">Correlation</button>
   <button class="nav-link" role="tab" id="tab-turnout" aria-controls="panel-turnout" aria-selected="false" type="button">Turnout</button>
   <button class="nav-link" role="tab" id="tab-socio" aria-controls="panel-socio" aria-selected="false" type="button">Socioeconomic</button>
@@ -64,6 +65,9 @@
         <option value="flat">Flat fill</option>
         <option value="prov-party">Provincial party share</option>
         <option value="turnout-prov">Provincial turnout</option>
+        <option value="catchment" hidden>Voting-place catchment (modelled)</option>
+        <option value="prov-per-elector" hidden>Ballots per federal elector (not turnout)</option>
+        <option value="prov-per-resident" hidden>Ballots per resident 15+ (not turnout)</option>
       </select>
     </label>
     <label class="form-label" for="prov-opacity">Overlay fill strength
@@ -102,6 +106,10 @@
     <label class="form-check form-switch">
       <input class="form-check-input" type="checkbox" id="show-mobile">
       <span class="form-check-label">Mobile &amp; single-building polls</span>
+    </label>
+    <label class="form-check form-switch" id="show-places-wrap" hidden>
+      <input class="form-check-input" type="checkbox" id="show-places" checked>
+      <span class="form-check-label">Provincial (2024) voting places</span>
     </label>
     <label class="form-check form-switch" id="show-da-wrap" hidden>
       <input class="form-check-input" type="checkbox" id="show-da" checked>
@@ -161,11 +169,26 @@
       <a href="https://elections.bc.ca/resources/maps/gis-spatial-data/" target="_blank" rel="noopener">GIS spatial data</a>
       page or the <a href="https://catalogue.data.gov.bc.ca/" target="_blank" rel="noopener">BC Data Catalogue</a>,
       and load the voting-area file for the election you are comparing against.
+      For 2024 that is <i>Provincial Electoral District Voting Areas &ndash; Gazetted 09/19/2024</i>
+      (<code>EBC_VOTING_AREAS_BS11_POLY_SVW</code>), ordered from the catalogue as GeoJSON;
+      the order&rsquo;s <code>.zip</code> loads here as delivered, all 5,778 areas of the province,
+      and is clipped to the study area while it is read. Districts are identified by
+      <code>ED_ABBREVIATION</code> and areas by <code>VA_CODE</code>. The dataset is
+      <b>areal only</b> &mdash; every one of the 5,778 records is <code>VA_TYPE: Areal</code>
+      with a polygon &mdash; so voting at a care home or hospital has no geography here;
+      those ballots arrive as the district-level <b>Special voting</b> channel, 1.35% of
+      the city&rsquo;s 2024 vote, and are spread across their district.
       A zipped shapefile (<code>.shp</code> + <code>.dbf</code> + <code>.prj</code>),
       <code>.kml</code>, <code>.kmz</code> or <code>.geojson</code> all work.
       BC Albers, UTM zone 10N and lon/lat are converted automatically.
       Nothing is uploaded anywhere &mdash; the file is read in this browser tab.
+      To keep a small file for repeated use, <code>python3 tools/clip_geojson.py</code>
+      writes just the study area (see the README).
     </p>
+    <label class="form-check">
+      <input class="form-check-input" type="checkbox" id="clip-prov" checked>
+      <span class="form-check-label">Clip the file to the study area while loading (federal extent plus 2 km)</span>
+    </label>
     <div class="viz-controls">
       <input class="form-control" type="file" id="file-prov-geo" accept=".zip,.kml,.kmz,.geojson,.json">
       <button type="button" class="btn" id="clear-prov-geo" hidden>Remove layer</button>
@@ -202,6 +225,43 @@
       Elections BC publishes results by voting area for each electoral district.
       Long files (one row per candidate) and wide files (one column per party) are both read.
     </p>
+    <p class="text-small text-muted">
+      For 2024 there is a catch. It was the first general election where a voter could
+      use any voting place, so Elections BC reports the count by <b>voting place</b> &mdash;
+      a point &mdash; rather than by voting area. A file with longitude and latitude
+      columns is read that way automatically: every voting area is given to the nearest
+      final-voting place of its own electoral district, and that place&rsquo;s ballots are
+      split across the areas it serves in proportion to population, or to ground area
+      when no census is loaded. Advance voting, the district office, vote by mail,
+      special and assisted telephone voting and out-of-district ballots have no place
+      of their own and are spread across the whole district instead.
+      <b>These catchments are modelled here, not published by Elections BC.</b>
+      The status line below says how much of the count took which route, and the
+      <b>Method</b> tab says what that costs a correlation.
+    </p>
+    <p class="text-small text-muted">
+      Elections BC reports turnout as the share of <b>registered voters who voted</b>, and
+      publishes that denominator per electoral district in the
+      <i>Statement of Votes</i> rather than in the results file. Load a two-column table
+      &mdash; district, registered voters &mdash; and the <b>Results</b> tab reports turnout
+      per district and city-wide. Any column named for the voters who <i>voted</i> is
+      ignored: that is the numerator, and the atlas already has it.
+    </p>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-prov-electors">Registered voters by electoral district (optional)
+        <input class="form-control" type="file" id="file-prov-electors" accept=".csv,.tsv,.txt">
+      </label>
+      <button type="button" class="btn" id="clear-prov-electors" hidden>Remove</button>
+    </div>
+    <div id="status-prov-electors" class="status"></div>
+    <div class="viz-controls" id="prov-place-controls" hidden>
+      <label class="form-label grow" for="prov-place-basis">Ballots with no voting place
+        <select class="form-select" id="prov-place-basis">
+          <option value="district">spread evenly across the district</option>
+          <option value="catchment">spread in proportion to each catchment&rsquo;s final-day ballots</option>
+        </select>
+      </label>
+    </div>
     <div class="viz-controls">
       <input class="form-control" type="file" id="file-prov-results" accept=".csv,.tsv,.txt,.zip" multiple>
       <button type="button" class="btn" id="clear-prov-results" hidden>Clear provincial results</button>
@@ -264,6 +324,58 @@
 </section>
 
 <!-- ---------------------------------------------------------- CORRELATION -->
+<!-- -------------------------------------------------------------- RESULTS -->
+<section id="panel-results" role="tabpanel" aria-labelledby="tab-results" hidden>
+  <div class="card">
+    <h2>What the results files say</h2>
+    <p class="text-small text-muted">
+      Counts as reported, before anything is joined to a boundary, moved across the
+      crosswalk or spread from a voting place. Every other tab models something; this
+      one is the place to check a headline figure against the file it came from.
+    </p>
+    <div class="viz-controls" id="results-side-wrap" hidden>
+      <label class="form-label grow" for="results-side">Election
+        <select class="form-select" id="results-side"></select>
+      </label>
+      <button type="button" class="btn" id="export-results">Export summary CSV</button>
+    </div>
+    <div id="results-status" class="status"></div>
+    <p class="text-small text-muted" id="results-note"></p>
+    <div class="viz-grid" id="results-stats"></div>
+  </div>
+
+  <div id="results-body" hidden>
+    <div class="card">
+      <h2>Parties</h2>
+      <p class="text-small text-muted">Votes and share of the valid vote, across every district in the file.</p>
+      <div class="bar-list" id="results-parties"></div>
+    </div>
+
+    <div class="card" id="results-channels-card" hidden>
+      <h2>How people voted</h2>
+      <p class="text-small text-muted">
+        Ballots by voting opportunity. Only the final-day places have a catchment on the
+        map; everything else is spread across a whole district, so this is the share of
+        the count that carries real location.
+      </p>
+      <div class="bar-list" id="results-channels"></div>
+    </div>
+
+    <div class="card">
+      <h2>Districts</h2>
+      <p class="text-small text-muted">Click a heading to sort. Margin is the gap between first and second, in points of the valid vote.</p>
+      <div class="table-responsive">
+        <table class="table table-sm sortable" id="results-districts"></table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 id="results-largest-title">Largest units</h2>
+      <div id="results-largest"></div>
+    </div>
+  </div>
+</section>
+
 <section id="panel-corr" role="tabpanel" aria-labelledby="tab-corr" hidden>
   <div class="card">
     <h2>Build the crosswalk</h2>
@@ -349,8 +461,12 @@
       Turnout is ballots cast (valid plus rejected) over electors, for each area, in
       each election. The aggregate combines the two with the weight below. Advance
       polls and special ballots have no boundary; by default they are left out, which
-      understates turnout in areas where people vote early. Read the <b>Method</b> tab
-      before quoting a figure.
+      understates turnout in areas where people vote early. The provincial side has no
+      electorate per area at all &mdash; Elections BC publishes registered voters per
+      district only &mdash; so its last three columns divide the ballots by two counts
+      that <i>are</i> available per area, federal electors and census residents aged 15
+      and over. Neither is turnout, and the spread between them is shown because it is
+      the size of that choice. Read the <b>Method</b> tab before quoting a figure.
     </p>
     <div class="viz-controls">
       <label class="form-label grow" for="turnout-unit">Common geography
@@ -428,6 +544,9 @@
       neighbourhoods, not about people &mdash; read the <b>Method</b> tab before quoting one.
     </p>
     <div class="viz-controls">
+      <label class="form-label grow" for="socio-unit">Correlate on
+        <select class="form-select" id="socio-unit"></select>
+      </label>
       <label class="form-label grow" for="socio-outcome">Outcome (y)
         <select class="form-select" id="socio-outcome">
           <option value="turnout-agg">Aggregate turnout, both elections</option>
@@ -448,6 +567,7 @@
         <span class="form-check-label">Only areas with both elections</span>
       </label>
     </div>
+    <p class="text-small text-muted" id="socio-unit-note"></p>
     <div id="socio-status" class="status"></div>
     <div class="viz-grid" id="socio-stats"></div>
   </div>
@@ -489,9 +609,14 @@
         areal-interpolation assumption and the main caveat on every number here.
         Where a poll mixes a tower block with a park, the even-spreading assumption
         is wrong, and no amount of extra sampling resolution fixes it.</li>
-      <li><b>Area is a stand-in for voters.</b> Weighting by population would be
-        better. If you can get dissemination-block counts, weighting the lattice by
-        block population would be the natural next step.</li>
+      <li><b>Area is a stand-in for voters, unless you replace it.</b> With the
+        census layers loaded, <i>Weight overlaps by</i> on the Correlation tab weights
+        every lattice point by dissemination-block population instead, and the status
+        line there says which basis is in force. Without them it is ground area, which
+        assumes voters are spread evenly across a polygon. One wrinkle either way: a
+        polygon that samples to no population at all &mdash; a park, an industrial
+        block &mdash; would otherwise vanish from the crosswalk, so its points are given
+        the mean weight instead, and the crosswalk status counts how many did.</li>
       <li><b>Small overlaps are discarded.</b> Two agencies digitise the same street
         slightly differently, so nearly every boundary pair produces hairline slivers
         that hold no voters. Overlaps below the chosen threshold are dropped and the
@@ -532,6 +657,82 @@
       If a result only holds on one of the three, it is a property of the method
       rather than of the electorate.</p>
 
+    <h3>Advance polls, and the divisions that fed them</h3>
+    <p>
+      Forty-three per cent of the 2025 federal ballots in Vancouver were cast at an
+      advance poll, and an advance poll has no boundary of its own. Spreading its
+      ballots across the whole riding &mdash; about 190 polling divisions &mdash; was
+      the crudest thing this atlas did, and it applied to nearly half the vote.
+    </p>
+    <p>
+      Elections Canada publishes the answer. Its polling-division file records, for
+      every ordinary division, <b>the advance poll that division reported to</b>. Each
+      advance poll serves three to fourteen divisions, ten on average, so its ballots
+      now go to those and to nothing else. The share of federal ballots sitting either
+      on a division or in a named set of about ten rises from <b>44% to 84%</b>.
+    </p>
+    <p>
+      <b>This is published, not invented.</b> It is worth being clear about the
+      contrast with the provincial side of the same map: the voting-place catchments
+      described above are this atlas&rsquo;s own guess at a boundary Elections BC drew
+      and did not publish, and every caveat there is real. None of it applies here.
+      The set of divisions behind a federal advance poll is a fact Elections Canada
+      states.
+    </p>
+    <p>
+      Within a served set the ballots are split <b>in proportion to electors</b>, not
+      equally. The divisions of one advance poll are roughly the same size but not
+      exactly: across Vancouver the largest is typically 1.5 times the smallest and in
+      one case six times, so an even split would be wrong by about 13% in a typical
+      division. The assumption that remains is that people in those ten divisions
+      chose to vote early at similar rates &mdash; a far smaller claim than the same
+      assumption across a whole riding, but still a claim.
+    </p>
+    <p>
+      Two consequences worth naming. A division whose advance poll is not in the file
+      keeps the district-wide spread rather than losing its ballots. And an advance
+      poll whose divisions all lie outside the study area gives that area
+      <b>nothing</b> &mdash; which is how the Burnaby end of Vancouver
+      Fraserview&mdash;South Burnaby now settles itself, with no share to estimate and
+      no early-voting rate to guess at. The elector-share scaling described below is
+      still used, but only for what is left: special ballots and mail.
+    </p>
+
+    <h3>Ridings that leave the city</h3>
+    <p>
+      Two of the six federal ridings cross the City of Vancouver line. Vancouver
+      Quadra reaches into UBC and the University Endowment Lands; Vancouver
+      Fraserview&mdash;South Burnaby is <b>a third Burnaby by electors</b>. Polls
+      outside the city are tagged in the boundary file, and the <b>Area</b> control on
+      the Map tab decides what to do with them &mdash; but excluding a poll is only
+      half of the problem.
+    </p>
+    <p>
+      A straddling riding cast its advance and special ballots across the whole
+      riding, and those ballots have no polygon at all. Apportioning them onto the
+      polls that remain would hand Burnaby&rsquo;s share to Vancouver: on the 2025
+      files that is roughly 9,700 ballots landing on a part of the city that did not
+      cast them. So each district&rsquo;s pool is scaled by the share of its
+      electorate inside the study area &mdash; measured from the loaded file, not
+      assumed &mdash; and only that share is spread, onto the polls inside. Every
+      riding wholly inside has a share of 1 and nothing about it changes.
+    </p>
+    <p>
+      Two smaller things follow from the same distinction. An <i>ordinary</i> poll
+      with no boundary is not the same as an advance poll with no boundary, even
+      though a join cannot tell them apart: the first was cast somewhere this atlas
+      does not cover, and is reported rather than spread. And the study area is the
+      Area control alone &mdash; hiding mobile polls changes what is drawn, not where
+      the city is, so no apportioned figure moves when that switch does.
+    </p>
+    <p>
+      The remaining assumption is that people inside and outside the line vote early
+      at the same rate. There is no way to test it from published data: Elections
+      Canada reports an advance poll by the poll, not by the elector&rsquo;s home
+      division. The <b>Results</b> tab therefore keeps reporting the file exactly as
+      loaded, and names how many of its ballots were cast outside the chosen area.
+    </p>
+
     <h3>Turnout</h3>
     <p>Turnout is ballots cast &mdash; valid votes plus rejected ballots &mdash; divided
       by the electors on the list for that poll or voting area. Electors, votes and
@@ -565,12 +766,108 @@
         <i>delta</i> shows where one election drew people the other did not.</li>
     </ul>
 
+    <h3>Voting places, and the catchments this atlas invents</h3>
+    <p>
+      British Columbia's 2024 general election was the first where a voter could use
+      any voting place, so Elections BC reports the count by <b>place</b> rather than by
+      voting area. The voting areas still exist &mdash; every address belongs to one, and
+      Elections BC assigns each of them to a place &mdash; but that assignment is not in the
+      results file, and the count that comes back is attached to a point.
+    </p>
+    <p>
+      To put those numbers on a map at all, this atlas models the assignment: every
+      voting area goes to the <b>nearest final-voting place of its own electoral
+      district</b>, and that place's ballots are divided among the areas it serves in
+      proportion to population, or to ground area when no census is loaded. Ballots cast
+      anywhere else &mdash; advance voting, the district electoral office, vote by mail,
+      special and assisted telephone voting, and out-of-district ballots &mdash; have no
+      location that means anything, and are spread across the whole district instead.
+      Nothing is dropped: every ballot in the file lands on some area, and the Data tab
+      says what fraction took which route.
+    </p>
+    <p>
+      Three things follow, and they matter more than the map looks like they do.
+      <b>Within a catchment, the variation you see is the census, not the election.</b>
+      Every area served by one place carries that place's shares, scaled by its
+      population; differences between neighbouring areas of the same catchment are an
+      artefact of the population weighting. <b>A catchment is a guess at a boundary
+      Elections BC actually drew.</b> Nearest-place is a reasonable guess in a dense city
+      and a worse one where a district is long or a hall sits at one end. And
+      <b>spreading one place's result over five areas does not make five
+      observations.</b> The Correlation and Socioeconomic tabs therefore report the number
+      of independent sources beside the number of units, and compute the confidence
+      interval on the sources; quote a coefficient with that figure, not with the count
+      of polygons.
+    </p>
+    <p>
+      Provincial <b>turnout</b> is a separate matter, and a question of which denominator
+      exists at which geography. Elections BC defines turnout as the share of
+      <b>registered voters who voted</b>, and publishes that count per <i>electoral
+      district</i> in the Statement of Votes; the results file itself carries none. Given
+      that table, the <b>Results</b> tab reports turnout per district and city-wide, and
+      those are measurements, not estimates.
+    </p>
+    <p>
+      Per-area provincial turnout stops there deliberately. One registered-voter count
+      per district, split across the district's voting areas, would be a model dressed as
+      a measurement &mdash; and since the only sensible split is by population, the
+      variation between neighbouring areas would be the census rather than the
+      electorate. So the provincial turnout column stays blank per area, the combined
+      ranking falls back to the federal side alone and says it is partial, and party
+      shares and ballot counts are unaffected. An elector count <i>by voting area</i>
+      would turn it on for real; so would Elections BC's own voting-area-to-place
+      assignment, which would replace the catchment model entirely.
+    </p>
+
+    <h3>Two denominators that are not an electorate</h3>
+    <p>
+      What can be done instead is to divide the ballots by something that <i>is</i>
+      available per area, and to be exact about what that something is. Two counts
+      qualify, and the Turnout tab reports both, side by side, in its last three
+      columns &mdash; never called turnout, and never folded into the aggregate:
+    </p>
+    <ul>
+      <li><b>Per federal elector.</b> Elections Canada reports electors per polling
+        division, and the crosswalk shares them onto voting areas exactly as it shares
+        votes. The denominator is real and registrational, but it is the <i>2025
+        federal</i> roll against <i>2024 provincial</i> ballots: a year of moves, deaths
+        and new registrations apart, compiled by a different agency under different
+        rules.</li>
+      <li><b>Per resident aged 15 and over.</b> The census layer carries the age table,
+        so residents of voting age are had by subtracting the 0-to-14 band from the age
+        total and carrying that count across. This one counts <i>residents rather than
+        registrants</i>: non-citizens, the unregistered and 15- to 17-year-olds are all
+        in the denominator and none of them could vote, so it reads systematically
+        lower. It is also the 2021 census against a 2024 election.</li>
+    </ul>
+    <p>
+      The <b>Spread</b> column is the difference between the two in percentage points,
+      and it is the reason for showing both: it is the size of the choice of denominator,
+      per area, instead of an argument about which one to trust. Where an area comes out
+      above 100% the tab says how many did &mdash; that is a fact about the denominator
+      not fitting that area, not about the ballots. Either can shade the map, and the
+      legend names the denominator every time. The only thing that would make any of this
+      turnout is a registered-voter count by voting area; if one is ever published it
+      loads in section 3 of the Data tab, and the real column fills in beside these two.
+    </p>
+
     <h3>Census geography and socioeconomic variables</h3>
     <p>Statistics Canada's dissemination areas are the smallest geography with a full
       census profile: 400 to 700 people each, drawn to follow streets, so they are
       neighbourhood-sized and overlap polls the way voting areas do. Election results
       reach them through the same crosswalk, so each carries an estimated turnout and
       party share beside its census variables.</p>
+    <p><b>Which geography to correlate on.</b> Either side of the crosswalk can be the
+      unit, and the choice decides what is modelled and what is measured. On
+      <i>dissemination areas</i> the census is exact and both elections are estimates;
+      for the 2024 provincial results that is two estimates in a row, since those were
+      modelled from voting places onto voting areas first. On <i>provincial voting
+      areas</i> the provincial results are one step closer to as-reported and the census
+      is the estimate instead: a count is shared out across the overlaps, while a rate,
+      a percentage or a median is averaged over them weighted by population, because
+      those do not add. Neither is the right answer in general. Agreement between the
+      two is worth more than either alone, and a coefficient that appears on one
+      geography and vanishes on the other was probably the interpolation talking.</p>
     <ul>
       <li><b>Ecological inference.</b> A correlation between, say, renting and turnout
         across areas says that areas with more renters have lower turnout; it does not say
