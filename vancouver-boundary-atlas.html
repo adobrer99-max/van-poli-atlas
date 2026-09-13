@@ -1904,6 +1904,77 @@ html>body{padding:0}
   cursor: not-allowed;
 }
 
+/* Progressive disclosure. A settings drawer that reads as one control when it
+   is shut, used for the map's options and for the Data tab's replace-data
+   section: the same affordance in both places, so it is learned once. */
+.disclosure {
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius-lg, .5rem);
+  background: var(--card);
+  margin-bottom: 1rem;
+}
+.disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .6rem .85rem;
+  cursor: pointer;
+  font-weight: var(--font-weight-medium, 500);
+  color: var(--foreground);
+  list-style: none;
+}
+.disclosure > summary::-webkit-details-marker { display: none; }
+.disclosure > summary::before {
+  content: "";
+  flex: none;
+  width: .45rem;
+  height: .45rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform .15s ease;
+}
+.disclosure[open] > summary::before { transform: rotate(45deg); }
+.disclosure > summary:focus-visible {
+  outline: 2px solid var(--color-ring-primary, currentColor);
+  outline-offset: -2px;
+}
+/* The browser hides a shut details' content with a UA display:none, and an
+   author rule beats a UA one -- .viz-controls sets display:flex, so the drawer
+   laid its contents out in full while reporting itself shut. Say it here, at
+   author level, where it wins. */
+.disclosure:not([open]) > :not(summary) { display: none; }
+.disclosure > :not(summary) { padding: 0 .85rem; }
+.disclosure > :last-child:not(summary) { padding-bottom: .5rem; }
+@media (prefers-reduced-motion: reduce) {
+  .disclosure > summary::before { transition: none; }
+}
+
+/* The tab row. The names are words rather than abbreviations, so on a phone the
+   row is wider than the screen: it scrolls sideways rather than wrapping into a
+   second row that shoves the map down, and the buttons refuse to shrink, since
+   a squeezed "Neighbourhood profile" is unreadable rather than merely narrow.
+   The edge it can still scroll towards fades, so there is a visible sign that
+   more tabs are there instead of a row that simply looks finished. */
+#atlas .nav[role="tablist"] {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+#atlas .nav[role="tablist"]::-webkit-scrollbar { display: none; }
+#atlas .nav[role="tablist"] > [role="tab"] { flex: 0 0 auto; white-space: nowrap; }
+#atlas .nav[role="tablist"].can-scroll-end {
+  mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent);
+}
+#atlas .nav[role="tablist"].can-scroll-start {
+  mask-image: linear-gradient(to right, transparent, #000 2.5rem);
+}
+#atlas .nav[role="tablist"].can-scroll-start.can-scroll-end {
+  mask-image: linear-gradient(to right, transparent, #000 2.5rem,
+                              #000 calc(100% - 2.5rem), transparent);
+}
+
 </style>
 </head>
 <body>
@@ -1938,6 +2009,10 @@ html>body{padding:0}
     </p>
   </div>
 
+  <!-- What a reader needs in front of them: which area, what the colour means,
+       and how to find a place. Everything below those is a setting rather than a
+       question, so it sits under Map options. Walking past four rows of switches
+       and sliders to reach the map is the analyst's route, not a reader's. -->
   <div class="viz-controls">
     <label class="form-label grow" for="area-filter">Area
       <select class="form-select" id="area-filter">
@@ -1946,7 +2021,8 @@ html>body{padding:0}
         <option value="all">Everything in the file (Metro Vancouver)</option>
       </select>
     </label>
-    <label class="form-label grow" for="shade-by">Shade federal (2025) polls by
+    <label class="form-label grow" for="shade-by"
+           title="Colours the 2025 federal polling divisions, the base layer of the map.">Colour map by
       <select class="form-select" id="shade-by">
         <option value="none">Nothing (plain boundaries)</option>
         <option value="type">Poll type</option>
@@ -1975,8 +2051,23 @@ html>body{padding:0}
   </div>
 
   <div class="viz-controls">
-    <label class="form-label grow" for="shade-prov-by">Shade provincial (2024) voting areas by
-      <select class="form-select" id="shade-prov-by">
+    <label class="form-label grow" for="find-poll">Find a federal (2025) polling division
+      <select class="form-select" id="find-poll"><option value="">Select a division&hellip;</option></select>
+    </label>
+    <label class="form-label grow" for="find-va">Find a provincial (2024) voting area
+      <select class="form-select" id="find-va" disabled><option value="">No provincial layer loaded</option></select>
+    </label>
+    <label class="form-label grow" for="find-da" id="find-da-wrap" hidden>Find a dissemination area
+      <select class="form-select" id="find-da"><option value="">Select an area&hellip;</option></select>
+    </label>
+    <button type="button" class="btn" id="zoom-reset">Full view</button>
+  </div>
+
+  <details class="disclosure" id="map-options">
+    <summary>Map options</summary>
+    <div class="viz-controls">
+      <label class="form-label grow" for="shade-prov-by">Colour provincial areas by
+        <select class="form-select" id="shade-prov-by">
         <option value="none">Nothing (outline only)</option>
         <option value="flat">Flat fill</option>
         <option value="prov-party">Provincial party share</option>
@@ -1989,15 +2080,15 @@ html>body{padding:0}
         <option value="points-count" hidden>Places loaded (count)</option>
         <option value="points-weight" hidden>Places loaded (weighted)</option>
       </select>
-    </label>
-    <label class="form-label" for="prov-opacity">Overlay fill strength
-      <input class="form-range" type="range" id="prov-opacity" min="0.1" max="1" step="0.05" value="0.7">
-    </label>
-  </div>
+      </label>
+      <label class="form-label" for="prov-opacity">Overlay fill strength
+        <input class="form-range" type="range" id="prov-opacity" min="0.1" max="1" step="0.05" value="0.7">
+      </label>
+    </div>
 
-  <div class="viz-controls" id="da-controls" hidden>
-    <label class="form-label grow" for="shade-da-by">Shade census (2021) dissemination areas by
-      <select class="form-select" id="shade-da-by">
+    <div class="viz-controls" id="da-controls" hidden>
+      <label class="form-label grow" for="shade-da-by">Colour census areas by
+        <select class="form-select" id="shade-da-by">
         <option value="none">Nothing (outline only)</option>
         <option value="flat">Flat fill</option>
         <option value="turnout-agg">Aggregate turnout, both elections</option>
@@ -2009,63 +2100,54 @@ html>body{padding:0}
         <option value="points-count" hidden>Places loaded (count)</option>
         <option value="points-weight" hidden>Places loaded (weighted)</option>
       </select>
-    </label>
-    <label class="form-label grow" for="shade-da-var">Census variable
-      <select class="form-select" id="shade-da-var" disabled><option value="">Load a census profile</option></select>
-    </label>
-    <label class="form-label grow" for="find-da">Find a dissemination area
-      <select class="form-select" id="find-da"><option value="">Select an area&hellip;</option></select>
-    </label>
-  </div>
+      </label>
+      <label class="form-label grow" for="shade-da-var">Census variable
+        <select class="form-select" id="shade-da-var" disabled><option value="">Load a census profile</option></select>
+      </label>
+    </div>
 
-  <div class="viz-controls">
-    <label class="form-check form-switch">
-      <input class="form-check-input" type="checkbox" id="show-fed" checked>
-      <span class="form-check-label">Federal (2025) polling divisions</span>
-    </label>
-    <label class="form-check form-switch">
-      <input class="form-check-input" type="checkbox" id="show-prov" checked>
-      <span class="form-check-label">Provincial (2024) voting areas</span>
-    </label>
-    <label class="form-check form-switch">
-      <input class="form-check-input" type="checkbox" id="show-mobile">
-      <span class="form-check-label">Mobile &amp; single-building polls</span>
-    </label>
-    <label class="form-check form-switch" id="show-places-wrap" hidden>
-      <input class="form-check-input" type="checkbox" id="show-places" checked>
-      <span class="form-check-label">Provincial (2024) voting places</span>
-    </label>
-    <label class="form-check form-switch" id="show-da-wrap" hidden>
-      <input class="form-check-input" type="checkbox" id="show-da" checked>
-      <span class="form-check-label">Census (2021) dissemination areas</span>
-    </label>
-    <label class="form-label" for="prov-weight">Overlay line weight
-      <input class="form-range" type="range" id="prov-weight" min="0.5" max="4" step="0.25" value="1.75">
-    </label>
-  </div>
+    <div class="viz-controls">
+      <label class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" id="show-fed" checked>
+        <span class="form-check-label">Federal (2025) polling divisions</span>
+      </label>
+      <label class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" id="show-prov" checked>
+        <span class="form-check-label">Provincial (2024) voting areas</span>
+      </label>
+      <label class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" id="show-mobile">
+        <span class="form-check-label">Mobile &amp; single-building polls</span>
+      </label>
+      <label class="form-check form-switch" id="show-places-wrap" hidden>
+        <input class="form-check-input" type="checkbox" id="show-places" checked>
+        <span class="form-check-label">Provincial (2024) voting places</span>
+      </label>
+      <label class="form-check form-switch" id="show-da-wrap" hidden>
+        <input class="form-check-input" type="checkbox" id="show-da" checked>
+        <span class="form-check-label">Census (2021) dissemination areas</span>
+      </label>
+      <label class="form-label" for="prov-weight">Overlay line weight
+        <input class="form-range" type="range" id="prov-weight" min="0.5" max="4" step="0.25" value="1.75">
+      </label>
+    </div>
 
-  <div class="viz-controls">
-    <label class="form-label grow" for="find-poll">Find a federal (2025) polling division
-      <select class="form-select" id="find-poll"><option value="">Select a division&hellip;</option></select>
-    </label>
-    <label class="form-label grow" for="find-va">Find a provincial (2024) voting area
-      <select class="form-select" id="find-va" disabled><option value="">No provincial layer loaded</option></select>
-    </label>
-    <label class="form-label" for="basemap">Basemap
-      <select class="form-select" id="basemap">
+    <div class="viz-controls">
+      <label class="form-label" for="basemap">Basemap
+        <select class="form-select" id="basemap">
         <option value="none">None — boundaries only</option>
         <option value="auto">Streets, light or dark to match (CARTO)</option>
         <option value="positron">Streets — light (CARTO)</option>
         <option value="dark">Streets — dark (CARTO)</option>
         <option value="osm">OpenStreetMap standard (needs the page served over http)</option>
       </select>
-    </label>
-    <label class="form-label grow" for="carto-key">CARTO key (free, optional)
-      <input class="form-control" type="text" id="carto-key" placeholder="paste a key to turn on street tiles"
-             autocomplete="off" spellcheck="false">
-    </label>
-    <button type="button" class="btn" id="zoom-reset">Full view</button>
-  </div>
+      </label>
+      <label class="form-label grow" for="carto-key">CARTO key (free, optional)
+        <input class="form-control" type="text" id="carto-key" placeholder="paste a key to turn on street tiles"
+               autocomplete="off" spellcheck="false">
+      </label>
+    </div>
+  </details>
 
   <div class="map-wrap">
     <div class="atlas-map" id="atlas-map" role="application"
@@ -8700,6 +8782,10 @@ function updateLayerVisibility() {
   const hasDa = state.da.all.length > 0;
   $('da-controls').hidden = !hasDa;
   $('show-da-wrap').hidden = !hasDa;
+  /* The dissemination-area finder sits with the other two finders now, above
+     the map, so it needs its own wrapper to hide -- it is no longer carried
+     along by #da-controls. */
+  $('find-da-wrap').hidden = !hasDa;
   root.style.setProperty('--va-weight', $('prov-weight').value);
 }
 
@@ -12547,6 +12633,19 @@ new ResizeObserver(() => {
   }, 120);
 }).observe(root);
 $('tab-map').addEventListener('click', () => setTimeout(() => map.invalidateSize({ animate: false }), 0));
+
+/* The tab row scrolls sideways when it is wider than the screen. Fade whichever
+   edge it can still scroll towards, so a phone shows that there are more tabs
+   rather than a row that looks complete at "Compare". */
+const tabRow = root.querySelector('.nav[role="tablist"]');
+const markTabScroll = () => {
+  const max = tabRow.scrollWidth - tabRow.clientWidth;
+  tabRow.classList.toggle('can-scroll-start', tabRow.scrollLeft > 1);
+  tabRow.classList.toggle('can-scroll-end', max > 1 && tabRow.scrollLeft < max - 1);
+};
+tabRow.addEventListener('scroll', markTabScroll, { passive: true });
+new ResizeObserver(markTabScroll).observe(tabRow);
+markTabScroll();
 /* For the browser console and the test suites: the live state, read-only by
    convention. */
 window.vanPoliAtlas = { state, crossPair, map, selectAt, fedValues, provValues };

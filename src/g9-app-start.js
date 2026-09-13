@@ -141,6 +141,19 @@ new ResizeObserver(() => {
   }, 120);
 }).observe(root);
 $('tab-map').addEventListener('click', () => setTimeout(() => map.invalidateSize({ animate: false }), 0));
+
+/* The tab row scrolls sideways when it is wider than the screen. Fade whichever
+   edge it can still scroll towards, so a phone shows that there are more tabs
+   rather than a row that looks complete at "Compare". */
+const tabRow = root.querySelector('.nav[role="tablist"]');
+const markTabScroll = () => {
+  const max = tabRow.scrollWidth - tabRow.clientWidth;
+  tabRow.classList.toggle('can-scroll-start', tabRow.scrollLeft > 1);
+  tabRow.classList.toggle('can-scroll-end', max > 1 && tabRow.scrollLeft < max - 1);
+};
+tabRow.addEventListener('scroll', markTabScroll, { passive: true });
+new ResizeObserver(markTabScroll).observe(tabRow);
+markTabScroll();
 /* For the browser console and the test suites: the live state, read-only by
    convention. */
 window.vanPoliAtlas = { state, crossPair, map, selectAt, fedValues, provValues };

@@ -848,6 +848,10 @@ function updateLayerVisibility() {
   const hasDa = state.da.all.length > 0;
   $('da-controls').hidden = !hasDa;
   $('show-da-wrap').hidden = !hasDa;
+  /* The dissemination-area finder sits with the other two finders now, above
+     the map, so it needs its own wrapper to hide -- it is no longer carried
+     along by #da-controls. */
+  $('find-da-wrap').hidden = !hasDa;
   root.style.setProperty('--va-weight', $('prov-weight').value);
 }
 

@@ -29,6 +29,10 @@
     </p>
   </div>
 
+  <!-- What a reader needs in front of them: which area, what the colour means,
+       and how to find a place. Everything below those is a setting rather than a
+       question, so it sits under Map options. Walking past four rows of switches
+       and sliders to reach the map is the analyst's route, not a reader's. -->
   <div class="viz-controls">
     <label class="form-label grow" for="area-filter">Area
       <select class="form-select" id="area-filter">
@@ -37,7 +41,8 @@
         <option value="all">Everything in the file (Metro Vancouver)</option>
       </select>
     </label>
-    <label class="form-label grow" for="shade-by">Shade federal (2025) polls by
+    <label class="form-label grow" for="shade-by"
+           title="Colours the 2025 federal polling divisions, the base layer of the map.">Colour map by
       <select class="form-select" id="shade-by">
         <option value="none">Nothing (plain boundaries)</option>
         <option value="type">Poll type</option>
@@ -66,8 +71,23 @@
   </div>
 
   <div class="viz-controls">
-    <label class="form-label grow" for="shade-prov-by">Shade provincial (2024) voting areas by
-      <select class="form-select" id="shade-prov-by">
+    <label class="form-label grow" for="find-poll">Find a federal (2025) polling division
+      <select class="form-select" id="find-poll"><option value="">Select a division&hellip;</option></select>
+    </label>
+    <label class="form-label grow" for="find-va">Find a provincial (2024) voting area
+      <select class="form-select" id="find-va" disabled><option value="">No provincial layer loaded</option></select>
+    </label>
+    <label class="form-label grow" for="find-da" id="find-da-wrap" hidden>Find a dissemination area
+      <select class="form-select" id="find-da"><option value="">Select an area&hellip;</option></select>
+    </label>
+    <button type="button" class="btn" id="zoom-reset">Full view</button>
+  </div>
+
+  <details class="disclosure" id="map-options">
+    <summary>Map options</summary>
+    <div class="viz-controls">
+      <label class="form-label grow" for="shade-prov-by">Colour provincial areas by
+        <select class="form-select" id="shade-prov-by">
         <option value="none">Nothing (outline only)</option>
         <option value="flat">Flat fill</option>
         <option value="prov-party">Provincial party share</option>
@@ -80,15 +100,15 @@
         <option value="points-count" hidden>Places loaded (count)</option>
         <option value="points-weight" hidden>Places loaded (weighted)</option>
       </select>
-    </label>
-    <label class="form-label" for="prov-opacity">Overlay fill strength
-      <input class="form-range" type="range" id="prov-opacity" min="0.1" max="1" step="0.05" value="0.7">
-    </label>
-  </div>
+      </label>
+      <label class="form-label" for="prov-opacity">Overlay fill strength
+        <input class="form-range" type="range" id="prov-opacity" min="0.1" max="1" step="0.05" value="0.7">
+      </label>
+    </div>
 
-  <div class="viz-controls" id="da-controls" hidden>
-    <label class="form-label grow" for="shade-da-by">Shade census (2021) dissemination areas by
-      <select class="form-select" id="shade-da-by">
+    <div class="viz-controls" id="da-controls" hidden>
+      <label class="form-label grow" for="shade-da-by">Colour census areas by
+        <select class="form-select" id="shade-da-by">
         <option value="none">Nothing (outline only)</option>
         <option value="flat">Flat fill</option>
         <option value="turnout-agg">Aggregate turnout, both elections</option>
@@ -100,63 +120,54 @@
         <option value="points-count" hidden>Places loaded (count)</option>
         <option value="points-weight" hidden>Places loaded (weighted)</option>
       </select>
-    </label>
-    <label class="form-label grow" for="shade-da-var">Census variable
-      <select class="form-select" id="shade-da-var" disabled><option value="">Load a census profile</option></select>
-    </label>
-    <label class="form-label grow" for="find-da">Find a dissemination area
-      <select class="form-select" id="find-da"><option value="">Select an area&hellip;</option></select>
-    </label>
-  </div>
+      </label>
+      <label class="form-label grow" for="shade-da-var">Census variable
+        <select class="form-select" id="shade-da-var" disabled><option value="">Load a census profile</option></select>
+      </label>
+    </div>
 
-  <div class="viz-controls">
-    <label class="form-check form-switch">
-      <input class="form-check-input" type="checkbox" id="show-fed" checked>
-      <span class="form-check-label">Federal (2025) polling divisions</span>
-    </label>
-    <label class="form-check form-switch">
-      <input class="form-check-input" type="checkbox" id="show-prov" checked>
-      <span class="form-check-label">Provincial (2024) voting areas</span>
-    </label>
-    <label class="form-check form-switch">
-      <input class="form-check-input" type="checkbox" id="show-mobile">
-      <span class="form-check-label">Mobile &amp; single-building polls</span>
-    </label>
-    <label class="form-check form-switch" id="show-places-wrap" hidden>
-      <input class="form-check-input" type="checkbox" id="show-places" checked>
-      <span class="form-check-label">Provincial (2024) voting places</span>
-    </label>
-    <label class="form-check form-switch" id="show-da-wrap" hidden>
-      <input class="form-check-input" type="checkbox" id="show-da" checked>
-      <span class="form-check-label">Census (2021) dissemination areas</span>
-    </label>
-    <label class="form-label" for="prov-weight">Overlay line weight
-      <input class="form-range" type="range" id="prov-weight" min="0.5" max="4" step="0.25" value="1.75">
-    </label>
-  </div>
+    <div class="viz-controls">
+      <label class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" id="show-fed" checked>
+        <span class="form-check-label">Federal (2025) polling divisions</span>
+      </label>
+      <label class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" id="show-prov" checked>
+        <span class="form-check-label">Provincial (2024) voting areas</span>
+      </label>
+      <label class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" id="show-mobile">
+        <span class="form-check-label">Mobile &amp; single-building polls</span>
+      </label>
+      <label class="form-check form-switch" id="show-places-wrap" hidden>
+        <input class="form-check-input" type="checkbox" id="show-places" checked>
+        <span class="form-check-label">Provincial (2024) voting places</span>
+      </label>
+      <label class="form-check form-switch" id="show-da-wrap" hidden>
+        <input class="form-check-input" type="checkbox" id="show-da" checked>
+        <span class="form-check-label">Census (2021) dissemination areas</span>
+      </label>
+      <label class="form-label" for="prov-weight">Overlay line weight
+        <input class="form-range" type="range" id="prov-weight" min="0.5" max="4" step="0.25" value="1.75">
+      </label>
+    </div>
 
-  <div class="viz-controls">
-    <label class="form-label grow" for="find-poll">Find a federal (2025) polling division
-      <select class="form-select" id="find-poll"><option value="">Select a division&hellip;</option></select>
-    </label>
-    <label class="form-label grow" for="find-va">Find a provincial (2024) voting area
-      <select class="form-select" id="find-va" disabled><option value="">No provincial layer loaded</option></select>
-    </label>
-    <label class="form-label" for="basemap">Basemap
-      <select class="form-select" id="basemap">
+    <div class="viz-controls">
+      <label class="form-label" for="basemap">Basemap
+        <select class="form-select" id="basemap">
         <option value="none">None — boundaries only</option>
         <option value="auto">Streets, light or dark to match (CARTO)</option>
         <option value="positron">Streets — light (CARTO)</option>
         <option value="dark">Streets — dark (CARTO)</option>
         <option value="osm">OpenStreetMap standard (needs the page served over http)</option>
       </select>
-    </label>
-    <label class="form-label grow" for="carto-key">CARTO key (free, optional)
-      <input class="form-control" type="text" id="carto-key" placeholder="paste a key to turn on street tiles"
-             autocomplete="off" spellcheck="false">
-    </label>
-    <button type="button" class="btn" id="zoom-reset">Full view</button>
-  </div>
+      </label>
+      <label class="form-label grow" for="carto-key">CARTO key (free, optional)
+        <input class="form-control" type="text" id="carto-key" placeholder="paste a key to turn on street tiles"
+               autocomplete="off" spellcheck="false">
+      </label>
+    </div>
+  </details>
 
   <div class="map-wrap">
     <div class="atlas-map" id="atlas-map" role="application"

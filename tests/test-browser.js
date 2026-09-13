@@ -6,6 +6,14 @@ const path = require('path');
 const ONE_PX_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
 const tileHosts = [];
 const tileUrls = [];
+/* Map options and the Data tab's replace-data section are drawers now. A reader
+   opens one when they want a setting; a test that is checking what a setting
+   DOES opens them up front, so the interaction under test is the setting rather
+   than the drawer. The drawers themselves are checked on their own, once. */
+const openDrawers = (page) => page.evaluate(() => {
+  for (const d of document.querySelectorAll('details.disclosure')) d.open = true;
+});
+
 async function stubTiles(page) {
   await page.route(/basemaps\.cartocdn\.com|tile\.openstreetmap\.org/, (route) => {
     tileUrls.push(route.request().url());
@@ -26,6 +34,22 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   const file = 'file://' + path.resolve('vancouver-boundary-atlas.html');
   await stubTiles(page);
   await page.goto(file, { waitUntil: 'load' });
+  /* What the Map tab looks like before anybody touches it, captured once and
+     asserted below: the reader's first sight of it decides whether this reads
+     as a map or as a control panel. */
+  await page.locator('#tab-map').click();
+  const firstLook = await page.evaluate(() => {
+    const shown = (id) => {
+      const r = document.getElementById(id)?.getBoundingClientRect();
+      return !!r && r.width > 0 && r.height > 0;
+    };
+    return {
+      drawers: [...document.querySelectorAll('details.disclosure')].map((d) => d.open),
+      headline: ['area-filter', 'shade-by', 'find-poll'].map(shown),
+      tucked: ['prov-opacity', 'prov-weight', 'basemap', 'carto-key'].map(shown),
+    };
+  });
+  await openDrawers(page);
   await page.waitForTimeout(900);
 
   console.log('\n== Initial load ==');
@@ -39,6 +63,14 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   ok('empty-provincial notice shown', await page.locator('#prov-missing').isVisible());
   const finder = await page.locator('#find-poll option').count();
   ok(`poll finder populated (${finder})`, finder === fedPaths + 1);
+
+  console.log('\n== The map leads with the map ==');
+  ok('the options drawer starts shut', firstLook.drawers.length > 0
+     && firstLook.drawers.every((open) => open === false), JSON.stringify(firstLook.drawers));
+  ok('area, colouring and the finder are in front of the reader',
+     firstLook.headline.every(Boolean), JSON.stringify(firstLook.headline));
+  ok('sliders, basemap and the key are not',
+     firstLook.tucked.every((v) => v === false), JSON.stringify(firstLook.tucked));
 
   console.log('\n== Basemap ==');
   ok('Leaflet map mounted', await page.evaluate(() => !!document.querySelector('#atlas-map.leaflet-container')));
