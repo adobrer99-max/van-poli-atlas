@@ -130,6 +130,7 @@ function bakedIn() {
 
 const fmtPts = (v) => (v == null || !isFinite(v) ? '--' : `${(v * 100).toFixed(1)} pts`);
 
+
 /* Counted: the agency reported this number for this area. Modelled: it was
    moved onto a geography its source does not use. Smoothed: municipal ballots,
    which are spread by distance because you may vote anywhere in the city. */
@@ -147,12 +148,14 @@ function headlineFindings() {
 
   const rows = (state.turnout.rows || []).filter((r) => r.agg != null);
   if (rows.length) {
+    const basis = turnoutBasis();
     const electors = rows.reduce((a, r) => a + r.electors, 0);
     const expected = rows.reduce((a, r) => a + (r.expected || 0), 0);
-    push('Aggregate turnout across the ranked areas',
+    push(`${basis.name} across the ranked areas`,
       fmtPct(electors > 0 ? expected / electors : null),
-      `${fmtInt(rows.length)} ${UNIT_NAMES[state.turnout.unit]}, ${fmtInt(electors)} electors`,
-      state.pairs ? 'modelled' : 'counted');
+      `${fmtInt(rows.length)} ${UNIT_NAMES[state.turnout.unit]}, ${fmtInt(electors)} electors`
+      + basis.note,
+      basis.badge);
 
     /* The question this atlas was built to answer: where turnout is highest,
        and by how much it beats the quietest areas. A decile each end, because
@@ -164,10 +167,10 @@ function headlineFindings() {
       fmtPts(mean(sorted.slice(0, decile)) - mean(sorted.slice(-decile))),
       `${fmtPct(mean(sorted.slice(0, decile)))} against ${fmtPct(mean(sorted.slice(-decile)))}, `
       + `${fmtInt(decile)} areas each end`,
-      state.pairs ? 'modelled' : 'counted');
-    push('Highest aggregate turnout', sorted[0] ? fmtPct(sorted[0].agg) : '--',
+      basis.badge);
+    push(`Highest ${basis.name.toLowerCase()}`, sorted[0] ? fmtPct(sorted[0].agg) : '--',
       sorted.slice(0, 3).map((r) => r.label).filter(Boolean).join(' · '),
-      state.pairs ? 'modelled' : 'counted');
+      basis.badge);
   }
 
   const c = state.lastCorrelation;

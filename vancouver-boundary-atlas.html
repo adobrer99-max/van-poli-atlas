@@ -8506,6 +8506,40 @@ function setBasemap(mode) {
 }
 darkScheme.addEventListener('change', () => { if ($('basemap').value === 'auto') setBasemap('auto'); });
 
+/* What the turnout figures anywhere in this atlas actually divide by what.
+
+   Electors are registered to a polling division whatever they later do, so the
+   denominator is always everyone. The numerator is not: advance and special
+   ballots are reported without a boundary, and the Turnout tab's default is to
+   leave them out, which is honest there because the control says so in as many
+   words -- "Leave out (election-day turnout)".
+
+   A headline that repeats the number without that qualifier turns a defensible
+   election-day figure into a wrong turnout figure, and it is wrong by however
+   large advance voting was. So the name of the measure changes with the
+   setting, and every surface that prints one of these figures -- the briefing,
+   the map legend, the readout card, the Turnout tab's own tiles -- takes its
+   wording from here. A qualifier that lives next to one control does not travel
+   with the number, and the number is what gets quoted. */
+function turnoutBasis() {
+  const a = state.turnout.apportion || {};
+  const loose = [];
+  if (state.fedResults && a.fed === 'none') loose.push('federal advance and special');
+  if (state.provResults && a.prov === 'none') loose.push('provincial advance and absentee');
+  const modelled = Boolean(state.pairs);
+  if (!loose.length) {
+    return { name: 'Aggregate turnout', short: '', badge: modelled ? 'modelled' : 'counted', note: '' };
+  }
+  const whole = loose.length === 2 || !state.pairs;
+  return {
+    name: whole ? 'Election-day turnout' : 'Aggregate turnout, partly election-day',
+    short: whole ? 'election-day ballots only' : 'partly election-day',
+    badge: modelled ? 'modelled' : 'counted',
+    note: ` — ${loose.join(' and ')} ballots are left out, so this is below `
+      + 'the turnout the agency reports. Apportion them on the Turnout tab to include them.',
+  };
+}
+
 function fitAll() {
   const extent = extentOf(state.fed.active) || extentOf(state.prov.active);
   if (extent) map.fitBounds([[extent[1], extent[0]], [extent[3], extent[2]]], { padding: [12, 12], animate: false });
@@ -9041,7 +9075,7 @@ function renderLegend() {
   } else if (mode === 'turnout-agg') {
     const w = Math.round(state.turnout.weight * 100);
     items.push(['var(--viz-series-1)',
-      `Aggregate turnout, ${w}% federal / ${100 - w}% provincial${range(state.shadeDomain.fed)}`]);
+      `${turnoutBasis().name}, ${w}% federal / ${100 - w}% provincial${range(state.shadeDomain.fed)}`]);
     items.push(['note', 'A poll reached by only one election shows that election alone.']);
   } else if (mode === 'turnout-delta') {
     items.push(['var(--viz-series-1)', 'Federal turnout higher'], ['var(--viz-series-2)', 'Provincial turnout higher']);
@@ -9087,7 +9121,9 @@ function renderLegend() {
     } else if (DATA_MODES.has(daMode)) {
       const name = daMode === 'variable'
         ? ($('shade-da-var').selectedOptions[0]?.textContent || 'census variable')
-        : { 'turnout-agg': 'Aggregate turnout', 'turnout-fed': '2025 federal turnout', 'turnout-prov': '2024 provincial turnout' }[daMode];
+        : { 'turnout-agg': turnoutBasis().name, 'turnout-fed': '2025 federal turnout',
+            'turnout-prov': '2024 provincial turnout' }[daMode]
+          + (turnoutBasis().short ? ` (${turnoutBasis().short})` : '');
       const dom = state.shadeDomain.da;
       const rangeText = dom ? (daMode === 'variable'
         ? ` — ${fmtNum(dom.lo, 1)} to ${fmtNum(dom.hi, 1)}` : range(dom)) : '';
@@ -9243,6 +9279,10 @@ function renderReadout() {
         if (row.t.fed != null) bits.push(`federal turnout ${fmtPct(row.t.fed)}`);
         if (row.t.prov != null) bits.push(`provincial turnout ${fmtPct(row.t.prov)}`);
         if (row.agg != null) bits.push(`aggregate ${fmtPct(row.agg)}`);
+        /* Clicked one area at a time, with no control in sight, so the figure
+           has to carry what it is rather than rely on a setting three tabs
+           away. */
+        if (bits.length && turnoutBasis().short) bits.push(turnoutBasis().short);
       }
       if (bits.length) daCard.append(el('p', 'text-small', bits.join(' · ')));
       const shown = state.da.variables.filter((v) => v.byFeature.has(da.__idx)).slice(0, 8);
@@ -10988,7 +11028,8 @@ function refreshTurnout() {
   statsHost.append(
     stat('areas ranked', fmtInt(withAgg.length), `${fmtInt(both.length)} with both elections`),
     stat('electors in ranked areas', fmtInt(electors)),
-    stat('pooled aggregate turnout', fmtPct(electors > 0 ? expected / electors : null)),
+    stat(turnoutBasis().name.toLowerCase(), fmtPct(electors > 0 ? expected / electors : null),
+      turnoutBasis().short || null),
     stat('top 20% of areas hold', top20 ? fmtPct(top20.shareOfElectors) : '--', 'of electors'),
   );
 
@@ -11857,7 +11898,13 @@ $('export-socio').addEventListener('click', () => {
      district-wide spread. Together they let an analyst cluster on the real
      source instead of treating every polygon as an observation. */
   const header = [U.idColumn, 'dguid', 'population_2021', 'electors_fed', 'ballots_fed', 'turnout_fed',
-    'electors_prov', 'ballots_prov', 'turnout_prov', 'turnout_agg', 'coverage_fed', 'coverage_prov',
+    'electors_prov', 'ballots_prov', 'turnout_prov', 'turnout_agg',
+    /* The turnout columns above are not self-describing: with apportionment off
+       they are election-day ballots over every elector, which is a different
+       quantity from the turnout an agency reports. The setting is constant down
+       the file and goes in it anyway, because a CSV read six months from now has
+       no control beside it to check. */
+    'apportion_fed', 'apportion_prov', 'coverage_fed', 'coverage_prov',
     'source_unit', 'catchment_share',
     ...fedParties.map((p) => `fed_share_${p}`), ...provParties.map((p) => `prov_share_${p}`),
     ...vars.map((v) => v.key)];
@@ -11872,6 +11919,7 @@ $('export-socio').addEventListener('click', () => {
       f2(unit === 'da' ? state.da.pop?.get(f.__idx) : null),
       f2(r.by.fed?.electors), f2(Turnout.ballots(r.by.fed)), f6(r.t.fed),
       f2(r.by.prov?.electors), f2(Turnout.ballots(r.by.prov)), f6(r.t.prov), f6(r.agg),
+      state.turnout.apportion.fed, state.turnout.apportion.prov,
       f6(covOf(cFed, i)), f6(covOf(cProv, i)),
       source || '', f6(share),
       ...fedParties.map((p) => f6(Analysis.shareOf(r.by.fed, p))),
@@ -12839,6 +12887,7 @@ function bakedIn() {
 
 const fmtPts = (v) => (v == null || !isFinite(v) ? '--' : `${(v * 100).toFixed(1)} pts`);
 
+
 /* Counted: the agency reported this number for this area. Modelled: it was
    moved onto a geography its source does not use. Smoothed: municipal ballots,
    which are spread by distance because you may vote anywhere in the city. */
@@ -12856,12 +12905,14 @@ function headlineFindings() {
 
   const rows = (state.turnout.rows || []).filter((r) => r.agg != null);
   if (rows.length) {
+    const basis = turnoutBasis();
     const electors = rows.reduce((a, r) => a + r.electors, 0);
     const expected = rows.reduce((a, r) => a + (r.expected || 0), 0);
-    push('Aggregate turnout across the ranked areas',
+    push(`${basis.name} across the ranked areas`,
       fmtPct(electors > 0 ? expected / electors : null),
-      `${fmtInt(rows.length)} ${UNIT_NAMES[state.turnout.unit]}, ${fmtInt(electors)} electors`,
-      state.pairs ? 'modelled' : 'counted');
+      `${fmtInt(rows.length)} ${UNIT_NAMES[state.turnout.unit]}, ${fmtInt(electors)} electors`
+      + basis.note,
+      basis.badge);
 
     /* The question this atlas was built to answer: where turnout is highest,
        and by how much it beats the quietest areas. A decile each end, because
@@ -12873,10 +12924,10 @@ function headlineFindings() {
       fmtPts(mean(sorted.slice(0, decile)) - mean(sorted.slice(-decile))),
       `${fmtPct(mean(sorted.slice(0, decile)))} against ${fmtPct(mean(sorted.slice(-decile)))}, `
       + `${fmtInt(decile)} areas each end`,
-      state.pairs ? 'modelled' : 'counted');
-    push('Highest aggregate turnout', sorted[0] ? fmtPct(sorted[0].agg) : '--',
+      basis.badge);
+    push(`Highest ${basis.name.toLowerCase()}`, sorted[0] ? fmtPct(sorted[0].agg) : '--',
       sorted.slice(0, 3).map((r) => r.label).filter(Boolean).join(' · '),
-      state.pairs ? 'modelled' : 'counted');
+      basis.badge);
   }
 
   const c = state.lastCorrelation;

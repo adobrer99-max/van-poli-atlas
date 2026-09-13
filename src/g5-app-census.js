@@ -544,7 +544,13 @@ $('export-socio').addEventListener('click', () => {
      district-wide spread. Together they let an analyst cluster on the real
      source instead of treating every polygon as an observation. */
   const header = [U.idColumn, 'dguid', 'population_2021', 'electors_fed', 'ballots_fed', 'turnout_fed',
-    'electors_prov', 'ballots_prov', 'turnout_prov', 'turnout_agg', 'coverage_fed', 'coverage_prov',
+    'electors_prov', 'ballots_prov', 'turnout_prov', 'turnout_agg',
+    /* The turnout columns above are not self-describing: with apportionment off
+       they are election-day ballots over every elector, which is a different
+       quantity from the turnout an agency reports. The setting is constant down
+       the file and goes in it anyway, because a CSV read six months from now has
+       no control beside it to check. */
+    'apportion_fed', 'apportion_prov', 'coverage_fed', 'coverage_prov',
     'source_unit', 'catchment_share',
     ...fedParties.map((p) => `fed_share_${p}`), ...provParties.map((p) => `prov_share_${p}`),
     ...vars.map((v) => v.key)];
@@ -559,6 +565,7 @@ $('export-socio').addEventListener('click', () => {
       f2(unit === 'da' ? state.da.pop?.get(f.__idx) : null),
       f2(r.by.fed?.electors), f2(Turnout.ballots(r.by.fed)), f6(r.t.fed),
       f2(r.by.prov?.electors), f2(Turnout.ballots(r.by.prov)), f6(r.t.prov), f6(r.agg),
+      state.turnout.apportion.fed, state.turnout.apportion.prov,
       f6(covOf(cFed, i)), f6(covOf(cProv, i)),
       source || '', f6(share),
       ...fedParties.map((p) => f6(Analysis.shareOf(r.by.fed, p))),
