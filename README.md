@@ -458,28 +458,72 @@ Contains information licensed under the Open Government Licence – Vancouver.
 
 ## Basemap
 
-The map is drawn with [Leaflet](https://leafletjs.com). Street tiles come from
-OpenStreetMap's standard style by default, or from CARTO's Positron (light) and
-Dark Matter basemaps, which follow the page's light or dark theme; all are built
-on OpenStreetMap data.
+The map is drawn with [Leaflet](https://leafletjs.com). Whether it has a street
+basemap under it depends on **how the file is opened**, and the atlas picks a
+default that will actually work rather than one that looks broken.
 
-**OpenStreetMap is the default because it is the one that still needs nothing.**
-CARTO changed their policy at the end of August 2026: a request to their raster
-basemaps without an API key still returns tiles, but stamped diagonally with
-"API KEY REQUIRED". Nothing is blocked, and the key is free from
-[carto.com/basemaps/apikey](https://carto.com/basemaps/apikey/) — but a map
-handed to somebody else should not open covered in a notice meant for whoever
-built it, so the CARTO styles are kept, labelled, and no longer the default. Tiles are requested from the provider while the page is
-open and are never bundled. Each tile request is an ordinary web request to
-the provider's servers: like any web request it carries your IP address,
-browser identification and request headers, together with the coordinates of
-the tile, which reveal the area and zoom level on screen. That data is handled
-under the provider's privacy policy (CARTO, or the OpenStreetMap Foundation).
-Nothing else is sent: your boundary and results files never leave the machine.
-If the tiles do not load, the map says so and keeps working — choose **None**
-under Basemap to make no requests at all and work fully offline. The
-attribution in the map's corner is required by the providers' terms; leave it
-in place.
+Both free basemaps changed under this atlas within weeks of each other:
+
+- **CARTO** began stamping keyless tiles with a diagonal "API KEY REQUIRED"
+  watermark at the end of August 2026. Nothing is blocked; the key is free from
+  [carto.com/basemaps/apikey](https://carto.com/basemaps/apikey/), takes about a
+  minute, and covers 5 million tiles a month.
+- **OpenStreetMap's standard tiles** return `403 Access blocked` to a page
+  opened from a `file://` URL. Their
+  [tile usage policy](https://operations.osmfoundation.org/policies/tiles/)
+  requires a `Referer` or `User-Agent` identifying the application, and a local
+  file sends no `Referer` at all. No code can fix this — a browser will not let
+  a script set either header.
+
+So:
+
+| how it is opened | default | why |
+|---|---|---|
+| served over http(s) | OpenStreetMap | a `Referer` identifies the page, so OSM serves it |
+| from disk, with a baked-in CARTO key | CARTO streets | the key is what CARTO asks for |
+| from disk, no key | **None — boundaries only** | nothing else can legitimately be fetched |
+
+A map with no basemap is complete and correct: every boundary, every figure and
+every export is unaffected. Paste a key into the field beside the basemap picker
+at any time and the street map comes on.
+
+To hand out a copy that opens on streets with no setup at all, bake a key in:
+
+```sh
+python3 build.py --payload payload --carto-key YOUR_KEY
+```
+
+### Runbook: serving it as a site, for OSM-compliant tiles
+
+Serving the file over http means OpenStreetMap works with no key at all. Any
+static host does; GitHub Pages is the shortest route:
+
+1. In the repository, **Settings → Pages**, set **Source** to the branch and
+   folder holding `vancouver-boundary-atlas.html` (`main` / `root` is fine).
+2. Wait for the Pages build, then open
+   `https://<owner>.github.io/<repo>/vancouver-boundary-atlas.html`.
+3. The basemap picker will already be on OpenStreetMap, and tiles will load.
+
+Two things to be deliberate about before doing that:
+
+- **A GitHub Pages site is public** unless the repository is on a plan with
+  private Pages. A build with data baked in is then a public copy of that data.
+  For anything not meant to be public, use a host with access control, or serve
+  it on the campaign's own network — `python3 -m http.server` in the directory
+  is enough for one machine, and `http://localhost:8000/...` satisfies OSM too.
+- **OSM's tiles are volunteer-run.** The policy is fine with a tool used by a
+  handful of people; it is not a CDN. Heavy or automated use wants CARTO with a
+  key, or a self-hosted tile server.
+
+Tiles are the only thing in the file that ever touches the network. Each tile
+request is an ordinary web request to the provider's servers: like any web
+request it carries your IP address, browser identification and request headers,
+together with the coordinates of the tile, which reveal the area and zoom level
+on screen. That data is handled under the provider's privacy policy (CARTO, or
+the OpenStreetMap Foundation). Nothing else is sent: your boundary and results
+files never leave the machine. Choose **None** to make no requests at all and
+work fully offline. The attribution in the map's corner is required by the
+providers' terms; leave it in place.
 
 ## Turnout
 

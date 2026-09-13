@@ -75,7 +75,11 @@ async function adoptPayloads() {
 
 
 draw();
-setBasemap($('basemap').value);
+$('basemap').value = defaultBasemap();
+applyCartoKey(cartoKey);
+$('carto-key').value = cartoKey;
+$('carto-key').addEventListener('change', (e) => applyCartoKey(e.target.value));
+$('carto-key').addEventListener('input', (e) => { if (!e.target.value.trim()) applyCartoKey(''); });
 populateFinders();
 refreshCrosswalkStatus();
 refreshPartySelectors();
