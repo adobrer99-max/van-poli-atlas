@@ -118,6 +118,10 @@ function prepareFederal(features) {
       outsideCity: Boolean(p.jurisdiction),
       jurisdiction: p.jurisdiction || null,
       locality: p.locality || null,
+      /* The advance poll this division reported to, published by Elections
+         Canada. It is what lets an advance poll's ballots land on the ten or
+         so divisions that fed it instead of the whole riding. */
+      advPoll: p.adv || null,
       inVancouver: VANCOUVER_FEDS.has(p.fed) && !p.jurisdiction,
       label: `${FED_NAMES[p.fed] || p.fed} · poll ${p.poll.replace(/-0$/, '')}`,
     };
@@ -823,6 +827,9 @@ function renderReadout() {
     fedCard.append(el('p', 'readout-name', fed.label));
     const bits = [`Riding ${fed.fedNum}`, `poll ${fed.poll}`,
       POLL_TYPE[fed.pollType] ? `${POLL_TYPE[fed.pollType]} poll` : null,
+      /* Where this division's early voters went, so a reader can see which
+         advance poll's ballots are landing here and why. */
+      fed.advPoll ? `advance poll ${fed.advPoll}` : null,
       fed.jurisdiction];
     fedCard.append(el('p', 'text-small text-muted', bits.filter(Boolean).join(' · ')));
     const unit = fedValues()?.get(fed.idx);

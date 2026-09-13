@@ -36,8 +36,17 @@ const Turnout = (() => {
      the whole riding, so handing all of them to the half on screen inflates
      it. Only that district's share is spread, and only over the units inside.
      The remainder is withheld and reported rather than quietly dropped. */
+  /* byAdvance, when given, holds the advance-poll pools the join separated out,
+     and advOf(idx) says which advance poll a feature reported to. Elections
+     Canada publishes that, so an advance poll's ballots go to the ten or so
+     divisions that actually fed it rather than to the two hundred in its
+     riding -- and a pool whose divisions are all outside the study area gives
+     this area nothing, with no share to assume and no early-voting rate to
+     guess at. A pool with no divisions here at all falls back to the
+     district-wide spread rather than disappearing. */
   function apportionUnmatched(values, unmatchedByDistrict,
-                              { basis = 'votes', keyOpts, inArea = null, share = null } = {}) {
+                              { basis = 'votes', keyOpts, inArea = null, share = null,
+                                byAdvance = null, advOf = null } = {}) {
     const clones = new Map();
     const out = new Map();
     for (const [idx, u] of values) {
@@ -56,26 +65,87 @@ const Turnout = (() => {
     }
     const weightOf = basis === 'electors' ? (u) => u.electors : (u) => ballots(u);
     let apportioned = 0, districts = 0, withheld = 0;
-    for (const [d, extra] of unmatchedByDistrict) {
+    let advancePools = 0, advanceApportioned = 0, advanceUnits = 0;
+
+    /* One pass per advance poll, before the district-wide one. Its divisions
+       are gathered the same way the district's are: from the index map, so
+       that "inside the study area" stays a fact about features. */
+    const spread = (members, extra, f) => {
+      const sum = [...members].reduce((a, u) => a + weightOf(u), 0);
+      if (!(sum > 0)) return 0;
+      const pool = (extra.total + extra.rejected) * f;
+      for (const u of members) {
+        const w = weightOf(u) / sum;
+        u.total += extra.total * f * w;
+        u.rejected += extra.rejected * f * w;
+        u.apportioned += pool * w;
+        for (const [p, v] of extra.parties) u.parties.set(p, (u.parties.get(p) || 0) + v * f * w);
+      }
+      return pool;
+    };
+    const fellBack = new Map();
+    if (byAdvance && advOf) {
+      /* Two maps, because "this pool has no divisions here" has two very
+         different causes. Known-but-elsewhere means the advance poll served
+         ground outside the study area and gave this area nothing -- the right
+         answer, arrived at without assuming anything about how early people
+         vote on either side of the line. Not-known-at-all means the boundary
+         file carries none of its divisions, and its ballots would vanish if
+         they were not handed back to the district-wide spread. */
+      const byPoll = new Map(), byPollAnywhere = new Map();
+      for (const [idx, c] of out) {
+        const a = advOf(idx);
+        if (a == null) continue;
+        const key = `${Results.normalizePart(c.district, keyOpts)}|${a}`;
+        if (!byPollAnywhere.has(key)) byPollAnywhere.set(key, new Set());
+        byPollAnywhere.get(key).add(c);
+        if (inArea && !inArea.has(idx)) continue;
+        if (!byPoll.has(key)) byPoll.set(key, new Set());
+        byPoll.get(key).add(c);
+      }
+      for (const [key, extra] of byAdvance) {
+        const members = byPoll.get(key);
+        const whole = extra.total + extra.rejected;
+        if (!members || !members.size) {
+          if (byPollAnywhere.has(key)) { withheld += whole; continue; }
+          const acc = fellBack.get(extra.district) || { total: 0, rejected: 0, parties: new Map(), units: 0 };
+          acc.total += extra.total; acc.rejected += extra.rejected; acc.units += extra.units;
+          for (const [p, v] of extra.parties) acc.parties.set(p, (acc.parties.get(p) || 0) + v);
+          fellBack.set(extra.district, acc);
+          continue;
+        }
+        const moved = spread(members, extra, 1);
+        if (moved > 0) { advancePools++; advanceApportioned += moved; advanceUnits += members.size; }
+        apportioned += moved;
+        withheld += whole - moved;
+      }
+    }
+
+    /* Anything that fell back joins the district-wide pools for this pass. */
+    const districtWide = fellBack.size ? new Map(unmatchedByDistrict) : unmatchedByDistrict;
+    for (const [d, acc] of fellBack) {
+      const cur = districtWide.get(d);
+      if (!cur) { districtWide.set(d, acc); continue; }
+      const merged = { total: cur.total + acc.total, rejected: cur.rejected + acc.rejected,
+                       parties: new Map(cur.parties), units: cur.units + acc.units };
+      for (const [p, v] of acc.parties) merged.parties.set(p, (merged.parties.get(p) || 0) + v);
+      districtWide.set(d, merged);
+    }
+
+    for (const [d, extra] of districtWide) {
       const members = byDistrict.get(d);
       const whole = extra.total + extra.rejected;
       const f = share && share.has(d) ? share.get(d) : 1;
-      const pool = whole * f;
-      if (!members || !members.size || !(pool > 0)) { withheld += whole; continue; }
-      const sum = [...members].reduce((a, u) => a + weightOf(u), 0);
-      if (!(sum > 0)) { withheld += whole; continue; }
-      for (const u of members) {
-        const s = weightOf(u) / sum;
-        u.total += extra.total * f * s;
-        u.rejected += extra.rejected * f * s;
-        u.apportioned += pool * s;
-        for (const [p, v] of extra.parties) u.parties.set(p, (u.parties.get(p) || 0) + v * f * s);
-      }
-      apportioned += pool;
-      withheld += whole - pool;
+      if (!members || !members.size || !(whole * f > 0)) { withheld += whole; continue; }
+      const moved = spread(members, extra, f);
+      if (!moved) { withheld += whole; continue; }
+      apportioned += moved;
+      withheld += whole - moved;
       districts++;
     }
-    return { values: out, apportioned, districts, withheld };
+    return { values: out, apportioned, districts, withheld,
+             advancePools, advanceApportioned,
+             advanceUnitsMean: advancePools ? advanceUnits / advancePools : null };
   }
 
   /* --- Rows on a common geography ------------------------------------------

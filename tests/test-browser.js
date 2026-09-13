@@ -321,7 +321,41 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   const after = await rowCells(expected.named[0].label);
   ok(`apportioning advance ballots raises turnout (${before[3]} -> ${after[3]}) and leaves electors alone`,
      parseFloat(after[3]) > parseFloat(before[3]) && after[8] === before[8]);
-  ok('status warns that apportioned figures are estimates', /estimates/.test(await page.locator('#turnout-status').innerText()));
+  ok('status warns that an apportioned figure is not a measurement',
+     /neither is a measurement/.test(await page.locator('#turnout-status').innerText()),
+     (await page.locator('#turnout-status').innerText()).replace(/\s+/g, ' ').slice(0, 240));
+
+  /* Advance polls land on the divisions that fed them, not on the riding.
+     The fixture's advance polls are 600-605, which the payload carries served
+     sets for, so this exercises the published mapping rather than a stub. */
+  const advNote = (await page.locator('#turnout-status').innerText()).replace(/\s+/g, ' ');
+  ok('the tab counts advance pools and the divisions each served',
+     /advance ballots went to the divisions that fed each of \d+ advance polls/.test(advNote)
+     && /divisions each on average/.test(advNote), advNote.slice(0, 300));
+  const advSpread = await page.evaluate(() => {
+    const a = window.vanPoliAtlas.state.fedResults.apportioned.votes;
+    return { pools: a.advancePools, mean: a.advanceUnitsMean,
+             advance: a.advanceApportioned, all: a.apportioned };
+  });
+  ok(`${advSpread.pools} advance pools spread over ${advSpread.mean?.toFixed(1)} divisions each, `
+     + `far fewer than a riding`, advSpread.pools > 0 && advSpread.mean > 1 && advSpread.mean < 40,
+     JSON.stringify(advSpread));
+  ok('and they account for most of what was apportioned',
+     advSpread.advance > advSpread.all * 0.5, JSON.stringify(advSpread));
+  /* Ballots are conserved: what sits on units afterwards is what was matched
+     plus what was apportioned, exactly. */
+  const conserved = await page.evaluate(() => {
+    const st = window.vanPoliAtlas.state;
+    const ball = (u) => (u.total || 0) + (u.rejected || 0);
+    let before = 0;
+    for (const u of new Set(st.fedResults.values.values())) before += ball(u);
+    const a = st.fedResults.apportioned.votes;
+    let after = 0;
+    for (const u of new Set(a.values.values())) after += ball(u);
+    return after - (before + a.apportioned);
+  });
+  ok(`apportionment creates and loses nothing (${conserved.toFixed(6)})`, Math.abs(conserved) < 1e-6);
+
   await page.locator('#apportion-fed').selectOption('none');
   await page.waitForTimeout(500);
 

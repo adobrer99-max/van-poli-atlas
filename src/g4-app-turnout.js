@@ -137,10 +137,30 @@ function refreshTurnout() {
     const mode = t.apportion[side];
     const store = side === 'fed' ? state.fedResults : state.provResults;
     if (mode === 'none' || !store?.apportioned) continue;
-    ap.push(`${side === 'fed' ? 'federal' : 'provincial'} advance and special ballots apportioned by ${mode} `
-      + `(${fmtInt(store.apportioned[mode].apportioned)} ballots across ${fmtInt(store.apportioned[mode].districts)} districts)`);
+    const a = store.apportioned[mode];
+    const who = side === 'fed' ? 'federal' : 'provincial';
+    /* An advance poll spread over the ten divisions that fed it is a far
+       smaller claim than one spread over a whole riding, so the two are
+       counted separately rather than reported as one number. */
+    if (a.advancePools) {
+      ap.push(`${fmtInt(a.advanceApportioned)} ${who} advance ballots went to the divisions that fed `
+        + `each of ${fmtInt(a.advancePools)} advance polls (${a.advanceUnitsMean.toFixed(1)} divisions `
+        + `each on average), apportioned by ${mode}`);
+    }
+    const wide = a.apportioned - (a.advanceApportioned || 0);
+    if (wide > 0.5) {
+      ap.push(`${fmtInt(wide)} ${who} ballots with no narrower geography — special ballots, mail — `
+        + `spread across ${fmtInt(a.districts)} whole districts by ${mode}`);
+    }
+    if (a.withheld > 0.5) {
+      ap.push(`${fmtInt(a.withheld)} were cast outside the study area and are not spread onto it`);
+    }
   }
-  if (ap.length) lines.push(el('p', 'text-warning', ap.join('; ') + '. These are estimates, not measurements — see Method.'));
+  if (ap.length) {
+    lines.push(el('p', 'text-warning', ap.join('; ')
+      + '. A ballot spread over the divisions that fed its advance poll is on far firmer ground '
+      + 'than one spread across a district, but neither is a measurement — see Method.'));
+  }
   for (const line of participationLines(ranked)) lines.push(line);
   setStatus('turnout-status', 'ok', lines);
 

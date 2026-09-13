@@ -189,6 +189,62 @@ let plainSum = 0;
 for (const u of new Set(plain.values.values())) plainSum += u.apportioned || 0;
 near('which is still conserved across the units', plainSum, 1310, 1e-6);
 
+console.log('\n== Advance polls land on the divisions that fed them ==');
+/* Elections Canada names the advance poll each ordinary division reported to,
+   so nearly half the federal vote can go to the ten or so divisions that fed
+   an advance poll instead of the two hundred in its riding. */
+const advOf = (i) => (i < 4 ? '600' : i < 8 ? '601' : null);   // 59035 has two advance polls
+const advPools = new Map([
+  ['59035|600', { total: 400, rejected: 4, parties: new Map([['A', 240], ['B', 160]]), units: 1,
+                  district: '59035', advPoll: '600' }],
+  ['59035|601', { total: 200, rejected: 0, parties: new Map([['A', 120], ['B', 80]]), units: 1,
+                  district: '59035', advPoll: '601' }],
+]);
+const byAdv = T.apportionUnmatched(vals, new Map(), { basis: 'electors', byAdvance: advPools, advOf });
+near('every advance ballot is placed', byAdv.apportioned, 604, 1e-9);
+ok('both pools were spread, and the served sets counted',
+   byAdv.advancePools === 2 && byAdv.advanceUnitsMean === 4,
+   `${byAdv.advancePools} pools, mean ${byAdv.advanceUnitsMean}`);
+let got600 = 0, got601 = 0, elsewhere = 0;
+for (const [i, u] of byAdv.values) {
+  const a = u.apportioned || 0;
+  if (i < 4) got600 += a; else if (i < 8) got601 += a; else elsewhere += a;
+}
+near('poll 600 goes only to the four divisions that fed it', got600, 404, 1e-9);
+near('and poll 601 only to its own four', got601, 200, 1e-9);
+ok('no division outside a served set receives anything', elsewhere === 0, String(elsewhere));
+/* Electors, not equal shares: the divisions of a served set are roughly but
+   not exactly the same size, and vals gives each a different count. */
+const share0 = (byAdv.values.get(0).apportioned) / 404;
+const even = 1 / 4;
+ok(`a bigger division takes a bigger share (${share0.toFixed(3)} against ${even} if split evenly)`,
+   Math.abs(share0 - even) > 1e-6);
+near('but the shares still add to one',
+     [0, 1, 2, 3].reduce((a, i) => a + byAdv.values.get(i).apportioned / 404, 0), 1, 1e-9);
+
+/* A pool whose divisions are all outside the study area gives this area
+   nothing -- no share to assume, no early-voting rate to guess at. */
+const onlyFirst = new Set([0, 1, 2, 3]);
+const narrowed = T.apportionUnmatched(vals, new Map(),
+  { basis: 'electors', byAdvance: advPools, advOf, inArea: onlyFirst });
+near('an advance poll serving only ground outside the area gives it nothing',
+     narrowed.apportioned, 404, 1e-9);
+near('and those ballots are withheld, not moved somewhere else', narrowed.withheld, 200, 1e-9);
+
+/* A pool the boundary file knows no divisions for falls back to the district,
+   rather than vanishing. */
+const unknown = new Map([['59035|699', { total: 100, rejected: 0, parties: new Map([['A', 100]]),
+                                         units: 1, district: '59035', advPoll: '699' }]]);
+const fall = T.apportionUnmatched(vals, new Map(), { basis: 'electors', byAdvance: unknown, advOf });
+near('an advance poll with no known divisions falls back to the district', fall.apportioned, 100, 1e-9);
+ok('and it lands district-wide rather than on one served set',
+   fall.advancePools === 0 && [...fall.values].filter(([i]) => i < 8).every(([i, u]) => u.apportioned > 0));
+
+/* Nothing here touches a file that has no advance mapping at all. */
+const none = T.apportionUnmatched(vals, extra, { basis: 'electors' });
+near('a file with no advance data behaves exactly as before', none.apportioned, 1310, 1e-9);
+ok('and reports no advance pools', none.advancePools === 0 && none.advanceUnitsMean === null);
+
 console.log('\n== Merged polls ==');
 const keyOpts = { ignoreLeadingZeros: true, ignoreCase: true };
 const units = new Map();
@@ -258,11 +314,15 @@ const mapping = R.detectLayout(H, rowsT);
 ok('bookkeeping columns detected', mapping.mergeWith === 4 && mapping.voidPoll === 2 && mapping.noPoll === 3);
 const feats = ['1-0', '2-0', '3-0', '4-0'].map((poll) => ({ type: 'Feature', properties: { fed: '59035', poll }, geometry: null }));
 const joined = R.join(feats, { district: 'fed', poll: 'poll', federalSuffixes: true }, table, mapping);
-const byD = joined.report.unmatchedByDistrict;
-near('district 59035 unmatched total', byD.get('59035').total, 500, 1e-9);
-near('district 59035 unmatched rejected', byD.get('59035').rejected, 9, 1e-9);
-near('district 59036 unmatched total', byD.get('59036').total, 120, 1e-9);
-near('sum over districts equals unmatchedVotes', [...byD.values()].reduce((a, d) => a + d.total, 0), joined.report.unmatchedVotes, 1e-9);
+/* Polls 600 and 601 are advance polls, so they sit in their own bucket now,
+   waiting for the divisions that fed them. The bookkeeping is the same. */
+const byA = joined.report.unmatchedByAdvancePoll;
+near('district 59035 unmatched total', byA.get('59035|600').total, 500, 1e-9);
+near('district 59035 unmatched rejected', byA.get('59035|600').rejected, 9, 1e-9);
+near('district 59036 unmatched total', byA.get('59036|601').total, 120, 1e-9);
+near('sum over every unmatched pool equals unmatchedVotes',
+     [...byA.values(), ...joined.report.unmatchedByDistrict.values()]
+       .reduce((a, d) => a + d.total, 0), joined.report.unmatchedVotes, 1e-9);
 ok('void poll counted and carries no ballots', joined.report.voidPolls === 1 && joined.values.get(3).total === 0 && joined.values.get(3).flags.void);
 near('electorsMatched sums matched units once', joined.report.electorsMatched, 1500, 1e-9);
 ok('electors column flagged present', joined.report.electorsColumn === true);

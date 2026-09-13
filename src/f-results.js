@@ -378,10 +378,23 @@ const Results = (() => {
        spelling parses as NaN and falls through to riding-wide, which is what
        every other file did before this existed. */
     const ORDINARY_BELOW = 500;
-    const isOrdinaryPoll = (unit) => {
-      if (!keyDef || !keyDef.federalSuffixes) return false;
+    const ADVANCE_FROM = 600;
+    const pollNumber = (unit) => {
+      if (!keyDef || !keyDef.federalSuffixes) return null;
       const n = parseInt(String(unit.poll == null ? '' : unit.poll).replace(/[^0-9].*$/, ''), 10);
-      return isFinite(n) && n > 0 && n < ORDINARY_BELOW;
+      return isFinite(n) && n > 0 ? n : null;
+    };
+    const isOrdinaryPoll = (unit) => {
+      const n = pollNumber(unit);
+      return n != null && n < ORDINARY_BELOW;
+    };
+    /* An advance poll has no boundary, but it is not riding-wide either: the
+       divisions that reported to it are named in the boundary file, so its
+       ballots can land on those alone. Kept in its own bucket for the caller,
+       which is the only side that knows which divisions those are. */
+    const advanceNumber = (unit) => {
+      const n = pollNumber(unit);
+      return n != null && n >= ADVANCE_FROM ? String(n) : null;
     };
 
     const unmatchedRows = [];
@@ -393,10 +406,15 @@ const Results = (() => {
        district's to spread, because they were cast somewhere the study area
        does not cover. */
     const noPolygonByDistrict = new Map();
+    /* Advance polls, keyed district and poll number, for the caller to spread
+       over the divisions that fed each one. A pool the caller finds no
+       divisions for is folded back into the district-wide spread there. */
+    const unmatchedByAdvancePoll = new Map();
     let voidPolls = 0, noPollUnits = 0, noPolygonUnits = 0, noPolygonVotes = 0;
-    const into = (m, d, unit) => {
+    const into = (m, d, unit, extra) => {
       let acc = m.get(d);
-      if (!acc) m.set(d, (acc = { total: 0, rejected: 0, electors: 0, parties: new Map(), units: 0 }));
+      if (!acc) m.set(d, (acc = Object.assign(
+        { total: 0, rejected: 0, electors: 0, parties: new Map(), units: 0 }, extra)));
       acc.total += unit.total;
       acc.rejected += unit.rejected;
       acc.electors += unit.electors || 0;
@@ -410,10 +428,13 @@ const Results = (() => {
       unmatchedRows.push({ key: k, unit });
       if (unit.flags.void || unit.flags.noPoll) continue;
       const d = normalizePart(unit.district, best.keyOpts);
+      const adv = advanceNumber(unit);
       if (isOrdinaryPoll(unit)) {
         noPolygonUnits++;
         noPolygonVotes += unit.total + unit.rejected;
         into(noPolygonByDistrict, d, unit);
+      } else if (adv) {
+        into(unmatchedByAdvancePoll, `${d}|${adv}`, unit, { district: d, advPoll: adv });
       } else {
         into(unmatchedByDistrict, d, unit);
       }
@@ -484,6 +505,7 @@ const Results = (() => {
         unmatchedRowCount: unmatchedRows.length,
         unmatchedVotes: best.agg.totalVotes - best.matchedVotes,
         unmatchedByDistrict,
+        unmatchedByAdvancePoll,
         noPolygonByDistrict,
         noPolygonUnits,
         noPolygonVotes,

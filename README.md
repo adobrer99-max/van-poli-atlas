@@ -146,6 +146,30 @@ ignored, since that is the numerator the atlas already has. Checked against the
 Statement of Votes: Vancouver-Fraserview, 20,865 ballots over 39,801 registered,
 reads 52.4%.
 
+### Advance polls land on the divisions that fed them
+
+Forty-three per cent of the 2025 federal ballots in Vancouver were cast at an
+advance poll, which has no boundary of its own. Elections Canada's
+polling-division file records which advance poll every ordinary division
+reported to, so those ballots go to the three-to-fourteen divisions that fed
+each advance poll — ten on average — instead of to the ~190 in its riding.
+`tools/add-advance-polls.js` copies that column into the payload from
+`PD_CA_2025_EN.dbf`; only the attribute table is needed, not the 175 MB `.shp`,
+because the geometry is already there.
+
+Within a served set the split is **proportional to electors**, not equal: the
+divisions are roughly the same size but not exactly, typically 1.5× between
+largest and smallest and once 6×, so an even split would be off by about 13%.
+
+On the real six-riding file: 105 advance pools, 98 of them spread over a served
+set averaging 10.4 divisions, and the share of ballots sitting on a division or
+in a named set of about ten rises from **44.2% to 84.3%**. Ballots are conserved
+exactly — what lands on units equals what was matched plus what was
+apportioned, on either basis.
+
+Unlike the provincial catchments this atlas invents, **this is published**. The
+Method tab says so, and says which is which.
+
 ### Ridings that leave the city
 
 Two of the six federal ridings cross the City of Vancouver line: Vancouver
@@ -352,12 +376,13 @@ and so on. `tests/run.js` stops at the first failing suite. GitHub Actions (`.gi
 every pull request, plus a check that the committed
 `vancouver-boundary-atlas.html` matches a fresh build.
 
-709 assertions — 487 in the node suites, 222 in the browser ones — plus 13
+749 assertions — 523 in the node suites, 226 in the browser ones — plus 13
 Python tests over the tools in `tools/`. The browser suites drive the real page
 in Chromium through Playwright: loading each boundary format, loading a BC Data
 Catalogue order as delivered and clipped, joining results, reading results
 reported by voting place and checking every ballot survives the catchments,
-building the crosswalk, ranking turnout, reporting provincial ballots against
+building the crosswalk, ranking turnout, spreading advance ballots onto the
+divisions that fed each advance poll, reporting provincial ballots against
 both denominators that can be had for a voting area, loading the census layers
 and correlating a planted variable on the Socioeconomic tab, exporting CSV, dark
 mode, phone-width layout, and the basemap with tile requests stubbed —

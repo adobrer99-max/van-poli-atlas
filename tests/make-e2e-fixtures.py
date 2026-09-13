@@ -106,8 +106,16 @@ for q in polls:
         rows.append([q["fed"], "Sample Riding", q["num"], "Station",
                      "Y" if q["void"] else "N", "N", q["merge_with"],
                      str(q["rejected"]), str(q["electors"]), "Candidate", party, str(q["votes"][party])])
+# One advance-poll row per advance poll the boundary file actually knows, so
+# the fixture exercises the published division-to-advance-poll mapping the way
+# the real Elections Canada files do. A riding has 12 to 20 of them.
+ADV_BY_FED = {}
+for f in van:
+    p = f["properties"]
+    if p.get("adv"):
+        ADV_BY_FED.setdefault(p["fed"], set()).add(p["adv"])
 for fedno in sorted(VAN):
-    for adv in range(600, 606):
+    for adv in sorted(ADV_BY_FED.get(fedno, set()), key=int):
         for party in FED_PARTIES:
             rows.append([fedno, "Sample Riding", str(adv), f"Advance {adv}", "N", "N", "", "9", "3000",
                          "Candidate", party, str(400 + FED_PARTIES.index(party) * 55)])
@@ -135,7 +143,10 @@ expected = {
     "top3_by_federal_turnout": [label(q) for q in ranked[:3]],
     "ordinary_polls": len(ordinary_all),
     "void_polls": sum(1 for q in polls if q["void"]),
-    "advance_ballots_per_riding": sum(400 + FED_PARTIES.index(p) * 55 for p in FED_PARTIES) * 6 + 9 * 6,
+    "advance_polls_per_riding": {fed: len(a) for fed, a in sorted(ADV_BY_FED.items())},
+    "advance_ballots_per_riding": {
+        fed: sum(400 + FED_PARTIES.index(p) * 55 for p in FED_PARTIES) * len(a) + 9 * len(a)
+        for fed, a in sorted(ADV_BY_FED.items())},
 }
 json.dump(expected, open("fixtures/e2e_expected.json", "w"), indent=1)
 

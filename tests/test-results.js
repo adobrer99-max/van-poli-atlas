@@ -181,9 +181,13 @@ ok('the halves stop being units of their own, so nothing is counted twice',
    [...spJoin.values.values()].map((u) => u.poll).join(','));
 ok('every polygon found a result', spJoin.report.matchedFeatures === 2);
 
-const rw = spJoin.report.unmatchedByDistrict.get('59035');
+const adv = spJoin.report.unmatchedByAdvancePoll.get('59035|600');
 const np = spJoin.report.noPolygonByDistrict.get('59035');
-eq('the advance poll is the district\'s to spread', [rw.units, rw.total], [1, 500]);
+eq('the advance poll is kept by itself, for the divisions that fed it',
+   [adv.units, adv.total, adv.district, adv.advPoll], [1, 500, '59035', '600']);
+ok('so it is not left in the district-wide pool',
+   !spJoin.report.unmatchedByDistrict.has('59035'),
+   JSON.stringify([...spJoin.report.unmatchedByDistrict.keys()]));
 eq('the ordinary poll with no polygon is kept apart from it', [np.units, np.total, np.electors], [1, 100, 500]);
 ok('and is reported as such', spJoin.report.noPolygonUnits === 1 && spJoin.report.noPolygonVotes === 102,
    `${spJoin.report.noPolygonUnits} / ${spJoin.report.noPolygonVotes}`);
@@ -202,7 +206,19 @@ ok('a file that already reports the parent is left alone, never doubled',
 const other = R.join(twoPolls, { district: 'fed', poll: 'poll' },
   { header: SP_HEADER, rows: sp }, spMapping, null);
 ok('a file that is not Elections Canada numbering is untouched by any of this',
-   other.report.splitPolls === 0 && other.report.noPolygonUnits === 0);
+   other.report.splitPolls === 0 && other.report.noPolygonUnits === 0
+   && other.report.unmatchedByAdvancePoll.size === 0
+   && other.report.unmatchedByDistrict.has('59035'));
+
+/* Special ballots and mail carry no poll number at all, so they stay the
+   district's to spread however good the advance-poll data is. */
+const withSpecial = sp.concat([['59035', 'S/R 1', '', '0', '0', 'Red', '40'],
+                               ['59035', 'S/R 1', '', '0', '0', 'Blue', '60']]);
+const specialJoin = R.join(twoPolls, { district: 'fed', poll: 'poll', federalSuffixes: true },
+  { header: SP_HEADER, rows: withSpecial }, spMapping, null);
+eq('special ballots stay riding-wide, beside the advance polls that do not',
+   [specialJoin.report.unmatchedByDistrict.get('59035').total,
+    specialJoin.report.unmatchedByAdvancePoll.size], [100, 1]);
 
 console.log(fails ? `\n${fails} FAILURE(S)\n` : '\nAll results tests passed.\n');
 process.exit(fails?1:0);

@@ -566,11 +566,15 @@ function rejoinFederalResults() {
      that decides how a straddling riding's advance ballots are split. */
   const inArea = new Set(federalStudyArea().map((f) => f.idx));
   const joined = Results.join(state.fed.all, keyDef, store.table, store.mapping, focus, inArea);
+  /* Which advance poll each division reported to, straight from the boundary
+     file. Elections Canada publishes it, so an advance poll's ballots go to
+     the divisions that fed it rather than to the whole riding. */
+  const advOf = (idx) => state.fed.all[idx]?.advPoll ?? null;
   store.values = joined.values;
   store.parties = joined.parties;
   store.report = joined.report;
   store.keyOpts = joined.keyOpts;
-  store.apportioned = buildApportioned(store, inArea);
+  store.apportioned = buildApportioned(store, inArea, advOf);
   refreshResults(true);
   $('clear-fed-results').hidden = false;
   setStatus('status-fed-results', joined.report.matchedFeatures ? 'ok' : 'error',
@@ -583,11 +587,12 @@ function rejoinFederalResults() {
    The focus set and the per-district in-area share travel with it, so a riding
    that straddles the study area hands over only its own share of the advance
    ballots, and hands it only to the polls that are inside. */
-function buildApportioned(store, focus) {
+function buildApportioned(store, focus, advOf) {
   const out = {};
   for (const basis of ['votes', 'electors']) {
     out[basis] = Turnout.apportionUnmatched(store.values, store.report.unmatchedByDistrict,
-      { basis, keyOpts: store.keyOpts, inArea: focus || null, share: store.report.inAreaShare });
+      { basis, keyOpts: store.keyOpts, inArea: focus || null, share: store.report.inAreaShare,
+        byAdvance: store.report.unmatchedByAdvancePoll, advOf: advOf || null });
   }
   return out;
 }
