@@ -214,6 +214,28 @@ let msg = '';
 try { M.toPlacesTable({ header: ['a', 'b'], rows: [['1', '2']] }, vp); } catch (e) { msg = e.message; }
 ok('and names what to load instead', /voting place id/i.test(msg) && /Mayor/.test(msg), msg);
 
+/* The open-data portal's dataset page exports its own index under a filename
+   that reads exactly like results -- municipal-election-results.csv -- so it is
+   the likeliest wrong file to arrive. It carries the address of the right one,
+   which is worth saying instead of "no race sheet was found". */
+console.log('\n== The portal index is not the results ==');
+const catalogue = {
+  header: ['Election', 'Link to CSV', 'Link to XLS', 'Link to Attributes'],
+  rows: [
+    ['2025 Municipal By-Election', 'https://example.invalid/2025.zip', 'https://example.invalid/2025.xls', 'https://example.invalid/a'],
+    ['2022 Municipal Election', 'https://example.invalid/2022.zip', 'https://example.invalid/2022.xls', 'https://example.invalid/a'],
+    ['2018 Municipal Election', 'https://example.invalid/2018.zip', 'https://example.invalid/2018.xls', 'https://example.invalid/a'],
+  ],
+};
+const hit = M.catalogueLink(catalogue);
+ok('the index is recognised as an index', hit != null);
+eq('and the link it names is the one for the year asked for', hit && hit.url, 'https://example.invalid/2022.zip');
+eq('and it can list what else is on offer', hit && hit.elections.length, 3);
+eq('a year that is not there names no link rather than the wrong one',
+   M.catalogueLink(catalogue, '1999').url, null);
+ok('a race sheet is not mistaken for the index', M.catalogueLink(mayor) == null);
+ok('nor is the voting-places file', M.catalogueLink(placeTable) == null);
+
 console.log(fails ? `\n${fails} FAILED` : '\nAll municipal checks passed.');
 process.exit(fails ? 1 : 0);
 })();
