@@ -6,6 +6,14 @@ const path = require('path');
 const ONE_PX_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
 const tileHosts = [];
 const tileUrls = [];
+/* Map options and the Data tab's replace-data section are drawers now. A reader
+   opens one when they want a setting; a test that is checking what a setting
+   DOES opens them up front, so the interaction under test is the setting rather
+   than the drawer. The drawers themselves are checked on their own, once. */
+const openDrawers = (page) => page.evaluate(() => {
+  for (const d of document.querySelectorAll('details.disclosure')) d.open = true;
+});
+
 async function stubTiles(page) {
   await page.route(/basemaps\.cartocdn\.com|tile\.openstreetmap\.org/, (route) => {
     tileUrls.push(route.request().url());
@@ -26,6 +34,24 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   const file = 'file://' + path.resolve('vancouver-boundary-atlas.html');
   await stubTiles(page);
   await page.goto(file, { waitUntil: 'load' });
+  /* What the Map tab looks like before anybody touches it, captured once and
+     asserted below: the reader's first sight of it decides whether this reads
+     as a map or as a control panel. */
+  await page.locator('#tab-map').click();
+  await page.waitForTimeout(300);   /* the map is fitted once, asynchronously, on first reveal */
+  const firstLook = await page.evaluate(() => {
+    const shown = (id) => {
+      const r = document.getElementById(id)?.getBoundingClientRect();
+      return !!r && r.width > 0 && r.height > 0;
+    };
+    return {
+      mapOptions: document.getElementById('map-options').open,
+      advancedData: document.getElementById('advanced-data').open,
+      headline: ['area-filter', 'shade-by', 'find-poll'].map(shown),
+      tucked: ['prov-opacity', 'prov-weight', 'basemap', 'carto-key'].map(shown),
+    };
+  });
+  await openDrawers(page);
   await page.waitForTimeout(900);
 
   console.log('\n== Initial load ==');
@@ -39,6 +65,18 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   ok('empty-provincial notice shown', await page.locator('#prov-missing').isVisible());
   const finder = await page.locator('#find-poll option').count();
   ok(`poll finder populated (${finder})`, finder === fedPaths + 1);
+
+  console.log('\n== The map leads with the map ==');
+  ok('the map options drawer starts shut', firstLook.mapOptions === false, String(firstLook.mapOptions));
+  /* This build bakes nothing in, so it is the one used to PREPARE the data and
+     its file inputs are the point. The drawer follows that: open here, shut on
+     a build that already carries everything (asserted in test-variants). */
+  ok('the data drawer starts open when nothing is baked in',
+     firstLook.advancedData === true, String(firstLook.advancedData));
+  ok('area, colouring and the finder are in front of the reader',
+     firstLook.headline.every(Boolean), JSON.stringify(firstLook.headline));
+  ok('sliders, basemap and the key are not',
+     firstLook.tucked.every((v) => v === false), JSON.stringify(firstLook.tucked));
 
   console.log('\n== Basemap ==');
   ok('Leaflet map mounted', await page.evaluate(() => !!document.querySelector('#atlas-map.leaflet-container')));
@@ -454,7 +492,123 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.locator('#tab-socio').click();
   await page.waitForTimeout(800);
   const socioStatus = await page.locator('#socio-status').innerText();
-  ok('dissemination areas carry the aggregate turnout', /dissemination areas carry aggregate turnout/.test(socioStatus), socioStatus);
+  ok('dissemination areas are counted as available and as charted',
+     /\d+ dissemination areas in the study area, \d+ charted/.test(socioStatus), socioStatus);
+
+  /* Which areas to chart is two named options now, not a switch. A checkbox
+     labels only the state it is in, and the state it did not label -- what
+     unticking would actually give you -- was where the confusion sat.
+
+     Two mistakes are pinned here. The predicate used to ask whether both sides
+     produced a turnout RATE, which needs electors; results reported by voting
+     place carry none, so it emptied the tab for exactly the measures built to
+     survive a missing denominator. And it used to be judged against the
+     measure, which made one control mean something different on every one of
+     them. It asks one question now -- did both elections put ballots here --
+     and answers it the same way whatever is being charted, which is what lets
+     it hold a sample still across two measures. */
+  const allAreas = page.locator('#socio-areas-all');
+  const bothAreas = page.locator('#socio-areas-both');
+  const charted = async () => {
+    const line = await page.locator('#socio-status').innerText();
+    return parseInt((/in the study area, ([\d,]+) charted/.exec(line) || [0, '0'])[1]
+      .replace(/,/g, ''), 10);
+  };
+  ok('both options are offered, and neither state has to be inferred',
+     (await page.locator('#socio-areas .form-check-label').allTextContents()).join(' | ')
+       === 'All areas this measure can use | Only areas with both elections',
+     (await page.locator('#socio-areas .form-check-label').allTextContents()).join(' | '));
+  ok('the default is every area the measure can use, not a quietly narrowed set',
+     await allAreas.isChecked() && !(await bothAreas.isChecked()));
+
+  /* The regression this guards. The ballots test once read
+     sources.map(s => s.key); socioSources sets id, so every lookup was
+     ballots[undefined] and the filter took every row. Checked on the two kinds
+     of measure it emptied -- a participation ratio and a party share -- under
+     BOTH options, because under the old code the restrictive one left nothing. */
+  const partyOutcome = (await page.locator('#socio-outcome option').evaluateAll(
+    (os) => os.map((o) => o.value))).find((v) => /^(fed|prov):/.test(v));
+  ok('the fixture offers a party-share outcome to test with', Boolean(partyOutcome), partyOutcome);
+  for (const [value, what] of [['part-fed', 'provincial ballots per federal elector'],
+                               [partyOutcome, 'a party share']]) {
+    await page.locator('#socio-outcome').selectOption(value);
+    await page.waitForTimeout(800);
+    const withAll = await charted();
+    ok(`${what} charts areas under "all areas" (${withAll})`, withAll > 0,
+       await page.locator('#socio-status').innerText());
+    await bothAreas.check();
+    await page.waitForTimeout(800);
+    const withBoth = await charted();
+    ok(`${what} still charts areas under "both elections" (${withBoth})`, withBoth > 0,
+       await page.locator('#socio-status').innerText());
+    ok(`and restricting never adds areas for ${what} (${withBoth} <= ${withAll})`,
+       withBoth <= withAll);
+    ok(`and rows are plotted for ${what}`,
+       (await page.locator('#socio-table tbody tr').count()) > 0);
+    await allAreas.check();
+    await page.waitForTimeout(600);
+  }
+
+  /* The point of the restrictive option: the same areas whichever measure is
+     picked, so two measures can be compared directly. */
+  await bothAreas.check();
+  const held = [];
+  for (const value of ['turnout-fed', 'turnout-prov', 'turnout-agg']) {
+    await page.locator('#socio-outcome').selectOption(value);
+    await page.waitForTimeout(800);
+    held.push(await page.evaluate(() => window.vanPoliAtlas.state.socio.rows.length));
+  }
+  ok(`"both elections" holds the same set of areas across measures (${held.join(', ')})`,
+     held.every((n) => n === held[0]) && held[0] > 0, held.join(', '));
+  /* Every dissemination area in the fixture carries both elections, so the
+     counts above are equal and prove only that nothing was emptied. The
+     provincial geography is where the two options genuinely differ -- the
+     crosswalk reaches federal results on some voting areas and not others --
+     so the difference is asserted there, or the assertion means nothing. */
+  await page.locator('#socio-unit').selectOption('prov');
+  await page.locator('#socio-outcome').selectOption('turnout-agg');
+  await allAreas.check();
+  await page.waitForTimeout(1200);
+  const provAll = await charted();
+  await bothAreas.check();
+  await page.waitForTimeout(1200);
+  const provBoth = await charted();
+  ok(`on voting areas the two options really do differ (${provBoth} of ${provAll})`,
+     provBoth > 0 && provBoth < provAll, `${provBoth} vs ${provAll}`);
+  ok('and the restrictive one names what it left out, with the count',
+     /carry one election only, left out by the choice above/.test(
+       await page.locator('#socio-status').innerText()),
+     await page.locator('#socio-status').innerText());
+  await allAreas.check();
+  await page.waitForTimeout(1200);
+  ok('while the default says what a one-election aggregate means rather than hiding it',
+     /one election only, so their aggregate is that election/.test(
+       await page.locator('#socio-status').innerText()),
+     await page.locator('#socio-status').innerText());
+  await page.locator('#socio-unit').selectOption('da');
+  await page.waitForTimeout(1200);
+
+  await allAreas.check();
+  await page.locator('#socio-outcome').selectOption('turnout-agg');
+  await page.waitForTimeout(800);
+  ok('and on dissemination areas every area carries both, so nothing is dropped',
+     /one election only, so their aggregate is that election/.test(
+       await page.locator('#socio-status').innerText())
+     || (await charted()) === await page.evaluate(
+       () => window.vanPoliAtlas.state.socio.rows.length),
+     await page.locator('#socio-status').innerText());
+
+  ok('every area is accounted for, charted or with a reason',
+     await page.evaluate(() => {
+       const t = document.getElementById('socio-status').innerText;
+       const m = /(\d[\d,]*) \S[^,]* in the study area, (\d[\d,]*) charted/.exec(t);
+       if (!m) return false;
+       const num = (v) => parseInt(v.replace(/,/g, ''), 10);
+       const total = num(m[1]), charted = num(m[2]);
+       if (total === charted) return !/Not charted/.test(t);
+       const drops = [...t.matchAll(/(\d[\d,]*) (?=under |carry one|no )/g)].map((d) => num(d[1]));
+       return drops.reduce((a, b) => a + b, 0) === total - charted;
+     }), await page.locator('#socio-status').innerText());
   const socioRows = page.locator('#socio-table tbody tr');
   const nVars = await socioRows.count();
   ok(`table lists the 15 starter variables (${nVars})`, nVars === 15);
@@ -491,6 +645,25 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   // planted relationship must survive the move, sign and all.
   await page.locator('#socio-outcome').selectOption('turnout-agg');
   await page.waitForTimeout(600);
+  /* Three names per variable, each where it belongs: plain words in the table,
+     the statistical definition on hover, and something a few characters wide on
+     a chart axis. */
+  const renterNames = await page.evaluate(() => {
+    const row = [...document.querySelectorAll('#socio-table tbody tr')]
+      .find((tr) => /Renter/.test(tr.cells[0].textContent));
+    const axis = document.querySelector('#socio-scatter').textContent;
+    return { cell: row && row.cells[0].textContent.trim(), title: row && row.cells[0].title, axis };
+  });
+  ok('the table shows the plain name', renterNames.cell === 'Renter households', renterNames.cell);
+  ok('and carries the statistical definition on hover',
+     renterNames.title === 'Renter households (%)', renterNames.title);
+  await page.locator('#socio-table tbody tr', { hasText: 'Renter households' }).first().click();
+  await page.waitForTimeout(400);
+  /* #socio-scatter is an <svg>, which has no innerText. */
+  const axisText = await page.evaluate(() => document.querySelector('#socio-scatter').textContent);
+  ok('and the chart axis uses the short form', /Renters/.test(axisText),
+     axisText.replace(/\s+/g, ' ').slice(0, 160));
+
   const daRenter = rOf(rowFor(/Renter/));
   const units = await page.locator('#socio-unit option').allTextContents();
   ok('the voting areas are offered as a second geography',
@@ -498,7 +671,7 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.locator('#socio-unit').selectOption('prov');
   await page.waitForTimeout(1200);
   const provStatus = await page.locator('#socio-status').innerText();
-  ok('the tab now reports voting areas', /provincial voting areas carry aggregate turnout/.test(provStatus),
+  ok('the tab now reports voting areas', /\d+ provincial voting areas in the study area, \d+ charted/.test(provStatus),
      provStatus.replace(/\s+/g, ' ').slice(0, 160));
   cells = await socioCells();
   const provRenter = rowFor(/Renter/);
@@ -915,6 +1088,20 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.locator('#tab-data').click();
   await page.waitForTimeout(200);
 
+  /* The briefing is checked at the end of the run, by which point the next
+     line has unloaded this election -- so the municipal finding, and the only
+     "smoothed" badge in the file, would never be exercised. Check it here,
+     while the data is still loaded. */
+  await page.locator('#tab-overview').click();
+  await page.waitForTimeout(400);
+  const withMuni = await page.locator('#overview-findings').innerText();
+  ok('the briefing carries a municipal finding while the election is loaded',
+     /municipal/i.test(withMuni), withMuni.replace(/\s+/g, ' ').slice(0, 200));
+  ok('and marks it smoothed rather than counted',
+     /Smoothed, not assigned/.test(withMuni), withMuni.replace(/\s+/g, ' ').slice(-200));
+  await page.locator('#tab-data').click();
+  await page.waitForTimeout(200);
+
   await page.locator('#clear-muni').click();
   await page.waitForTimeout(400);
   ok('removing it hides the municipal shade options again',
@@ -991,6 +1178,42 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.locator('#tab-corr').click();
   await page.waitForTimeout(600);
   ok('and switching back restores the original figures', (await corrStats()) === corrOff);
+
+  console.log('\n== The briefing ==');
+  await page.locator('#tab-overview').click();
+  await page.waitForTimeout(500);
+  if (process.env.ATLAS_SHOT) await page.screenshot({ path: process.env.ATLAS_SHOT, fullPage: true });
+  const brief = await page.locator('#panel-overview').innerText();
+  const figures = await page.locator('#overview-findings .finding-figure').allTextContents();
+  ok(`the briefing carries headline findings (${figures.length})`, figures.length >= 3, figures.join(' | '));
+  ok('every one of them has a figure rather than a dash',
+     figures.length > 0 && figures.every((f) => f.trim() && f.trim() !== '--'), figures.join(' | '));
+  /* A headline is exactly where a modelled number gets quoted as a counted one,
+     so each figure has to say which it is. */
+  const badges = await page.locator('#overview-findings .badge').allTextContents();
+  ok('each finding says how it was arrived at', badges.length === figures.length, badges.join(' | '));
+  ok('and the modelled ones are named as modelled',
+     badges.some((b) => /modelled/i.test(b)), badges.join(' | '));
+  ok('the briefing states the scope and what is left out',
+     /polling divisions/.test(brief) && /Electoral Area A/.test(brief), brief.slice(0, 200));
+  ok('it ticks the datasets that are loaded',
+     (await page.locator('#overview-readiness li.is-ready').count()) >= 4,
+     String(await page.locator('#overview-readiness li.is-ready').count()));
+  ok('it carries the caveats that govern quoting a number',
+     /neighbourhoods, not people/i.test(brief) && /no municipal turnout/i.test(brief));
+  ok('it attributes every agency whose data it can carry',
+     ['Elections Canada', 'Elections BC', 'City of Vancouver', 'Statistics Canada']
+       .every((who) => brief.includes(who)), brief.slice(-400));
+  /* The committed build carries NO stamp, and that is the point of it: a stamp
+     carries the clock, so a file with one is never byte-identical to the next
+     build, and CI checks the committed artifact still matches a fresh one. The
+     stamp belongs on a copy handed to somebody -- asserted on the payload build
+     in test-variants, which is what such a copy is. */
+  ok('the committed build carries no stamp, so it stays reproducible',
+     !/Built \d{4}-\d{2}-\d{2}/.test(brief)
+     && (await page.locator('#overview-stamp').count()) === 1
+     && await page.locator('#overview-stamp').isHidden(),
+     brief.slice(0, 300));
 
   console.log('\n== Tabs and method ==');
   await page.locator('#tab-method').click();

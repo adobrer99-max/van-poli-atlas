@@ -200,10 +200,11 @@ async function loadMuniResults(input) {
   const files = Array.isArray(input) ? input : [input];
   setStatus('status-muni', 'busy', `Reading ${files.map((f) => f.name).join(', ')}…`);
   const races = [], seen = new Set();
-  let overview = null;
+  let overview = null, catalogue = null;
   const add = (name, bytesIn) => {
     const table = TextFormats.parseDelimited(TextFormats.decodeBytes(bytesIn));
     if (!table.header.length) return;
+    catalogue = catalogue || Municipal.catalogueLink(table);
     if (Municipal.isOverviewSheet(name)) { overview = Municipal.readOverview(table) || overview; return; }
     if (!Municipal.isRaceSheet(name) || seen.has(name)) return;
     const label = name.replace(/^.*[-\/]/, '').replace(/\.[a-z]+$/i, '').trim() || name;
@@ -226,6 +227,13 @@ async function loadMuniResults(input) {
     }
   }
   if (!races.length) {
+    if (catalogue) {
+      throw new Error(catalogue.url
+        ? `That is the open-data portal's list of elections, not the results — it has one row per `
+          + `election with a link to each. The one you want is ${catalogue.name}: ${catalogue.url}`
+        : `That is the open-data portal's list of elections, not the results. It offers `
+          + `${catalogue.elections.join(', ')}; download the archive for the one you want and load that.`);
+    }
     throw new Error('No race sheet was found. The 2022 archive holds Mayor, Councillor, '
       + 'ParkBoard, SchoolTrustee and three questions; load that archive, or one of its sheets.');
   }

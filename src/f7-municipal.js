@@ -316,6 +316,24 @@ const Municipal = (() => {
   const isRaceSheet = (name) =>
     RACE_SHEET.test(String(name).replace(/^.*[-\/]/, '').trim());
 
+  /* The open-data portal's dataset page exports its own INDEX -- one row per
+     election, with a link to each archive -- under a filename that reads like
+     results: municipal-election-results.csv. It is the likeliest wrong file to
+     arrive here, and it happens to contain the address of the right one, so
+     say which link to follow rather than "no race sheet was found". */
+  function catalogueLink(table, year = '2022') {
+    const at = (name) => table.header.findIndex((h) => name.test(String(h).trim()));
+    const election = at(/^election$/i), link = at(/^link to csv$/i);
+    if (election < 0 || link < 0) return null;
+    const rows = table.rows
+      .map((r) => ({ name: String(r[election] || '').trim(), url: String(r[link] || '').trim() }))
+      .filter((r) => r.name && /^https?:/i.test(r.url));
+    if (!rows.length) return null;
+    const want = rows.find((r) => r.name.includes(year));
+    return { url: want ? want.url : null, name: want ? want.name : null,
+             elections: rows.map((r) => r.name) };
+  }
+
   return { readVotingPlaces, detectRace, candidateParty, toPlacesTable, isRaceSheet,
-           readOverview, isOverviewSheet };
+           readOverview, isOverviewSheet, catalogueLink };
 })();

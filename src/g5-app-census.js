@@ -1,4 +1,4 @@
-/* --- Socioeconomic tab ------------------------------------------------------
+/* --- Neighbourhood profile tab ------------------------------------------------------
    Election results moved onto Statistics Canada's dissemination areas through
    the sample-table crosswalk, correlated with census variables. The maths is
    in f2-turnout.js (rows on a target geography), e-analysis.js (correlateXY)
@@ -120,6 +120,7 @@ function socioOutcome(mode) {
            usesProvincial: true };
 }
 
+
 /* How a variable survives being carried to another geography. A count is
    shared out; anything else is averaged, because rates and medians do not add.
    A long profile says which it is; a wide file does not, so the tool's own
@@ -186,7 +187,7 @@ function refreshSocio() {
   if (state.da.all.length && !state.da.variables.length) missing.push('a census profile joined to them');
   if (!state.fedResults?.values && !state.provResults?.values) missing.push('federal or provincial results');
   if (state.da.all.length && (!state.sample || !state.sample.ids.includes('da'))) {
-    missing.push('the crosswalk (build it on the Correlation tab after loading the census layer)');
+    missing.push('the crosswalk (build it on the Compare tab after loading the census layer)');
   }
   if (missing.length) {
     setStatus('socio-status', 'idle', [`Needed first: ${missing.join('; ')}.`]);
@@ -218,27 +219,37 @@ function refreshSocio() {
   st.byDa = unit === 'da' ? null
     : new Map(scoredOn('da', socioSources('da')).map((r) => [r.feature.__idx, r]));
   const outcome = socioOutcome(st.outcome);
-  /* An area covered by only one election carries that election alone as its
-     "aggregate"; by default those stay out of a correlation.
+  /* Which areas to chart, as two named options rather than one switch.
 
-     What "covered" means depends on the outcome, and getting that wrong empties
-     the tab. row.partial asks whether both sides produced a turnout RATE, and a
-     rate needs electors. Results reported by voting place carry none -- which is
-     the entire reason the two participation outcomes exist. Filtering by
-     row.partial therefore removed every area for exactly the outcomes built to
-     survive a missing denominator, and the tab read "0 areas" with no hint why.
+     "All areas this measure can use" is the default and the honest starting
+     point: every area where the chosen measure has a value. "Only areas with
+     both elections" is a sample choice, not a correctness one -- it holds the
+     set of areas still so two measures can be put side by side and compared,
+     at the cost of the areas only one election reached.
 
-     So an outcome that needs rates keeps the rate test, and everything else
-     asks the weaker, correct question: did both elections put ballots here. */
-  const sideKeys = sources.map((s) => s.key);
-  const needsRates = ['turnout-fed', 'turnout-prov', 'agg'].includes(st.outcome)
-    || !/^(part-fed|part-adult|fed:|prov:)/.test(st.outcome);
-  const incomplete = needsRates
-    ? (r) => r.partial
-    : (r) => !sideKeys.every((k) => (r.ballots && r.ballots[k] > 0));
-  const partialCount = rows.filter(incomplete).length;
-  const bothOnly = $('socio-both-only').checked && sources.length > 1;
-  if (bothOnly) rows = rows.filter((r) => !incomplete(r));
+     It is deliberately NOT judged against the measure. An earlier version asked
+     whether both sides produced a turnout RATE, which needs electors; results
+     reported by voting place carry none, so that question emptied the tab for
+     exactly the measures built to survive a missing denominator. A later one
+     asked which elections the measure reads, which made the control mean
+     something different on every measure. This asks one question -- did both
+     elections put ballots in this area -- and gives the same answer whatever is
+     being charted, which is the only way it can hold a sample still.
+
+     row.ballots is keyed by side id, 'fed' and 'prov', because that is what
+     Turnout.score builds it from. An earlier attempt read s.key, which
+     socioSources does not set: every lookup was ballots[undefined] and the
+     filter took every row. */
+  const loadedSides = [...new Set(sources.map((s) => s.id))];
+  const oneSided = (r) => !loadedSides.every((k) => r.ballots && r.ballots[k] > 0);
+  /* With one election loaded there is no choice to offer, so none is shown. */
+  const canChoose = loadedSides.length > 1;
+  $('socio-areas').hidden = !canChoose;
+  const belowMinimum = state[unit].active.length - rows.length;
+  const oneSidedCount = rows.filter(oneSided).length;
+  const bothOnly = canChoose && $('socio-areas-both').checked;
+  if (bothOnly) rows = rows.filter((r) => !oneSided(r));
+  const excludedByFilter = bothOnly ? oneSidedCount : 0;
   st.rows = rows;
   st.byUnit = new Map(rows.map((r) => [r.feature.__idx, r]));
   if (unit === 'da') st.byDa = st.byUnit;
@@ -255,7 +266,8 @@ function refreshSocio() {
                  group: outcome.usesProvincial ? groupOf(r.feature.__idx) : null });
     }
     const c = Analysis.correlateXY(pts);
-    table.push({ key: v.key, label: v.label, movedAs: v.movedAs || null,
+    table.push({ key: v.key, label: v.label, short: v.short || v.label,
+                 precise: v.precise || v.label, movedAs: v.movedAs || null,
                  n: pts.length, nEffective: c.nEffective,
                  grouped: c.grouped, r: c.r, rWeighted: c.rWeighted, rho: c.rho,
                  ci: c.ci, absR: c.r == null ? null : Math.abs(c.r), points: pts, fit: c.fit });
@@ -271,28 +283,55 @@ function refreshSocio() {
     return box;
   };
   statsHost.append(
-    stat(U.name, fmtInt(withOutcome.length), `of ${fmtInt(state[unit].active.length)} in the study area`),
+    stat(`${U.name} charted`, fmtInt(withOutcome.length),
+      `of ${fmtInt(state[unit].active.length)} in the study area`),
+    stat('excluded by the choice above', fmtInt(excludedByFilter),
+      !canChoose ? 'only one election is loaded'
+        : bothOnly ? 'carry one election only' : 'charting every area this measure can use'),
     stat('electors located', fmtInt(electors)),
     stat('overlaps weighted by', state.weightingShort || 'area', state.weightingDetail || null),
     stat('variables compared', fmtInt(table.length),
       `${fmtInt(socioVariables(unit).length)} available`
       + (unit === 'da' ? '' : ', carried from the dissemination areas')),
   );
-  const lines = [`${fmtInt(withOutcome.length)} ${U.name} carry ${outcome.label.toLowerCase()}; `
-    + `${sources.map((s) => (s.id === 'fed' ? 'federal (2025)' : 'provincial (2024)')).join(' and ')} results moved through the crosswalk`
-    + (partialCount
-      ? ` (${fmtInt(partialCount)} areas ${needsRates ? 'lack a turnout rate on one side' : 'carry ballots from only one election'}`
-        + `${bothOnly ? ' and are left out' : ' and are included with what they have'}).`
-      : '.')];
-  if (bothOnly && !withOutcome.length && partialCount) {
-    lines.push(el('p', 'text-warning',
-      needsRates
-        ? 'Every area is missing a turnout rate on one side, so this outcome has nothing to show. '
-          + 'Results reported by voting place carry no electors, and a turnout rate needs them — '
-          + 'pick one of the two "ballots per…" outcomes instead, which exist for this case, '
-          + 'or untick "Only areas with both elections".'
-        : 'No area carries ballots from both elections. Untick "Only areas with both elections" '
-          + 'to see the areas that carry one.'));
+  /* Available, included and excluded, kept apart and each named. The way this
+     tab failed before was that a filter quietly took every row, and one number
+     could not show that: "0 areas" and "977 areas" looked equally like answers.
+     Every area the study area contains is now accounted for either as charted
+     or under a reason it is not. */
+  const noValue = rows.length - withOutcome.length;
+  const drops = [
+    [belowMinimum, st.minElectors
+      ? `under ${fmtInt(st.minElectors)} electors, or no results reached them`
+      : 'no results reached them'],
+    [excludedByFilter, 'carry one election only, left out by the choice above'],
+    [noValue, `no ${outcome.label.toLowerCase()} to report`],
+  ].filter(([n]) => n > 0);
+  const lines = [`${fmtInt(state[unit].active.length)} ${U.name} in the study area, `
+    + `${fmtInt(withOutcome.length)} charted. `
+    + `${sources.map((s) => (s.id === 'fed' ? 'Federal (2025)' : 'provincial (2024)')).join(' and ')} `
+    + 'results moved through the crosswalk.'];
+  if (drops.length) {
+    lines.push(el('p', 'text-small text-muted',
+      `Not charted: ${drops.map(([n, why]) => `${fmtInt(n)} ${why}`).join('; ')}.`));
+  }
+  /* The default charts every area the measure can use, which for the aggregate
+     means an area reached by one election contributes that election alone. That
+     is worth saying where the number is rather than leaving it to be inferred
+     -- it is the reason the second option exists. */
+  if (!bothOnly && canChoose && oneSidedCount && st.outcome === 'turnout-agg') {
+    lines.push(el('p', 'text-small text-muted',
+      `${fmtInt(oneSidedCount)} of the charted areas were reached by one election only, so their `
+      + 'aggregate is that election on its own. Choose “Only areas with both elections” above to '
+      + 'leave them out.'));
+  }
+  if (!withOutcome.length) {
+    lines.push(el('p', 'text-warning', excludedByFilter
+      ? 'Every area carries results from one election only, so “Only areas with both elections” '
+        + 'has left nothing. Choose “All areas this measure can use” above to see them.'
+      : `No area has ${outcome.label.toLowerCase()} to report. `
+        + 'Results reported by voting place carry no electors, and a turnout rate needs them — '
+        + 'the two "ballots per…" outcomes exist for exactly that case.'));
   }
   if (state.da.census?.unmatched?.length) {
     lines.push(el('p', 'text-small text-muted',
@@ -356,7 +395,11 @@ function renderSocioTable() {
     if (t.key === st.picked) tr.classList.add('picked');
     for (const c of SOCIO_COLUMNS) {
       const v = c.get(t);
-      tr.append(el('td', c.left ? 'text-start' : null, v == null ? '--' : c.fmt(v)));
+      const td = el('td', c.left ? 'text-start' : null, v == null ? '--' : c.fmt(v));
+      /* Plain words in the cell, the statistical definition on hover: the
+         table is read at a glance and checked one row at a time. */
+      if (c.key === 'label' && t.precise) td.title = t.precise;
+      tr.append(td);
     }
     tr.addEventListener('click', () => { st.picked = t.key; renderSocioTable(); drawSocioScatter(); });
     tbody.append(tr);
@@ -373,9 +416,9 @@ function drawSocioScatter() {
   const outcome = socioOutcome(st.outcome);
   const xFormat = d3.format(Math.max(...t.points.map((p) => Math.abs(p.x))) >= 1000 ? ',.3~s' : ',.3~r');
   drawScatterXY(node, t.points, {
-    xLabel: t.label, yLabel: outcome.label, xFormat, yFormat: d3.format('.0%'),
+    xLabel: t.short || t.label, yLabel: outcome.label, xFormat, yFormat: d3.format('.0%'),
     colour: 'var(--viz-series-3)', fit: t.fit,
-    title: (p) => `${p.label}\n${t.label}: ${xFormat(p.x)}\n${outcome.label}: ${fmtPct(p.y)}\n${fmtInt(p.weight)} electors`,
+    title: (p) => `${p.label}\n${t.precise || t.label}: ${xFormat(p.x)}\n${outcome.label}: ${fmtPct(p.y)}\n${fmtInt(p.weight)} electors`,
   });
   const dropped = (st.rows || []).length - t.n;
   /* The unit is whatever the tab is running on; saying "dissemination areas"
@@ -386,7 +429,7 @@ function drawSocioScatter() {
     + `; r = ${fmtNum(t.r, 3)}, electors-weighted r = ${fmtNum(t.rWeighted, 3)}. Dot size follows electors.`
     /* The resident denominator is a census count, so correlating it against
        another census count shares a source with its own outcome. Worth saying
-       under the chart rather than only in the Method. */
+       under the chart rather than only in “How to read this”. */
     + (outcome.circular
       ? ' This outcome divides by a census count, so a correlation against another '
         + 'census variable shares a source with its own denominator — read it beside the '
@@ -405,6 +448,7 @@ function renderSocioPicker() {
     const cb = el('input'); cb.type = 'checkbox'; cb.checked = st.selected.has(v.key);
     cb.addEventListener('change', () => { if (cb.checked) st.selected.add(v.key); else st.selected.delete(v.key); refreshSocio(); });
     lab.append(cb, el('span', null, v.label));
+    lab.title = v.precise || v.label;
     /* Carried variables say how they were carried: a count shared out and a
        rate averaged are different numbers, and the difference is not
        recoverable from the value alone. */
@@ -527,7 +571,8 @@ $('export-socio').addEventListener('click', () => {
 
 /* --- Wiring ---------------------------------------------------------------- */
 
-for (const id of ['socio-unit', 'socio-outcome', 'socio-min-electors', 'socio-both-only']) {
+for (const id of ['socio-unit', 'socio-outcome', 'socio-min-electors',
+                  'socio-areas-all', 'socio-areas-both']) {
   $(id).addEventListener('change', () => { clearMovedVariables(); refreshSocio(); });
 }
 $('socio-search').addEventListener('input', renderSocioSearch);

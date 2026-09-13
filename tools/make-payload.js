@@ -40,8 +40,13 @@
    here means the coordinates baked into the build are produced by the same
    code that would have read the file in the browser.
 
-   Inputs are files you download yourself; nothing here is redistributed, so
-   this does not run in CI. */
+   Inputs are files you download yourself, so none of them is in this repository
+   and this does not run in CI. A build made WITH them is a different matter: it
+   carries those datasets to whoever receives the file, which is redistribution
+   however friendly the handoff. Every licence involved permits that with
+   attribution, and the atlas carries the attribution on its Overview tab -- but
+   the Elections BC voting-area licence is the one to read before a copy goes
+   outside the organisation that prepared it. */
 const fs = require('fs');
 const path = require('path');
 const { load } = require('../tests/harness');

@@ -1,24 +1,68 @@
 <div id="atlas">
 <header class="atlas-header">
-  <h1>Vancouver federal &amp; provincial poll atlas</h1>
+  <h1>Vancouver Election Atlas</h1>
   <p class="text-small text-muted">
-    2025 federal polling divisions with provincial voting areas overlaid, for comparing
-    federal and provincial voting poll by poll in the City of Vancouver.
+    Federal, provincial and municipal results on one map of the City of Vancouver &mdash;
+    poll by poll, voting area by voting area &mdash; with the 2021 census beside them.
   </p>
 </header>
 
 <nav class="nav nav-pills" role="tablist" aria-label="Atlas sections">
-  <button class="nav-link active" role="tab" id="tab-map" aria-controls="panel-map" aria-selected="true" type="button">Map</button>
+  <button class="nav-link active" role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true" type="button">Overview</button>
+  <button class="nav-link" role="tab" id="tab-map" aria-controls="panel-map" aria-selected="false" type="button">Map</button>
   <button class="nav-link" role="tab" id="tab-data" aria-controls="panel-data" aria-selected="false" type="button">Data</button>
   <button class="nav-link" role="tab" id="tab-results" aria-controls="panel-results" aria-selected="false" type="button">Results</button>
-  <button class="nav-link" role="tab" id="tab-corr" aria-controls="panel-corr" aria-selected="false" type="button">Correlation</button>
+  <button class="nav-link" role="tab" id="tab-corr" aria-controls="panel-corr" aria-selected="false" type="button">Compare</button>
   <button class="nav-link" role="tab" id="tab-turnout" aria-controls="panel-turnout" aria-selected="false" type="button">Turnout</button>
-  <button class="nav-link" role="tab" id="tab-socio" aria-controls="panel-socio" aria-selected="false" type="button">Socioeconomic</button>
-  <button class="nav-link" role="tab" id="tab-method" aria-controls="panel-method" aria-selected="false" type="button">Method</button>
+  <button class="nav-link" role="tab" id="tab-socio" aria-controls="panel-socio" aria-selected="false" type="button">Neighbourhood profile</button>
+  <button class="nav-link" role="tab" id="tab-method" aria-controls="panel-method" aria-selected="false" type="button">How to read this</button>
 </nav>
 
+<!-- ------------------------------------------------------------- OVERVIEW -->
+<!-- The tab the atlas opens on. Not a summary of the other tabs: the three
+     questions a senior reader has on opening a file somebody else prepared --
+     what is in it, what it says, and what governs quoting any of it. -->
+<section id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
+  <div class="card">
+    <h2>What this file contains</h2>
+    <p class="text-small text-muted" id="overview-scope"></p>
+    <ul class="readiness" id="overview-readiness"></ul>
+    <p class="text-small text-muted">
+      Everything is read from inside this file. Nothing is uploaded, and apart from the optional
+      street basemap nothing is fetched &mdash; the analysis runs in this tab, on this machine.
+      The <b>Data</b> tab says where each dataset came from and lets you replace it.
+    </p>
+    <p class="text-small text-muted stamp" id="overview-stamp" hidden></p>
+  </div>
+
+  <div class="card">
+    <h2>Headline findings</h2>
+    <p class="text-small text-muted">
+      Computed from the data loaded here, by the tabs named beside each one, and recomputed when
+      you change a setting. Each carries how it was arrived at: a counted figure is one an agency
+      reported for these areas, a modelled one was moved onto a geography its source does not use.
+    </p>
+    <div id="overview-findings"></div>
+  </div>
+
+  <div class="card">
+    <h2>Before you quote a number</h2>
+    <ul class="caveats" id="overview-caveats"></ul>
+    <p class="text-small text-muted">
+      Each of these is worked through on the <b>How to read this</b> tab, with the measurements
+      behind it rather than the assertion alone.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Sources and licences</h2>
+    <ul class="sources" id="overview-sources"></ul>
+    <p class="text-small text-muted" id="overview-sources-note"></p>
+  </div>
+</section>
+
 <!-- ------------------------------------------------------------------ MAP -->
-<section id="panel-map" role="tabpanel" aria-labelledby="tab-map">
+<section id="panel-map" role="tabpanel" aria-labelledby="tab-map" hidden>
   <div id="prov-missing" class="card callout">
     <strong>The provincial layer is empty.</strong>
     <p class="text-small">
@@ -29,6 +73,10 @@
     </p>
   </div>
 
+  <!-- What a reader needs in front of them: which area, what the colour means,
+       and how to find a place. Everything below those is a setting rather than a
+       question, so it sits under Map options. Walking past four rows of switches
+       and sliders to reach the map is the analyst's route, not a reader's. -->
   <div class="viz-controls">
     <label class="form-label grow" for="area-filter">Area
       <select class="form-select" id="area-filter">
@@ -37,7 +85,8 @@
         <option value="all">Everything in the file (Metro Vancouver)</option>
       </select>
     </label>
-    <label class="form-label grow" for="shade-by">Shade federal (2025) polls by
+    <label class="form-label grow" for="shade-by"
+           title="Colours the 2025 federal polling divisions, the base layer of the map.">Colour map by
       <select class="form-select" id="shade-by">
         <option value="none">Nothing (plain boundaries)</option>
         <option value="type">Poll type</option>
@@ -66,8 +115,23 @@
   </div>
 
   <div class="viz-controls">
-    <label class="form-label grow" for="shade-prov-by">Shade provincial (2024) voting areas by
-      <select class="form-select" id="shade-prov-by">
+    <label class="form-label grow" for="find-poll">Find a federal (2025) polling division
+      <select class="form-select" id="find-poll"><option value="">Select a division&hellip;</option></select>
+    </label>
+    <label class="form-label grow" for="find-va">Find a provincial (2024) voting area
+      <select class="form-select" id="find-va" disabled><option value="">No provincial layer loaded</option></select>
+    </label>
+    <label class="form-label grow" for="find-da" id="find-da-wrap" hidden>Find a dissemination area
+      <select class="form-select" id="find-da"><option value="">Select an area&hellip;</option></select>
+    </label>
+    <button type="button" class="btn" id="zoom-reset">Full view</button>
+  </div>
+
+  <details class="disclosure" id="map-options">
+    <summary>Map options</summary>
+    <div class="viz-controls">
+      <label class="form-label grow" for="shade-prov-by">Colour provincial areas by
+        <select class="form-select" id="shade-prov-by">
         <option value="none">Nothing (outline only)</option>
         <option value="flat">Flat fill</option>
         <option value="prov-party">Provincial party share</option>
@@ -80,15 +144,15 @@
         <option value="points-count" hidden>Places loaded (count)</option>
         <option value="points-weight" hidden>Places loaded (weighted)</option>
       </select>
-    </label>
-    <label class="form-label" for="prov-opacity">Overlay fill strength
-      <input class="form-range" type="range" id="prov-opacity" min="0.1" max="1" step="0.05" value="0.7">
-    </label>
-  </div>
+      </label>
+      <label class="form-label" for="prov-opacity">Overlay fill strength
+        <input class="form-range" type="range" id="prov-opacity" min="0.1" max="1" step="0.05" value="0.7">
+      </label>
+    </div>
 
-  <div class="viz-controls" id="da-controls" hidden>
-    <label class="form-label grow" for="shade-da-by">Shade census (2021) dissemination areas by
-      <select class="form-select" id="shade-da-by">
+    <div class="viz-controls" id="da-controls" hidden>
+      <label class="form-label grow" for="shade-da-by">Colour census areas by
+        <select class="form-select" id="shade-da-by">
         <option value="none">Nothing (outline only)</option>
         <option value="flat">Flat fill</option>
         <option value="turnout-agg">Aggregate turnout, both elections</option>
@@ -100,63 +164,54 @@
         <option value="points-count" hidden>Places loaded (count)</option>
         <option value="points-weight" hidden>Places loaded (weighted)</option>
       </select>
-    </label>
-    <label class="form-label grow" for="shade-da-var">Census variable
-      <select class="form-select" id="shade-da-var" disabled><option value="">Load a census profile</option></select>
-    </label>
-    <label class="form-label grow" for="find-da">Find a dissemination area
-      <select class="form-select" id="find-da"><option value="">Select an area&hellip;</option></select>
-    </label>
-  </div>
+      </label>
+      <label class="form-label grow" for="shade-da-var">Census variable
+        <select class="form-select" id="shade-da-var" disabled><option value="">Load a census profile</option></select>
+      </label>
+    </div>
 
-  <div class="viz-controls">
-    <label class="form-check form-switch">
-      <input class="form-check-input" type="checkbox" id="show-fed" checked>
-      <span class="form-check-label">Federal (2025) polling divisions</span>
-    </label>
-    <label class="form-check form-switch">
-      <input class="form-check-input" type="checkbox" id="show-prov" checked>
-      <span class="form-check-label">Provincial (2024) voting areas</span>
-    </label>
-    <label class="form-check form-switch">
-      <input class="form-check-input" type="checkbox" id="show-mobile">
-      <span class="form-check-label">Mobile &amp; single-building polls</span>
-    </label>
-    <label class="form-check form-switch" id="show-places-wrap" hidden>
-      <input class="form-check-input" type="checkbox" id="show-places" checked>
-      <span class="form-check-label">Provincial (2024) voting places</span>
-    </label>
-    <label class="form-check form-switch" id="show-da-wrap" hidden>
-      <input class="form-check-input" type="checkbox" id="show-da" checked>
-      <span class="form-check-label">Census (2021) dissemination areas</span>
-    </label>
-    <label class="form-label" for="prov-weight">Overlay line weight
-      <input class="form-range" type="range" id="prov-weight" min="0.5" max="4" step="0.25" value="1.75">
-    </label>
-  </div>
+    <div class="viz-controls">
+      <label class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" id="show-fed" checked>
+        <span class="form-check-label">Federal (2025) polling divisions</span>
+      </label>
+      <label class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" id="show-prov" checked>
+        <span class="form-check-label">Provincial (2024) voting areas</span>
+      </label>
+      <label class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" id="show-mobile">
+        <span class="form-check-label">Mobile &amp; single-building polls</span>
+      </label>
+      <label class="form-check form-switch" id="show-places-wrap" hidden>
+        <input class="form-check-input" type="checkbox" id="show-places" checked>
+        <span class="form-check-label">Provincial (2024) voting places</span>
+      </label>
+      <label class="form-check form-switch" id="show-da-wrap" hidden>
+        <input class="form-check-input" type="checkbox" id="show-da" checked>
+        <span class="form-check-label">Census (2021) dissemination areas</span>
+      </label>
+      <label class="form-label" for="prov-weight">Overlay line weight
+        <input class="form-range" type="range" id="prov-weight" min="0.5" max="4" step="0.25" value="1.75">
+      </label>
+    </div>
 
-  <div class="viz-controls">
-    <label class="form-label grow" for="find-poll">Find a federal (2025) polling division
-      <select class="form-select" id="find-poll"><option value="">Select a division&hellip;</option></select>
-    </label>
-    <label class="form-label grow" for="find-va">Find a provincial (2024) voting area
-      <select class="form-select" id="find-va" disabled><option value="">No provincial layer loaded</option></select>
-    </label>
-    <label class="form-label" for="basemap">Basemap
-      <select class="form-select" id="basemap">
+    <div class="viz-controls">
+      <label class="form-label" for="basemap">Basemap
+        <select class="form-select" id="basemap">
         <option value="none">None — boundaries only</option>
         <option value="auto">Streets, light or dark to match (CARTO)</option>
         <option value="positron">Streets — light (CARTO)</option>
         <option value="dark">Streets — dark (CARTO)</option>
         <option value="osm">OpenStreetMap standard (needs the page served over http)</option>
       </select>
-    </label>
-    <label class="form-label grow" for="carto-key">CARTO key (free, optional)
-      <input class="form-control" type="text" id="carto-key" placeholder="paste a key to turn on street tiles"
-             autocomplete="off" spellcheck="false">
-    </label>
-    <button type="button" class="btn" id="zoom-reset">Full view</button>
-  </div>
+      </label>
+      <label class="form-label grow" for="carto-key">CARTO key (free, optional)
+        <input class="form-control" type="text" id="carto-key" placeholder="paste a key to turn on street tiles"
+               autocomplete="off" spellcheck="false">
+      </label>
+    </div>
+  </details>
 
   <div class="map-wrap">
     <div class="atlas-map" id="atlas-map" role="application"
@@ -181,10 +236,24 @@
 
 <!-- ----------------------------------------------------------------- DATA -->
 <section id="panel-data" role="tabpanel" aria-labelledby="tab-data" hidden>
-  <div class="card" id="payload-note" hidden>
-    <h2>Data built into this file</h2>
+  <!-- What is in the file, before how to change it. Whoever opens a prepared
+       build wants to know what they are looking at and whether it is safe to
+       quote; whoever prepared it already knows, and wants the file inputs. The
+       first is a list, the second is a drawer. -->
+  <div class="card" id="data-ready">
+    <h2>Included data</h2>
+    <p class="text-small text-muted" id="data-ready-note"></p>
+    <ul class="readiness" id="readiness-list"></ul>
+    <div class="viz-controls">
+      <button type="button" class="btn btn-primary" id="readiness-build" hidden>Build the crosswalk</button>
+      <span class="text-small text-muted" id="readiness-build-note" hidden>
+        Compare, Turnout and Neighbourhood profile need it; it takes a few seconds and runs here.
+      </span>
+    </div>
     <div id="status-payload" class="status"></div>
   </div>
+  <details class="disclosure" id="advanced-data">
+    <summary>Advanced &mdash; replace or add data</summary>
   <div class="card">
     <h2>1. Provincial (2024) voting-area boundaries</h2>
     <p class="text-small text-muted">
@@ -260,7 +329,7 @@
       of their own and are spread across the whole district instead.
       <b>These catchments are modelled here, not published by Elections BC.</b>
       The status line below says how much of the count took which route, and the
-      <b>Method</b> tab says what that costs a correlation.
+      <b>How to read this</b> tab says what that costs a correlation.
     </p>
     <p class="text-small text-muted">
       Elections BC reports turnout as the share of <b>registered voters who voted</b>, and
@@ -297,7 +366,7 @@
     <h2>4. Census geography and profile (Statistics Canada, 2021)</h2>
     <p class="text-small text-muted">
       Dissemination areas are the third geography: election results are moved onto them
-      through the crosswalk and correlated with census variables on the <b>Socioeconomic</b>
+      through the crosswalk and correlated with census variables on the <b>Neighbourhood profile</b>
       tab. Dissemination blocks (optional) weight every crosswalk by where people live
       rather than by area. The national downloads are large, so run
       <code>python3 tools/filter_census.py</code> once (see the README) and load its
@@ -402,7 +471,7 @@
       area anywhere in this atlas</strong> &mdash; measured against the federal
       turnout surface, any such map agrees at about r&nbsp;0.2 however it is built.
       The party share survives that and is offered; the city&rsquo;s own published
-      city-wide rate is on the Results tab. The Method tab has the numbers.
+      city-wide rate is on the Results tab. &ldquo;How to read this&rdquo; has the numbers.
     </p>
     <div class="viz-controls">
       <label class="form-label grow" for="file-muni-results">Results archive (2022MunicipalElectionResults.zip)
@@ -428,6 +497,7 @@
     </div>
     <div id="status-muni" class="status"></div>
   </div>
+  </details>
 </section>
 
 <!-- ---------------------------------------------------------- CORRELATION -->
@@ -490,7 +560,7 @@
       Federal polling divisions and provincial voting areas are drawn by different
       agencies and share no boundaries, so results cannot be joined on a key.
       This measures how much of each federal division falls inside each voting area
-      and splits votes in those proportions. Read the <b>Method</b> tab before quoting
+      and splits votes in those proportions. Read the <b>How to read this</b> tab before quoting
       any number from here.
     </p>
     <div class="viz-controls">
@@ -573,7 +643,7 @@
       district only &mdash; so its last three columns divide the ballots by two counts
       that <i>are</i> available per area, federal electors and census residents aged 15
       and over. Neither is turnout, and the spread between them is shown because it is
-      the size of that choice. Read the <b>Method</b> tab before quoting a figure.
+      the size of that choice. Read the <b>How to read this</b> tab before quoting a figure.
     </p>
     <div class="viz-controls">
       <label class="form-label grow" for="turnout-unit">Common geography
@@ -648,7 +718,7 @@
       Federal (2025) and provincial (2024) results are moved onto Statistics Canada's 2021
       dissemination areas through the crosswalk, so every area carries turnout and party
       shares next to its census profile. A correlation here is a statement about
-      neighbourhoods, not about people &mdash; read the <b>Method</b> tab before quoting one.
+      neighbourhoods, not about people &mdash; read the <b>How to read this</b> tab before quoting one.
     </p>
     <div class="viz-controls">
       <label class="form-label grow" for="socio-unit">Correlate on
@@ -669,10 +739,21 @@
           <option value="100">100 electors</option>
         </select>
       </label>
-      <label class="form-check form-switch">
-        <input class="form-check-input" type="checkbox" id="socio-both-only" checked>
-        <span class="form-check-label">Only areas with both elections</span>
-      </label>
+      <!-- Two named options rather than a switch. A checkbox only ever labels the
+           state it is in; the other one is left implicit, and that is where the
+           confusion sat: "Only areas with both elections" said nothing about
+           what unticking it would give you. -->
+      <fieldset class="form-label grow choice" id="socio-areas">
+        <legend>Areas to chart</legend>
+        <label class="form-check">
+          <input class="form-check-input" type="radio" name="socio-areas" id="socio-areas-all" value="all" checked>
+          <span class="form-check-label">All areas this measure can use</span>
+        </label>
+        <label class="form-check">
+          <input class="form-check-input" type="radio" name="socio-areas" id="socio-areas-both" value="both">
+          <span class="form-check-label">Only areas with both elections</span>
+        </label>
+      </fieldset>
     </div>
     <p class="text-small text-muted" id="socio-unit-note"></p>
     <div id="socio-status" class="status"></div>
@@ -681,7 +762,9 @@
 
   <div class="card" id="socio-results" hidden>
     <h2>Correlations</h2>
-    <p class="text-small text-muted">Tick the variables to compare; add any of the census characteristics by name. Click a column heading to sort, a row to plot it.</p>
+    <p class="text-small text-muted">Tick the variables to compare; add any of the census characteristics by name. Click a column heading to sort, a row to plot it.
+      Names here are the plain ones &mdash; hover any variable for the statistical definition behind it, which is also what the exported column keys
+      (<code>pct_renter</code>, <code>median_hh_income</code>) refer to.</p>
     <div class="socio-picker" id="socio-picker"></div>
     <div class="viz-controls">
       <label class="form-label grow" for="socio-search">Add a census characteristic
@@ -717,7 +800,7 @@
         Where a poll mixes a tower block with a park, the even-spreading assumption
         is wrong, and no amount of extra sampling resolution fixes it.</li>
       <li><b>Area is a stand-in for voters, unless you replace it.</b> With the
-        census layers loaded, <i>Weight overlaps by</i> on the Correlation tab weights
+        census layers loaded, <i>Weight overlaps by</i> on the Compare tab weights
         every lattice point by dissemination-block population instead, and the status
         line there says which basis is in force. Without them it is ground area, which
         assumes voters are spread evenly across a polygon. One wrinkle either way: a
@@ -901,7 +984,7 @@
       Elections BC actually drew.</b> Nearest-place is a reasonable guess in a dense city
       and a worse one where a district is long or a hall sits at one end. And
       <b>spreading one place's result over five areas does not make five
-      observations.</b> The Correlation and Socioeconomic tabs therefore report the number
+      observations.</b> The Compare and Neighbourhood profile tabs therefore report the number
       of independent sources beside the number of units, and compute the confidence
       interval on the sources; quote a coefficient with that figure, not with the count
       of polygons.
@@ -1050,7 +1133,7 @@
         arrive as gaps, not zeros, and an area with a gap is left out of that variable's
         correlation. The n column says how many areas each figure rests on.</li>
       <li><b>Neighbouring areas resemble each other</b>, so the confidence intervals are
-        narrower than the spatial structure warrants, here as on the Correlation tab.</li>
+        narrower than the spatial structure warrants, here as on the Compare tab.</li>
       <li><b>Attribution.</b> Adapted from Statistics Canada, Census Profile, 2021 Census of
         Population, and the 2021 Geographic Attribute File. This does not constitute an
         endorsement by Statistics Canada.</li>

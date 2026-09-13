@@ -6,13 +6,14 @@ thing it ever fetches is street-basemap tiles, and it works without them.
     python3 build.py --payload payload/       with data baked in
     python3 build.py --out share/atlas.html   written somewhere else
     python3 build.py --carto-key KEY          opens on a street basemap
+    python3 build.py --stamp                  with a build date and commit id
 
 --payload names a directory written by tools/make-payload.js, holding one
 subdirectory per dataset. Without it nothing is baked in and every dataset is
 loaded from the Data tab as before. Together the two flags build a copy for
 people who should not have to prepare data before they can read a map, without
 disturbing the committed build."""
-import json, os, io, sys
+import json, os, io, sys, subprocess, datetime
 
 SRC = "src"
 def read(p):
@@ -33,9 +34,12 @@ markup     = read(SRC + "/h-markup.html")
 modules = ["a-geo.js", "b-text.js", "c-binary.js", "d-ingest.js",
            "e-analysis.js", "f-results.js", "f2-turnout.js", "f3-census.js",
            "f4-places.js", "f5-summary.js", "f6-points.js", "f7-municipal.js"]
+# g9-app-start.js closes the application IIFE that g1 opens, so it stays last
+# whatever is added; everything before it shares that one scope.
 app     = ["g1-app-core.js", "g2-app-data.js", "g3-app-corr.js",
            "g4-app-turnout.js", "g5-app-census.js", "g6-app-results.js",
-           "g7-app-points.js", "g8-app-municipal.js", "g9-app-start.js"]
+           "g7-app-points.js", "g8-app-municipal.js", "ga-app-overview.js",
+           "g9-app-start.js"]
 
 # The federal boundaries, exactly as they came out of the original file.
 geo = read("boundaries/fed_polls.geojson").strip()
@@ -65,6 +69,37 @@ def esc(text, where):
 # what makes a copy handed to somebody else show streets without them having to
 # get a key of their own; leave it out and the atlas opens on boundaries only,
 # which is complete and correct, just plainer.
+# A release stamp, so "which copy is this?" has an answer on the page rather
+# than in somebody's memory of when they ran the build. The dirty flag is the
+# point of it: a build made from a working tree with uncommitted changes cannot
+# be reproduced from any commit, and the file should say so rather than carry a
+# commit id that does not describe it.
+#
+# It is deliberately NOT in the committed build. A stamp carries the clock, so
+# a build that has one can never be byte-identical to the next one, and CI
+# checks that the committed vancouver-boundary-atlas.html still matches a fresh
+# build -- a check that exists to catch a stale artifact and would be destroyed
+# by a file that differs from itself every minute. A committed artifact needs
+# no stamp in any case: it IS the commit, and whoever has it has the repository.
+#
+# What needs one is a copy handed to somebody, which is what --payload builds,
+# so that implies it; --stamp asks for one on a build without a payload.
+def _git(*args):
+    try:
+        out = subprocess.run(("git",) + args, capture_output=True, text=True, timeout=5)
+        return out.stdout.strip() if out.returncode == 0 else ""
+    except Exception:
+        return ""
+
+want_stamp = "--stamp" in sys.argv or "--payload" in sys.argv
+stamp = {
+    "built": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+    "commit": _git("rev-parse", "--short", "HEAD"),
+    "dirty": bool(_git("status", "--porcelain")),
+}
+stamp_block = ('\n<script id="build-stamp" type="application/json">'
+               + json.dumps(stamp) + '</script>') if want_stamp else ""
+
 carto_key = arg("--carto-key", "")
 carto_block = (f'\n<script id="carto-key-payload" type="text/plain">{esc(carto_key, "--carto-key")}</script>'
                if carto_key else "")
@@ -100,7 +135,7 @@ html = f"""<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vancouver federal &amp; provincial poll atlas</title>
+<title>Vancouver Election Atlas</title>
 <style>
 {leaflet_css}
 {design_css}
@@ -110,7 +145,7 @@ html = f"""<!doctype html>
 <body>
 {markup}
 
-<script id="federal-polls" type="application/json">{geo}</script>{carto_block}{payload_blocks}
+<script id="federal-polls" type="application/json">{geo}</script>{stamp_block}{carto_block}{payload_blocks}
 
 <script>{leaflet_js}</script>
 <script>{d3_js}</script>

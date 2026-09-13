@@ -8,6 +8,20 @@ const { spawnSync } = require('child_process');
 // record which host was asked, so basemap switching can be asserted.
 const ONE_PX_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
 const tileHosts = [];
+/* The atlas opens on the briefing, and map settings live in a drawer. A test
+   that is checking what a map setting DOES starts where that setting is: on the
+   Map tab, with the drawers open, so the interaction under test is the setting
+   and not the route to it. Which tab the atlas opens on, that the drawers start
+   shut, and that a baked-in build shuts the data drawer are each asserted on
+   their own -- in test-browser, and below for the payload build. */
+const openDrawers = async (page) => {
+  await page.locator('#tab-map').click();
+  await page.evaluate(() => {
+    for (const d of document.querySelectorAll('details.disclosure')) d.open = true;
+  });
+  await page.waitForTimeout(250);
+};
+
 async function stubTiles(page) {
   await page.route(/basemaps\.cartocdn\.com|tile\.openstreetmap\.org/, (route) => {
     tileHosts.push(new URL(route.request().url()).host);
@@ -28,7 +42,7 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
                               ['GeoJSON','fixtures/e2e_va.geojson']]) {
     const page = await browser.newPage({ viewport:{width:1200,height:900} });
     const errs=[]; page.on('pageerror',e=>errs.push(e.message));
-    await stubTiles(page); await page.goto(FILE); await page.waitForTimeout(500);
+    await stubTiles(page); await page.goto(FILE); await openDrawers(page); await page.waitForTimeout(500);
     await page.locator('#tab-data').click();
     await page.locator('#file-prov-geo').setInputFiles(file);
     await page.waitForTimeout(1800);
@@ -49,7 +63,7 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     const expected = JSON.parse(require('fs').readFileSync('fixtures/e2e_expected.json', 'utf8')).census;
     const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
     const errs = []; page.on('pageerror', (e) => errs.push(e.message));
-    await stubTiles(page); await page.goto(FILE); await page.waitForTimeout(500);
+    await stubTiles(page); await page.goto(FILE); await openDrawers(page); await page.waitForTimeout(500);
     await page.locator('#tab-data').click();
     const loadDa = async (file) => {
       await page.locator('#file-da-geo').setInputFiles(file);
@@ -78,7 +92,7 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
   {
     const measure = async (file) => {
       const page = await browser.newPage({ viewport:{width:1200,height:900} });
-      await stubTiles(page); await page.goto(FILE); await page.waitForTimeout(500);
+      await stubTiles(page); await page.goto(FILE); await openDrawers(page); await page.waitForTimeout(500);
       await page.locator('#tab-data').click();
       await page.locator('#file-prov-geo').setInputFiles(file);
       await page.waitForTimeout(1600);
@@ -102,7 +116,7 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
   {
     const page = await browser.newPage({ viewport:{width:1200,height:900}, colorScheme:'dark' });
     const errs=[]; page.on('pageerror',e=>errs.push(e.message));
-    await stubTiles(page); await page.goto(FILE); await page.waitForTimeout(600);
+    await stubTiles(page); await page.goto(FILE); await openDrawers(page); await page.waitForTimeout(600);
     const colours = await page.evaluate(() => {
       const body = getComputedStyle(document.body);
       const html = getComputedStyle(document.documentElement);
@@ -146,7 +160,7 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
   {
     const page = await browser.newPage({ viewport:{width:390,height:840} });
     const errs=[]; page.on('pageerror',e=>errs.push(e.message));
-    await stubTiles(page); await page.goto(FILE); await page.waitForTimeout(700);
+    await stubTiles(page); await page.goto(FILE); await openDrawers(page); await page.waitForTimeout(700);
     const overflow = await page.evaluate(() =>
       document.documentElement.scrollWidth - document.documentElement.clientWidth);
     ok(`no horizontal overflow at 390px (${overflow}px)`, overflow <= 1, `overflow=${overflow}`);
@@ -165,7 +179,7 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     const ebc = JSON.parse(require('fs').readFileSync('fixtures/e2e_expected.json', 'utf8')).ebc;
     const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
     const errs = []; page.on('pageerror', (e) => errs.push(e.message));
-    await stubTiles(page); await page.goto(FILE); await page.waitForTimeout(500);
+    await stubTiles(page); await page.goto(FILE); await openDrawers(page); await page.waitForTimeout(500);
     await page.locator('#tab-data').click();
     const load = async () => {
       await page.locator('#file-prov-geo').setInputFiles('fixtures/e2e_ebc_order.zip');
@@ -199,7 +213,7 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     const want = JSON.parse(require('fs').readFileSync('fixtures/e2e_expected.json', 'utf8')).places;
     const page = await browser.newPage({ viewport: { width: 1300, height: 950 } });
     const errs = []; page.on('pageerror', (e) => errs.push(e.message));
-    await stubTiles(page); await page.goto(FILE); await page.waitForTimeout(500);
+    await stubTiles(page); await page.goto(FILE); await openDrawers(page); await page.waitForTimeout(500);
     await page.locator('#tab-data').click();
     await page.locator('#file-prov-geo').setInputFiles('fixtures/e2e_voting_areas.zip');
     await page.waitForFunction(() => /Loaded/.test(document.querySelector('#status-prov-geo').innerText),
@@ -463,7 +477,7 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
   {
     const page = await browser.newPage({ viewport:{width:1200,height:900} });
     const errs=[]; page.on('pageerror',e=>errs.push(e.message));
-    await stubTiles(page); await page.goto(FILE); await page.waitForTimeout(500);
+    await stubTiles(page); await page.goto(FILE); await openDrawers(page); await page.waitForTimeout(500);
     await page.locator('#tab-data').click();
     const fs = require('fs');
     fs.writeFileSync('fixtures/junk.geojson', 'this is not json at all');
@@ -503,7 +517,7 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     const page = await browser.newPage({ viewport:{width:1200,height:900} });
     const errs=[]; page.on('pageerror',e=>errs.push(e.message));
     await page.route(/basemaps\.cartocdn\.com|tile\.openstreetmap\.org/, (route) => route.abort('failed'));
-    await page.goto(FILE); await page.waitForTimeout(600);
+    await page.goto(FILE); await openDrawers(page); await page.waitForTimeout(600);
     /* A keyless file:// build asks for no tiles, so there is nothing to fail.
        A key is pasted first, which is the case where a reader would actually
        be waiting for tiles that never come. */
@@ -515,8 +529,21 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
        /key|identify|not loading/i.test(await page.locator('#basemap-note').innerText()),
        await page.locator('#basemap-note').innerText());
     ok('boundaries still drawn', (await page.locator('.layer-fed path').count()) > 1000);
-    const box = await page.locator('.atlas-map').boundingBox();
-    await page.mouse.click(box.x + box.width * 0.45, box.y + box.height * 0.5);
+    /* Click a point that is genuinely inside a polling division rather than a
+       fixed fraction of the map box. The fraction moves with the page's layout
+       -- collapsing the options drawer raised the map and made 45%/50% English
+       Bay -- and a readout test should fail when the readout breaks, not when
+       the page gets shorter. */
+    const at = await page.evaluate(() => {
+      for (const path of document.querySelectorAll('.layer-fed path')) {
+        const r = path.getBoundingClientRect();
+        const x = r.x + r.width / 2, y = r.y + r.height / 2;
+        if (document.elementFromPoint(x, y) === path) return { x, y };
+      }
+      return null;
+    });
+    ok('a polling division is reachable by mouse', at != null, JSON.stringify(at));
+    await page.mouse.click(at.x, at.y);
     await page.waitForTimeout(300);
     ok('click readout still works offline', /Vancouver|Riding/.test(await page.locator('#readout').innerText()));
     await page.locator('#basemap').selectOption('none'); await page.waitForTimeout(300);
@@ -576,6 +603,11 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
     await stubTiles(page);
     await page.goto('file://' + built);
+    /* A build that carries its data leads with what it has, not with eight file
+       inputs, so the replace-data drawer starts shut here -- the opposite of the
+       keyless build in test-browser, where loading files is the whole job. */
+    const advancedShut = await page.evaluate(() => document.getElementById('advanced-data').open);
+    await openDrawers(page);
     await page.waitForTimeout(1000);
     await page.waitForTimeout(1500);
     const st = await page.evaluate(() => {
@@ -591,6 +623,21 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     await page.locator('#tab-data').click();
     await page.waitForTimeout(200);
     const note = (await page.locator('#status-payload').innerText()).replace(/\s+/g, ' ');
+    /* A payload build is a copy handed to somebody, so it is the one that has
+       to answer "which copy is this?" -- and say when it was made from a tree
+       with uncommitted changes, which matches no commit. */
+    await page.locator('#tab-overview').click();
+    await page.waitForTimeout(300);
+    const stamp = await page.locator('#overview-stamp').innerText();
+    ok('a build made for handing out stamps itself', /Built \d{4}-\d{2}-\d{2}/.test(stamp), stamp);
+    ok('and says it carries data', /data baked in/.test(stamp), stamp);
+    await page.locator('#tab-data').click();
+    await page.waitForTimeout(200);
+    ok('a baked-in build starts with the replace-data drawer shut',
+       advancedShut === false, String(advancedShut));
+    ok('the checklist ticks what was baked in',
+       /✓/.test(await page.locator('#readiness-list').innerText()),
+       (await page.locator('#readiness-list').innerText()).replace(/\s+/g, ' ').slice(0, 200));
     ok('the Data tab lists what was built in',
        /dissemination areas/.test(note) && /federal 2025 results/.test(note), note.slice(0, 200));
     ok('and says loading your own replaces it', /replaces it/.test(note), note.slice(0, 240));
@@ -617,7 +664,7 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
   const plain = await browser.newPage({ viewport: { width: 1200, height: 900 } });
   const plainErrs = []; plain.on('pageerror', (e) => plainErrs.push(e.message));
   await stubTiles(plain);
-  await plain.goto(FILE);
+  await plain.goto(FILE); await openDrawers(plain);
   await plain.waitForTimeout(700);
   const none = await plain.evaluate(() => ({
     das: window.vanPoliAtlas.state.da.all.length,

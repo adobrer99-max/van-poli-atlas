@@ -198,3 +198,173 @@
 .socio-table tr { cursor: pointer; }
 .socio-table tr.picked td { background: color-mix(in srgb, var(--viz-series-3) 14%, transparent); }
 .socio-table td.text-start { max-width: 44ch; }
+
+/* A switch that cannot do anything should not look as though it can. The label
+   carries the reason it is off, so it has to dim along with the control. */
+.form-check-input:disabled,
+.form-check-input:disabled + .form-check-label {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Progressive disclosure. A settings drawer that reads as one control when it
+   is shut, used for the map's options and for the Data tab's replace-data
+   section: the same affordance in both places, so it is learned once. */
+.disclosure {
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius-lg, .5rem);
+  background: var(--card);
+  margin-bottom: 1rem;
+}
+.disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .6rem .85rem;
+  cursor: pointer;
+  font-weight: var(--font-weight-medium, 500);
+  color: var(--foreground);
+  list-style: none;
+}
+.disclosure > summary::-webkit-details-marker { display: none; }
+.disclosure > summary::before {
+  content: "";
+  flex: none;
+  width: .45rem;
+  height: .45rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform .15s ease;
+}
+.disclosure[open] > summary::before { transform: rotate(45deg); }
+.disclosure > summary:focus-visible {
+  outline: 2px solid var(--color-ring-primary, currentColor);
+  outline-offset: -2px;
+}
+/* The browser hides a shut details' content with a UA display:none, and an
+   author rule beats a UA one -- .viz-controls sets display:flex, so the drawer
+   laid its contents out in full while reporting itself shut. Say it here, at
+   author level, where it wins. */
+.disclosure:not([open]) > :not(summary) { display: none; }
+.disclosure > :not(summary) { padding: 0 .85rem; }
+.disclosure > :last-child:not(summary) { padding-bottom: .5rem; }
+@media (prefers-reduced-motion: reduce) {
+  .disclosure > summary::before { transition: none; }
+}
+
+/* The tab row. The names are words rather than abbreviations, so on a phone the
+   row is wider than the screen: it scrolls sideways rather than wrapping into a
+   second row that shoves the map down, and the buttons refuse to shrink, since
+   a squeezed "Neighbourhood profile" is unreadable rather than merely narrow.
+   The edge it can still scroll towards fades, so there is a visible sign that
+   more tabs are there instead of a row that simply looks finished. */
+#atlas .nav[role="tablist"] {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+#atlas .nav[role="tablist"]::-webkit-scrollbar { display: none; }
+#atlas .nav[role="tablist"] > [role="tab"] { flex: 0 0 auto; white-space: nowrap; }
+#atlas .nav[role="tablist"].can-scroll-end {
+  mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent);
+}
+#atlas .nav[role="tablist"].can-scroll-start {
+  mask-image: linear-gradient(to right, transparent, #000 2.5rem);
+}
+#atlas .nav[role="tablist"].can-scroll-start.can-scroll-end {
+  mask-image: linear-gradient(to right, transparent, #000 2.5rem,
+                              #000 calc(100% - 2.5rem), transparent);
+}
+
+/* The readiness checklist. Three columns so the eye can run down the marks
+   without reading: state, what it is, what it amounts to. The detail column is
+   tabular so the counts line up. */
+.readiness {
+  list-style: none;
+  margin: .5rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: .3rem;
+}
+.readiness li {
+  display: grid;
+  grid-template-columns: 1.1rem minmax(0, 1fr) auto;
+  gap: .6rem;
+  align-items: baseline;
+}
+.readiness .mark { font-weight: 700; text-align: center; }
+.readiness .is-ready, .readiness li.is-ready .mark { color: var(--green, #2f855a); }
+.readiness li.is-missing .mark { color: var(--muted-foreground); }
+.readiness li.is-missing .readiness-name { color: var(--muted-foreground); }
+.readiness-detail { text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 30rem) {
+  .readiness li { grid-template-columns: 1.1rem minmax(0, 1fr); }
+  .readiness-detail { grid-column: 2; text-align: left; }
+}
+
+/* Headline findings. The figure leads, because that is what a reader is here
+   for; the provenance badge sits under it rather than beside the heading, so
+   "modelled" is read as part of the number and not as decoration. */
+.findings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: .75rem;
+  margin-top: .5rem;
+}
+.finding {
+  display: grid;
+  gap: .2rem;
+  align-content: start;
+  padding: .75rem .85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius-lg, .5rem);
+}
+.finding-figure {
+  font-size: 1.6rem;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+}
+.finding-headline { font-weight: var(--font-weight-medium, 500); }
+.finding-detail { text-wrap: pretty; }
+.badge {
+  justify-self: start;
+  margin-top: .35rem;
+  padding: .1rem .45rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: var(--font-size-small, .8rem);
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  cursor: help;
+}
+.badge-counted { color: var(--green, #2f855a); border-color: currentColor; }
+
+/* The caveats. Each is a claim followed by why, so the claim carries the
+   weight and the reader can stop after it. */
+.caveats { margin: .5rem 0 0; padding-left: 1.1rem; display: grid; gap: .5rem; }
+.caveats li { text-wrap: pretty; }
+
+.stamp { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-top: .75rem; }
+.badge-dirty { color: var(--color-text-warning, #b45309); border-color: currentColor; cursor: default; }
+.sources { margin: .5rem 0 0; padding-left: 1.1rem; display: grid; gap: .35rem; }
+.sources li { text-wrap: pretty; }
+
+/* A named choice rather than a switch: two options, both labelled, so neither
+   state has to be inferred from the other. */
+.choice {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.choice > legend {
+  padding: 0;
+  margin-bottom: .25rem;
+  color: var(--muted-foreground);
+  font-size: var(--font-size-small, .85rem);
+}
+.choice .form-check { display: flex; align-items: center; gap: .4rem; }
+.choice .form-check + .form-check { margin-top: .15rem; }
