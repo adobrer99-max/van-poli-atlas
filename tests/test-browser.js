@@ -518,6 +518,33 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.waitForTimeout(800);
   ok('the filter comes back for an outcome that reads both',
      !(await bothBox.isDisabled()), await bothLabel.innerText());
+  /* The regression this guards. The ballots test used to read
+     sources.map(s => s.key); socioSources sets id, so every lookup was
+     ballots[undefined], every row counted as one-sided, and leaving the box
+     ticked emptied the tab for exactly the non-turnout outcomes that branch
+     existed to rescue. Checked on both kinds that were affected -- a
+     participation ratio and a party share -- with the box left TICKED, which
+     is the state that used to empty them. */
+  const partyOutcome = (await page.locator('#socio-outcome option').evaluateAll(
+    (os) => os.map((o) => o.value))).find((v) => /^(fed|prov):/.test(v));
+  ok('the fixture offers a party-share outcome to test with', Boolean(partyOutcome), partyOutcome);
+  for (const [value, what] of [['part-fed', 'provincial ballots per federal elector'],
+                               [partyOutcome, 'a party share']]) {
+    await page.locator('#socio-outcome').selectOption(value);
+    await page.waitForTimeout(800);
+    const line = await page.locator('#socio-status').innerText();
+    const charted = parseInt((/in the study area, ([\d,]+) charted/.exec(line) || [0, '0'])[1]
+      .replace(/,/g, ''), 10);
+    ok(`${what} keeps its rows with the box still ticked (${charted})`, charted > 0, line);
+    ok(`and the box is ticked but inert for ${what}`,
+       await bothBox.isChecked() && await bothBox.isDisabled(),
+       `checked=${await bothBox.isChecked()} disabled=${await bothBox.isDisabled()}`);
+    ok(`and rows are plotted for ${what}`,
+       (await page.locator('#socio-table tbody tr').count()) > 0);
+  }
+  await page.locator('#socio-outcome').selectOption('turnout-agg');
+  await page.waitForTimeout(800);
+
   ok('every area is accounted for, charted or with a reason',
      await page.evaluate(() => {
        const t = document.getElementById('socio-status').innerText;
