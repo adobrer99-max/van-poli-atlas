@@ -234,7 +234,7 @@ const Places = (() => {
       list.push(i);
       const candidates = byDistrict.get(d);
       if (!candidates || !candidates.length) {
-        if (d) districtsWithoutPlace.add(d);
+        districtsWithoutPlace.add(d);
         return;
       }
       const pt = pointOf(f);

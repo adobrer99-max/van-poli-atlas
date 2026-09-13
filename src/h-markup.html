@@ -64,6 +64,7 @@
         <option value="flat">Flat fill</option>
         <option value="prov-party">Provincial party share</option>
         <option value="turnout-prov">Provincial turnout</option>
+        <option value="catchment" hidden>Voting-place catchment (modelled)</option>
       </select>
     </label>
     <label class="form-label" for="prov-opacity">Overlay fill strength
@@ -236,7 +237,7 @@
     <div class="viz-controls" id="prov-place-controls" hidden>
       <label class="form-label grow" for="prov-place-basis">Ballots with no voting place
         <select class="form-select" id="prov-place-basis">
-          <option value="district">spread across the district by population</option>
+          <option value="district">spread evenly across the district</option>
           <option value="catchment">spread in proportion to each catchment&rsquo;s final-day ballots</option>
         </select>
       </label>
@@ -528,9 +529,14 @@
         areal-interpolation assumption and the main caveat on every number here.
         Where a poll mixes a tower block with a park, the even-spreading assumption
         is wrong, and no amount of extra sampling resolution fixes it.</li>
-      <li><b>Area is a stand-in for voters.</b> Weighting by population would be
-        better. If you can get dissemination-block counts, weighting the lattice by
-        block population would be the natural next step.</li>
+      <li><b>Area is a stand-in for voters, unless you replace it.</b> With the
+        census layers loaded, <i>Weight overlaps by</i> on the Correlation tab weights
+        every lattice point by dissemination-block population instead, and the status
+        line there says which basis is in force. Without them it is ground area, which
+        assumes voters are spread evenly across a polygon. One wrinkle either way: a
+        polygon that samples to no population at all &mdash; a park, an industrial
+        block &mdash; would otherwise vanish from the crosswalk, so its points are given
+        the mean weight instead, and the crosswalk status counts how many did.</li>
       <li><b>Small overlaps are discarded.</b> Two agencies digitise the same street
         slightly differently, so nearly every boundary pair produces hairline slivers
         that hold no voters. Overlaps below the chosen threshold are dropped and the

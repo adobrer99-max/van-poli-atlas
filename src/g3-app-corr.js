@@ -1,13 +1,35 @@
 /* --- Crosswalk -------------------------------------------------------------- */
 
 function refreshCrosswalkStatus() {
-  const has = state.prov.all.length > 0 || state.da.all.length > 0;
-  if (!has) {
+  const loaded = state.prov.all.length > 0 || state.da.all.length > 0;
+  /* Taken from the layers' own extents rather than their active sets: this
+     runs from invalidateSample, which fires before the next draw() re-trims
+     them, so the active sets can still be the previous layer's. */
+  const fedExtent = extentOf(state.fed.active);
+  const touches = (layer) => {
+    if (!layer.all.length || !fedExtent) return false;
+    const e = extentOf(layer.all);
+    return Boolean(e) && e[0] <= fedExtent[2] && e[2] >= fedExtent[0]
+      && e[1] <= fedExtent[3] && e[3] >= fedExtent[1];
+  };
+  const here = touches(state.prov) || touches(state.da);
+  if (!loaded) {
     setStatus('status-crosswalk', 'idle',
       ['Load a provincial voting-area layer or a census layer on the Data tab first.']);
     $('corr-controls').hidden = true;
     return;
   }
+  if (!here) {
+    /* Loaded, but nowhere near the federal layer: saying "Ready" and then
+       refusing to build would be the worst of both. */
+    setStatus('status-crosswalk', 'error', [
+      'The loaded layers do not overlap the study area, so there is nothing to cross. '
+      + 'Check the Area filter above the map, or reload the file with clipping switched off.']);
+    $('build-crosswalk').disabled = true;
+    $('corr-controls').hidden = true;
+    return;
+  }
+  $('build-crosswalk').disabled = false;
   if (!state.sample) {
     setStatus('status-crosswalk', 'idle',
       ['Ready. Sampling the layers takes a few seconds; every crosswalk is derived from that one sample.']);
@@ -56,9 +78,39 @@ function buildCrosswalk() {
     $('build-crosswalk').disabled = false;
 
     const seconds = ((Date.now() - started) / 1000).toFixed(1);
+    state.sampleSeconds = seconds;
+    renderCrosswalkStatus();
+    recomputeProvincialOnFederal();
+    /* Results reported by voting place are split by population once the
+       lattice exists, so they have to be rebuilt against it -- otherwise the
+       numbers on screen stay the area-weighted ones from before the build. */
+    if (state.provResults?.kind === 'places') rejoinProvincialPlaces();
+    $('corr-controls').hidden = !crossPair('fed', 'prov');
+    refreshCorrelation();
+    refreshTurnout();
+    refreshSocio();
+    draw();
+  };
+  setTimeout(step, 0);
+}
+
+/* Rebuilt whenever the crosswalk is, including after a weighting or sliver
+   change: every figure in it moves with those controls, and a status line
+   describing the previous crosswalk is worse than none. */
+function renderCrosswalkStatus() {
+  const sample = state.sample;
+  if (!sample) { setStatus('status-crosswalk', 'idle', []); return; }
+  const fp = crossPair('fed', 'prov');
+  const seconds = state.sampleSeconds || '0.0';
+  {
+    /* The names come from the sample itself, not from the build that made it,
+       so this reads the same whether it runs after a build or after a
+       weighting change. */
+    const LAYER_NAMES = { fed: 'federal polls', prov: 'voting areas',
+                          da: 'dissemination areas', db: 'dissemination blocks' };
     const lines = [
       `Sampled ${fmtInt(sample.points)} lattice points at ${sample.spacingM} m over `
-        + `${layers.map((l) => ({ fed: 'federal polls', prov: 'voting areas', da: 'dissemination areas', db: 'dissemination blocks' })[l.id]).join(', ')} in ${seconds}s.`,
+        + `${(sample.ids || []).map((id) => LAYER_NAMES[id] || id).join(', ')} in ${seconds}s.`,
     ];
     if (fp) {
       const cov = fp.coverage.fed;
@@ -89,14 +141,7 @@ function buildCrosswalk() {
       + (fp && fp.cw.weighted && (fp.cw.areaFallback.a.length || fp.cw.areaFallback.b.length)
         ? `; ${fmtInt(fp.cw.areaFallback.a.length + fp.cw.areaFallback.b.length)} polygons with no population fell back to area.` : '.')));
     setStatus('status-crosswalk', 'ok', lines);
-    recomputeProvincialOnFederal();
-    $('corr-controls').hidden = !fp;
-    refreshCorrelation();
-    refreshTurnout();
-    refreshSocio();
-    draw();
-  };
-  setTimeout(step, 0);
+  }
 }
 
 $('build-crosswalk').addEventListener('click', buildCrosswalk);
@@ -105,12 +150,23 @@ for (const id of ['min-overlap', 'sample-weighting']) {
     if (!state.sample) return;
     invalidateCross();
     recomputeProvincialOnFederal();
+    if (state.provResults?.kind === 'places') rejoinProvincialPlaces();
+    renderCrosswalkStatus();
     refreshCorrelation();
     refreshTurnout();
     refreshSocio();
     draw();
   });
 }
+/* Resolution only takes effect on the next sample, so say so rather than
+   letting the control look as though it did something. */
+$('lattice').addEventListener('change', () => {
+  if (!state.sample) return;
+  if (String(state.sample.spacingM) === $('lattice').value) { renderCrosswalkStatus(); return; }
+  setStatus('status-crosswalk', 'busy', [
+    `The crosswalk on screen was sampled at ${state.sample.spacingM} m. `
+    + 'Press Build crosswalk again to resample at the new resolution.']);
+});
 
 /* Provincial votes pushed onto federal divisions, for map shading. */
 function recomputeProvincialOnFederal() {
@@ -135,17 +191,22 @@ function recomputeProvincialOnFederal() {
 
 function correlationInputs() {
   if (!state.pairs || !state.fedResults?.values || !state.provResults?.values) return null;
-  const fedValues = new Map();
+  /* Through resultsFor, not the raw store: the Turnout tab's apportionment
+     setting changes the map, the readout and the turnout table, and a
+     correlation computed on different ballots from all three would be a trap. */
+  const fedSource = fedValues(), provSource = provValues();
+  if (!fedSource || !provSource) return null;
+  const fedOnCross = new Map();
   state.crosswalkFed.forEach((f, i) => {
-    const unit = state.fedResults.values.get(f.idx);
-    if (unit) fedValues.set(i, unit);
+    const unit = fedSource.get(f.idx);
+    if (unit) fedOnCross.set(i, unit);
   });
-  const provValues = new Map();
+  const provOnCross = new Map();
   state.crosswalkProv.forEach((f, i) => {
-    const unit = state.provResults.values.get(f.__idx);
-    if (unit) provValues.set(i, unit);
+    const unit = provSource.get(f.__idx);
+    if (unit) provOnCross.set(i, unit);
   });
-  return { fedValues, provValues };
+  return { fedValues: fedOnCross, provValues: provOnCross };
 }
 
 function refreshCorrelation() {
@@ -222,9 +283,22 @@ function refreshCorrelation() {
     `${fmtInt(result.n)} ${unitName}, carrying ${fmtInt(result.totalWeight)} votes on the lighter side of each pair.`,
   ];
   const fedRep = state.fedResults.report, provRep = state.provResults.report;
-  if (fedRep && provRep) {
-    parts.push(`Federal results cover ${fmtPct(fedRep.matchedVotes / fedRep.tableVotes)} of the votes in the loaded federal file, `
-      + `provincial ${fmtPct(provRep.matchedVotes / provRep.tableVotes)} — the rest are advance polls and special ballots with no boundary.`);
+  if (fedRep && fedRep.tableVotes) {
+    parts.push(`Federal results cover ${fmtPct(fedRep.matchedVotes / fedRep.tableVotes)} of the votes in the `
+      + 'loaded federal file; the rest are advance polls and special ballots with no boundary.');
+  }
+  /* Results reported by voting place leave nothing out -- every ballot was
+     spread onto an area -- so the figure worth quoting is how much of that was
+     modelled rather than measured. */
+  if (state.provResults.kind === 'places' && provRep && provRep.ballotsTotal) {
+    parts.push(`Every provincial ballot is on the map, but ${fmtPct(provRep.ballotsSpread / provRep.ballotsTotal)} `
+      + 'of them had no voting place and were spread across a whole district.');
+  } else if (provRep && provRep.tableVotes) {
+    parts.push(`Provincial results cover ${fmtPct(provRep.matchedVotes / provRep.tableVotes)} of the votes in the `
+      + 'loaded provincial file.');
+  }
+  if (minVotes > 0) {
+    parts.push(`Units under ${fmtInt(minVotes)} votes on either side are left out.`);
   }
   caption.textContent = parts.join(' ');
 }

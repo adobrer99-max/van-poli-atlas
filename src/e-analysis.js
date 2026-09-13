@@ -476,6 +476,57 @@ const Analysis = (() => {
     return rows;
   }
 
+  /* Move a per-feature variable from one side of a crosswalk to the other.
+
+     `redistribute` above moves election counts, and it is right to sum those:
+     half a poll's votes go with half the poll. A census variable cannot always
+     be treated that way. A population may be summed, but a percentage, a rate
+     or a median may not -- adding two medians is meaningless -- so those come
+     back as a mean over the source areas, weighted by the mass the crosswalk
+     assigns to each overlap (population where the lattice was weighted by it,
+     ground area otherwise).
+
+     kind: 'count' sums, anything else takes the weighted mean.
+     Targets with no source value at all are absent from the result rather than
+     zero, so a missing value stays missing. */
+  function moveVariable(pairs, values, options = {}) {
+    const from = options.from === 'b' || options.from === 'prov' ? 'b' : 'a';
+    const to = from === 'a' ? 'b' : 'a';
+    const out = new Map();
+    if (options.kind === 'count') {
+      for (const p of pairs) {
+        const v = values.get(pairIndex(p, from));
+        if (v == null || !isFinite(v)) continue;
+        const dst = pairIndex(p, to);
+        out.set(dst, (out.get(dst) || 0) + v * pairShare(p, from));
+      }
+      return out;
+    }
+    const num = new Map(), den = new Map();
+    const plainSum = new Map(), plainN = new Map();
+    for (const p of pairs) {
+      const v = values.get(pairIndex(p, from));
+      if (v == null || !isFinite(v)) continue;
+      const dst = pairIndex(p, to);
+      const w = p.count;
+      if (w > 0) {
+        num.set(dst, (num.get(dst) || 0) + v * w);
+        den.set(dst, (den.get(dst) || 0) + w);
+      }
+      /* Kept for the case below: every overlap of this target weighs nothing,
+         which happens to a target made only of unpopulated areas under
+         population weighting. A plain mean of the values that are there beats
+         reporting nothing at all. */
+      plainSum.set(dst, (plainSum.get(dst) || 0) + v);
+      plainN.set(dst, (plainN.get(dst) || 0) + 1);
+    }
+    for (const [dst, n] of plainN) {
+      const d = den.get(dst) || 0;
+      out.set(dst, d > 0 ? num.get(dst) / d : plainSum.get(dst) / n);
+    }
+    return out;
+  }
+
   /* Statistics for any set of (x, y, weight) points. */
   /* points may carry `group`: the independent source each one came from. When
      a provincial result is spread from one voting place across the five areas
@@ -524,6 +575,6 @@ const Analysis = (() => {
     crosswalkRunner, crosswalkPairs, coverage, redistribute, repairSmallFeatures,
     emptyUnit, addScaled, scaledUnit,
     pearson, spearman, rankOf, linearFit, pearsonCI,
-    comparisonRows, correlate, correlateXY, shareOf,
+    comparisonRows, correlate, correlateXY, shareOf, moveVariable,
   };
 })();

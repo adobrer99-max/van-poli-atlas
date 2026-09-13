@@ -228,6 +228,21 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     ok('and can be switched off', hidden === 'none', hidden);
     await page.locator('#show-places').check(); await page.waitForTimeout(200);
 
+    // The catchments decide where every provincial number lands, so they have
+    // to be visible, and the legend has to say they are arbitrary colours.
+    ok('the catchment shading is offered once results came by place',
+       !(await page.$eval('#shade-prov-by option[value=catchment]', (o) => o.hidden)));
+    await page.locator('#shade-prov-by').selectOption('catchment');
+    await page.waitForTimeout(600);
+    const fills = await page.$$eval('.layer-prov path',
+      (ps) => ps.map((p) => p.style.fill).filter(Boolean));
+    ok('areas are filled by catchment, in more than one colour',
+       new Set(fills).size > 2 && fills.length > 100, `${new Set(fills).size} colours over ${fills.length} areas`);
+    const legend = (await page.locator('#map-legend').innerText()).replace(/\s+/g, ' ');
+    ok('the legend names the catchment count and calls the colours repeating',
+       new RegExp(`${want.catchments} catchments`).test(legend) && /repeating/.test(legend), legend.slice(0, 200));
+    await page.locator('#shade-prov-by').selectOption('none'); await page.waitForTimeout(300);
+
     // Reading a voting area must say which place its numbers came from.
     await page.evaluate(() => {
       const { state, selectAt } = window.vanPoliAtlas;
@@ -256,6 +271,17 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     ok('the other spreading basis conserves the same ballots',
        Math.abs(after - want.ballots) < 1, `${after} vs ${want.ballots}`);
 
+    // The split is by ground area until the census layers and the lattice
+    // exist, and by population afterwards. That change must happen when the
+    // crosswalk is built, not silently at some later unrelated click.
+    ok('until the census is loaded the split is by ground area',
+       (await page.evaluate(() => window.vanPoliAtlas.state.provResults.report.splitBasis)) === 'ground area');
+    for (const [id, file] of [['#file-db-geo', 'fixtures/e2e_db.zip'], ['#file-da-geo', 'fixtures/e2e_da.zip'],
+                              ['#file-geo-attr', 'fixtures/e2e_geo_attr.csv'], ['#file-census', 'fixtures/e2e_census_long.csv']]) {
+      await page.locator(id).setInputFiles(file);
+      await page.waitForTimeout(900);
+    }
+
     // With the federal results loaded and a crosswalk built, the correlation
     // must count independent sources, not polygons.
     await page.locator('#file-fed-results').setInputFiles('fixtures/e2e_federal_results.csv');
@@ -265,6 +291,19 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     await page.locator('#build-crosswalk').click();
     await page.waitForFunction(() => document.querySelector('#corr-stats').innerText.length > 20,
       null, { timeout: 120000 });
+    const weighted = await page.evaluate(() => {
+      let ballots = 0;
+      for (const u of window.vanPoliAtlas.state.provResults.values.values()) ballots += u.total + u.rejected;
+      return { ballots, basis: window.vanPoliAtlas.state.provResults.report.splitBasis };
+    });
+    ok('building the crosswalk switches the split to population there and then',
+       weighted.basis === 'population', weighted.basis);
+    ok('and not one ballot moves in or out in the process',
+       Math.abs(weighted.ballots - want.ballots) < 1, `${weighted.ballots} vs ${want.ballots}`);
+    const said = (await page.locator('#status-prov-results').innerText()).replace(/\s+/g, ' ');
+    ok('the report says which basis produced its numbers',
+       /in proportion to population/.test(said), said.slice(-260));
+
     const stats = (await page.locator('#corr-stats').innerText()).replace(/\s+/g, ' ');
     ok('the correlation reports independent sources beside the unit count',
        /independent sources/.test(stats), stats.slice(0, 240));
@@ -315,11 +354,11 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     s = await page.locator('#status-prov-geo').innerText();
     ok('unclipped, the non-overlapping layer loads without crashing', /Loaded 1 voting area/.test(s),
        s.replace(/\s+/g,' ').slice(0,140));
-    await page.locator('#tab-corr').click(); await page.waitForTimeout(300);
-    await page.locator('#build-crosswalk').click(); await page.waitForTimeout(1500);
-    const cs = await page.locator('#status-crosswalk').innerText();
-    ok('crosswalk says the layers do not meet', /empty|Nothing to cross|fall outside/i.test(cs),
-       cs.replace(/\s+/g,' ').slice(0,160));
+    await page.locator('#tab-corr').click(); await page.waitForTimeout(400);
+    const cs = (await page.locator('#status-crosswalk').innerText()).replace(/\s+/g, ' ');
+    ok('the crosswalk says the layers do not meet, before anything is pressed',
+       /do not overlap the study area/i.test(cs), cs.slice(0, 200));
+    ok('and the build button is not offered', await page.locator('#build-crosswalk').isDisabled());
     ok('no errors from bad input', errs.length === 0, errs.join('|'));
     await page.close();
   }

@@ -35,5 +35,5 @@ new ResizeObserver(() => {
 $('tab-map').addEventListener('click', () => setTimeout(() => map.invalidateSize({ animate: false }), 0));
 /* For the browser console and the test suites: the live state, read-only by
    convention. */
-window.vanPoliAtlas = { state, crossPair, map, selectAt };
+window.vanPoliAtlas = { state, crossPair, map, selectAt, fedValues, provValues };
 })();

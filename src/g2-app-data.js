@@ -611,25 +611,41 @@ function rejoinProvincialResults() {
    lattice has been sampled, and plain ground area otherwise. The chain is the
    same one the crosswalk uses, so the two never disagree. */
 function provWeightFunction() {
+  const areaCache = new Map();
+  const areaOf = (i) => {
+    let a = areaCache.get(i);
+    if (a == null) areaCache.set(i, (a = Geo.areaM2(state.prov.all[i].geometry)));
+    return a;
+  };
   if (state.sample && (state.db.all.length || state.da.all.length)) {
     try {
       const cp = crossPair('prov', 'da');
       if (cp?.cw?.aCount) {
         const byActive = cp.cw.aCount;
-        const idxOf = new Map(state.prov.active.map((f, i) => [f.__idx, i]));
-        return (i) => {
-          const local = idxOf.get(state.prov.all[i].__idx);
-          return local == null ? 0 : byActive[local];
-        };
+        const local = new Map(state.prov.active.map((f, i) => [f.__idx, i]));
+        /* The crosswalk only covers the areas inside the study extent. Giving
+           the rest weight zero would cram a district's district-wide ballots
+           into whichever half of it happens to be clipped in, so an area with
+           no population of its own is given its ground area times the density
+           of the areas that do have one. */
+        let mass = 0, area = 0;
+        state.prov.active.forEach((f, k) => {
+          const m = byActive[k];
+          if (m > 0) { mass += m; area += Geo.areaM2(f.geometry); }
+        });
+        const density = area > 0 ? mass / area : 0;
+        if (density > 0) {
+          return { basis: 'population', label: 'population',
+            weightOf: (i) => {
+              const k = local.get(state.prov.all[i].__idx);
+              const m = k == null ? null : byActive[k];
+              return m > 0 ? m : areaOf(i) * density;
+            } };
+        }
       }
     } catch (err) { /* fall through to area */ }
   }
-  const cache = new Map();
-  return (i) => {
-    let a = cache.get(i);
-    if (a == null) cache.set(i, (a = Geo.areaM2(state.prov.all[i].geometry)));
-    return a;
-  };
+  return { basis: 'area', label: 'ground area', weightOf: areaOf };
 }
 
 function rejoinProvincialPlaces() {
@@ -643,15 +659,30 @@ function rejoinProvincialPlaces() {
   }
   const keyDistrict = state.prov.keyDef?.district;
   const read = Places.readPlaces(store.table, store.placeLayout);
+  if (!keyDistrict && read.districts.length > 1) {
+    /* Places are matched to areas district by district, so without a district
+       field on the boundary layer nothing can match at all. Saying that beats
+       reporting zero catchments and blaming the boundaries. */
+    setStatus('status-prov-results', 'error', [
+      `These results name ${fmtInt(read.districts.length)} electoral districts `
+      + `(${read.districts.slice(0, 4).join(', ')}…), and a voting place can only serve areas of its `
+      + 'own district. Set the electoral district field in section 1 — for the Elections BC file '
+      + 'that is ED_ABBREVIATION — and the catchments will build.']);
+    store.values = null; store.report = null;
+    refreshPartySelectors(); draw(); renderReadout(); refreshTurnout();
+    return;
+  }
   const assigned = Places.assignAreas(state.prov.all, read.places, {
     districtOf: (f) => String((keyDistrict ? f.properties[keyDistrict] : '') ?? '').trim().toUpperCase(),
     pointOf: (f) => (f.__pt || (f.__pt = Geo.representativePoint(f.geometry))),
   });
+  const weighting = provWeightFunction();
   const spread = Places.spreadToAreas(state.prov.all, read, assigned, {
-    weightOf: provWeightFunction(),
+    weightOf: weighting.weightOf,
     pollOf: (f) => String((state.prov.keyDef?.poll ? f.properties[state.prov.keyDef.poll] : '') ?? '').trim(),
     catchmentBasis: $('prov-place-basis').value,
   });
+  spread.report.splitBasis = weighting.label;
   store.read = read;
   store.assigned = assigned;
   store.values = spread.values;
@@ -692,6 +723,10 @@ function placeReportNode(report) {
       `An area sits ${fmtInt(Math.round(report.medianDistanceM))} m from its voting place at the `
       + `median, ${fmtInt(Math.round(report.maxDistanceM))} m at the furthest.`));
   }
+  frag.append(el('p', 'text-small text-muted',
+    `Both splits are in proportion to ${report.splitBasis || 'ground area'}`
+    + (report.splitBasis === 'ground area'
+      ? ' — load the census layers and build the crosswalk to split by population instead.' : '.')));
   frag.append(el('p', 'text-small text-muted',
     'Catchments are modelled here, not published by Elections BC: each area goes to the '
     + 'nearest final-voting place of its own district. See the Method tab.'));

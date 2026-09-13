@@ -1942,6 +1942,7 @@ html>body{padding:0}
         <option value="flat">Flat fill</option>
         <option value="prov-party">Provincial party share</option>
         <option value="turnout-prov">Provincial turnout</option>
+        <option value="catchment" hidden>Voting-place catchment (modelled)</option>
       </select>
     </label>
     <label class="form-label" for="prov-opacity">Overlay fill strength
@@ -2114,7 +2115,7 @@ html>body{padding:0}
     <div class="viz-controls" id="prov-place-controls" hidden>
       <label class="form-label grow" for="prov-place-basis">Ballots with no voting place
         <select class="form-select" id="prov-place-basis">
-          <option value="district">spread across the district by population</option>
+          <option value="district">spread evenly across the district</option>
           <option value="catchment">spread in proportion to each catchment&rsquo;s final-day ballots</option>
         </select>
       </label>
@@ -2406,9 +2407,14 @@ html>body{padding:0}
         areal-interpolation assumption and the main caveat on every number here.
         Where a poll mixes a tower block with a park, the even-spreading assumption
         is wrong, and no amount of extra sampling resolution fixes it.</li>
-      <li><b>Area is a stand-in for voters.</b> Weighting by population would be
-        better. If you can get dissemination-block counts, weighting the lattice by
-        block population would be the natural next step.</li>
+      <li><b>Area is a stand-in for voters, unless you replace it.</b> With the
+        census layers loaded, <i>Weight overlaps by</i> on the Correlation tab weights
+        every lattice point by dissemination-block population instead, and the status
+        line there says which basis is in force. Without them it is ground area, which
+        assumes voters are spread evenly across a polygon. One wrinkle either way: a
+        polygon that samples to no population at all &mdash; a park, an industrial
+        block &mdash; would otherwise vanish from the crosswalk, so its points are given
+        the mean weight instead, and the crosswalk status counts how many did.</li>
       <li><b>Small overlaps are discarded.</b> Two agencies digitise the same street
         slightly differently, so nearly every boundary pair produces hairline slivers
         that hold no voters. Overlaps below the chosen threshold are dropped and the
@@ -4446,6 +4452,57 @@ const Analysis = (() => {
     return rows;
   }
 
+  /* Move a per-feature variable from one side of a crosswalk to the other.
+
+     `redistribute` above moves election counts, and it is right to sum those:
+     half a poll's votes go with half the poll. A census variable cannot always
+     be treated that way. A population may be summed, but a percentage, a rate
+     or a median may not -- adding two medians is meaningless -- so those come
+     back as a mean over the source areas, weighted by the mass the crosswalk
+     assigns to each overlap (population where the lattice was weighted by it,
+     ground area otherwise).
+
+     kind: 'count' sums, anything else takes the weighted mean.
+     Targets with no source value at all are absent from the result rather than
+     zero, so a missing value stays missing. */
+  function moveVariable(pairs, values, options = {}) {
+    const from = options.from === 'b' || options.from === 'prov' ? 'b' : 'a';
+    const to = from === 'a' ? 'b' : 'a';
+    const out = new Map();
+    if (options.kind === 'count') {
+      for (const p of pairs) {
+        const v = values.get(pairIndex(p, from));
+        if (v == null || !isFinite(v)) continue;
+        const dst = pairIndex(p, to);
+        out.set(dst, (out.get(dst) || 0) + v * pairShare(p, from));
+      }
+      return out;
+    }
+    const num = new Map(), den = new Map();
+    const plainSum = new Map(), plainN = new Map();
+    for (const p of pairs) {
+      const v = values.get(pairIndex(p, from));
+      if (v == null || !isFinite(v)) continue;
+      const dst = pairIndex(p, to);
+      const w = p.count;
+      if (w > 0) {
+        num.set(dst, (num.get(dst) || 0) + v * w);
+        den.set(dst, (den.get(dst) || 0) + w);
+      }
+      /* Kept for the case below: every overlap of this target weighs nothing,
+         which happens to a target made only of unpopulated areas under
+         population weighting. A plain mean of the values that are there beats
+         reporting nothing at all. */
+      plainSum.set(dst, (plainSum.get(dst) || 0) + v);
+      plainN.set(dst, (plainN.get(dst) || 0) + 1);
+    }
+    for (const [dst, n] of plainN) {
+      const d = den.get(dst) || 0;
+      out.set(dst, d > 0 ? num.get(dst) / d : plainSum.get(dst) / n);
+    }
+    return out;
+  }
+
   /* Statistics for any set of (x, y, weight) points. */
   /* points may carry `group`: the independent source each one came from. When
      a provincial result is spread from one voting place across the five areas
@@ -4494,7 +4551,7 @@ const Analysis = (() => {
     crosswalkRunner, crosswalkPairs, coverage, redistribute, repairSmallFeatures,
     emptyUnit, addScaled, scaledUnit,
     pearson, spearman, rankOf, linearFit, pearsonCI,
-    comparisonRows, correlate, correlateXY, shareOf,
+    comparisonRows, correlate, correlateXY, shareOf, moveVariable,
   };
 })();
 
@@ -5647,7 +5704,7 @@ const Places = (() => {
       list.push(i);
       const candidates = byDistrict.get(d);
       if (!candidates || !candidates.length) {
-        if (d) districtsWithoutPlace.add(d);
+        districtsWithoutPlace.add(d);
         return;
       }
       const pt = pointOf(f);
@@ -5985,7 +6042,10 @@ function resultsFor(side) {
   const mode = state.turnout.apportion[side];
   if (mode === 'none') return store.values;
   const ap = store.apportioned && store.apportioned[mode];
-  return ap ? ap.values : store.values;
+  /* An empty apportionment is not an apportionment. Results reported by
+     voting place have nothing left over to apportion -- every ballot was
+     already spread -- and an empty Map here would blank the whole side. */
+  return ap && ap.values.size ? ap.values : store.values;
 }
 const fedValues = () => resultsFor('fed');
 const provValues = () => resultsFor('prov');
@@ -6271,6 +6331,20 @@ function fillColour(mode, v, fedParty, provParty) {
    set default fills, and a stylesheet rule always beats an attribute in SVG.
    A null value removes the inline style so the stylesheet applies again. */
 const LAYER_SERIES = { prov: 'var(--viz-series-2)', da: 'var(--viz-series-3)' };
+/* Catchment colours mean only "served by the same voting place". They cycle,
+   they carry no order, and no catchment owns one -- which is why the legend
+   says so rather than listing them. */
+const CATCHMENT_FILL = ['var(--viz-series-1)', 'var(--viz-series-2)', 'var(--viz-series-3)',
+  'var(--viz-series-4)', 'var(--viz-series-5)', 'var(--viz-series-6)'];
+
+/* The catchment a voting area belongs to, or -1 when it only ever took a
+   district-wide spread and so belongs to none. */
+function catchmentOf(f) {
+  const store = state.provResults;
+  if (store?.kind !== 'places' || !store.assigned || f.__idx == null) return -1;
+  return store.assigned.assignment[f.__idx] ?? -1;
+}
+
 function styleLayer(layerKey, sel) {
   const fedParty = $('shade-party-fed').value;
   const provParty = $('shade-party-prov').value;
@@ -6287,6 +6361,10 @@ function styleLayer(layerKey, sel) {
     if (isOverlay && mode === 'none') return null;
     if (isOverlay && mode === 'flat') return series;
     if (mode === 'type') return TYPE_FILL[f.pollType] || 'var(--muted)';
+    if (mode === 'catchment') {
+      const c = catchmentOf(f);
+      return c < 0 ? null : CATCHMENT_FILL[c % CATCHMENT_FILL.length];
+    }
     const v = shadeValue(layerKey, f, mode, fedParty, provParty);
     if (v == null) return series;
     return fillColour(mode, v, fedParty, provParty);
@@ -6295,6 +6373,9 @@ function styleLayer(layerKey, sel) {
     if (isOverlay && mode === 'flat') return base * 0.35;
     if (mode === 'none') return 0.28;
     if (mode === 'type') return f.pollType === 'N' ? 0.28 : 0.75;
+    /* An area with no catchment stays unfilled, so the two routes a ballot can
+       take onto the map are told apart at a glance. */
+    if (mode === 'catchment') return catchmentOf(f) < 0 ? 0 : base * 0.5;
     const v = shadeValue(layerKey, f, mode, fedParty, provParty);
     if (v == null) return isOverlay ? 0.04 : 0.06;
     /* Capped below full opacity so the outlines stay readable underneath. */
@@ -6387,10 +6468,12 @@ function provPlaceGroup(provIdx) {
   return pi >= 0 ? 'place:' + pi : 'district:' + (store.assigned.featureDistrict[provIdx] || '');
 }
 
-/* For a dissemination area, the group of whichever voting area covers most of
-   it. Cached against the crosswalk, and cleared whenever the sample is. */
+/* For a dissemination area, whichever voting area covers most of it, and that
+   area's group. Cached against the crosswalk, and cleared whenever it is.
+   The dominant area is kept as well as the group: an export needs the feature
+   itself to say how much of it came through a catchment. */
 let daGroupCache = null;
-function daPlaceGroup(daIdx) {
+function daDominant(daIdx) {
   const store = state.provResults;
   if (store?.kind !== 'places' || !store.assigned) return null;
   if (!daGroupCache) {
@@ -6403,15 +6486,36 @@ function daPlaceGroup(daIdx) {
         const prev = best.get(da);
         if (!prev || share > prev.share) best.set(da, { share, prov: Analysis.pairIndex(p, 'a') });
       }
+      /* `best` is keyed by crosswalk-local index into state.da.active, but
+         every caller has a feature's __idx, its position in state.da.all.
+         Those differ whenever the active set is a subset -- which it always
+         is, since the layer is clipped with a buffer ring and then trimmed to
+         the federal extent -- so the cache is keyed by __idx here, once. */
       for (const [da, b] of best) {
+        const target = state.da.active[da];
         const feature = state.prov.active[b.prov];
-        if (feature) daGroupCache.set(da, provPlaceGroup(feature.__idx));
+        if (target && feature) {
+          daGroupCache.set(target.__idx, { feature, group: provPlaceGroup(feature.__idx) });
+        }
       }
     }
   }
-  return daGroupCache.get(daIdx) ?? null;
+  return daGroupCache.get(daIdx) || null;
 }
+const daPlaceGroup = (daIdx) => daDominant(daIdx)?.group ?? null;
 function clearPlaceGroups() { daGroupCache = null; }
+
+/* What fraction of a voting area's ballots came from its own voting place
+   rather than a district-wide spread; null when the results did not come by
+   place at all. */
+function catchmentShare(provFeature) {
+  const store = state.provResults;
+  if (store?.kind !== 'places' || !provFeature) return null;
+  const u = store.values?.get(provFeature.__idx);
+  if (!u) return null;
+  const all = (u.fromPlaces || 0) + (u.fromDistrict || 0);
+  return all > 0 ? u.fromPlaces / all : null;
+}
 
 function draw() {
   state.fed.active = activeFederal();
@@ -6460,7 +6564,16 @@ function draw() {
   if (key !== extentSignature) { extentSignature = key; fitAll(); }
 }
 
+/* Controls that only mean something for results reported by voting place. */
+function updatePlaceControls() {
+  const byPlace = state.provResults?.kind === 'places';
+  const option = $('shade-prov-by').querySelector('option[value="catchment"]');
+  if (option) option.hidden = !byPlace;
+  if (!byPlace && $('shade-prov-by').value === 'catchment') $('shade-prov-by').value = 'none';
+}
+
 function updateLayerVisibility() {
+  updatePlaceControls();
   map.getPane('fed').style.display = $('show-fed').checked ? '' : 'none';
   map.getPane('prov').style.display = $('show-prov').checked ? '' : 'none';
   map.getPane('da').style.display = $('show-da').checked ? '' : 'none';
@@ -6481,7 +6594,14 @@ function renderLegend() {
   legend.textContent = '';
   const items = [];
   const range = (d) => (d ? ` — ${fmtPct(d.lo, 0)} to ${fmtPct(d.hi, 0)}` : '');
-  if (mode === 'type') {
+  /* Everything the federal layer can show about the provincial election is
+     carried there by the crosswalk. Without one those modes shade nothing, and
+     a legend describing them would be describing an empty map. */
+  const CROSS_LEVEL = new Set(['prov-party', 'turnout-prov', 'turnout-agg', 'turnout-delta', 'gap']);
+  const crossReady = Boolean(state.provOnFed && state.provOnFed.size);
+  if (CROSS_LEVEL.has(mode) && !crossReady) {
+    items.push(['note', 'This shading needs the crosswalk — build it on the Correlation tab.']);
+  } else if (mode === 'type') {
     items.push(['var(--muted)', 'Ordinary poll'], ['var(--viz-series-5)', 'Mobile poll'],
                ['var(--viz-series-6)', 'Single building']);
   } else if (mode === 'fed-party' && fedParty) {
@@ -6496,7 +6616,10 @@ function renderLegend() {
   } else if (mode === 'turnout-prov') {
     items.push(['var(--viz-series-1)', `2024 provincial turnout on federal polls${range(state.shadeDomain.fed)}`]);
   } else if (mode === 'turnout-agg') {
-    items.push(['var(--viz-series-1)', `Aggregate turnout${range(state.shadeDomain.fed)}`]);
+    const w = Math.round(state.turnout.weight * 100);
+    items.push(['var(--viz-series-1)',
+      `Aggregate turnout, ${w}% federal / ${100 - w}% provincial${range(state.shadeDomain.fed)}`]);
+    items.push(['note', 'A poll reached by only one election shows that election alone.']);
   } else if (mode === 'turnout-delta') {
     items.push(['var(--viz-series-1)', 'Federal turnout higher'], ['var(--viz-series-2)', 'Provincial turnout higher']);
   }
@@ -6505,6 +6628,12 @@ function renderLegend() {
       items.push([partyColour(provParty), `${provParty} share, 2024, on voting areas`]);
     } else if (provMode === 'turnout-prov') {
       items.push(['var(--viz-series-1)', `2024 provincial turnout on voting areas${range(state.shadeDomain.prov)}`]);
+    } else if (provMode === 'catchment') {
+      const n = state.provResults?.report?.catchments || 0;
+      /* The colours cycle and carry no order, so the legend says what they
+         mean rather than pretending to be a scale. */
+      items.push([CATCHMENT_FILL[0], `${fmtInt(n)} catchments — one colour per voting place, repeating`]);
+      items.push(['outline', 'No catchment: ballots spread across the district']);
     }
     items.push(['outline', 'Provincial (2024) voting area']);
   }
@@ -6524,6 +6653,7 @@ function renderLegend() {
   legend.hidden = items.length === 0;
   for (const [colour, text] of items) {
     const row = el('div', 'legend-item');
+    if (colour === 'note') { row.append(el('span', 'text-small text-muted', text)); legend.append(row); continue; }
     const outline = colour === 'outline' || colour === 'outline-da';
     const sw = el('span', colour === 'outline' ? 'swatch swatch-outline' : colour === 'outline-da' ? 'swatch swatch-da' : 'swatch');
     if (!outline) sw.style.background = colour;
@@ -6792,6 +6922,10 @@ function crossPair(a, b) {
    crosswalks are rebuilt from it. */
 function invalidateCross() {
   state.cross.clear();
+  /* The place groups are derived from the pairs, so they die with them:
+     without this, changing the weighting or the sliver threshold would leave
+     the effective-n figure counting sources from the previous crosswalk. */
+  clearPlaceGroups();
   state.crosswalk = null; state.pairs = null; state.coverage = null; state.provOnFed = null;
   state.crosswalkFed = null; state.crosswalkProv = null;
   if (state.sample) crossPair('fed', 'prov');
@@ -7420,25 +7554,41 @@ function rejoinProvincialResults() {
    lattice has been sampled, and plain ground area otherwise. The chain is the
    same one the crosswalk uses, so the two never disagree. */
 function provWeightFunction() {
+  const areaCache = new Map();
+  const areaOf = (i) => {
+    let a = areaCache.get(i);
+    if (a == null) areaCache.set(i, (a = Geo.areaM2(state.prov.all[i].geometry)));
+    return a;
+  };
   if (state.sample && (state.db.all.length || state.da.all.length)) {
     try {
       const cp = crossPair('prov', 'da');
       if (cp?.cw?.aCount) {
         const byActive = cp.cw.aCount;
-        const idxOf = new Map(state.prov.active.map((f, i) => [f.__idx, i]));
-        return (i) => {
-          const local = idxOf.get(state.prov.all[i].__idx);
-          return local == null ? 0 : byActive[local];
-        };
+        const local = new Map(state.prov.active.map((f, i) => [f.__idx, i]));
+        /* The crosswalk only covers the areas inside the study extent. Giving
+           the rest weight zero would cram a district's district-wide ballots
+           into whichever half of it happens to be clipped in, so an area with
+           no population of its own is given its ground area times the density
+           of the areas that do have one. */
+        let mass = 0, area = 0;
+        state.prov.active.forEach((f, k) => {
+          const m = byActive[k];
+          if (m > 0) { mass += m; area += Geo.areaM2(f.geometry); }
+        });
+        const density = area > 0 ? mass / area : 0;
+        if (density > 0) {
+          return { basis: 'population', label: 'population',
+            weightOf: (i) => {
+              const k = local.get(state.prov.all[i].__idx);
+              const m = k == null ? null : byActive[k];
+              return m > 0 ? m : areaOf(i) * density;
+            } };
+        }
       }
     } catch (err) { /* fall through to area */ }
   }
-  const cache = new Map();
-  return (i) => {
-    let a = cache.get(i);
-    if (a == null) cache.set(i, (a = Geo.areaM2(state.prov.all[i].geometry)));
-    return a;
-  };
+  return { basis: 'area', label: 'ground area', weightOf: areaOf };
 }
 
 function rejoinProvincialPlaces() {
@@ -7452,15 +7602,30 @@ function rejoinProvincialPlaces() {
   }
   const keyDistrict = state.prov.keyDef?.district;
   const read = Places.readPlaces(store.table, store.placeLayout);
+  if (!keyDistrict && read.districts.length > 1) {
+    /* Places are matched to areas district by district, so without a district
+       field on the boundary layer nothing can match at all. Saying that beats
+       reporting zero catchments and blaming the boundaries. */
+    setStatus('status-prov-results', 'error', [
+      `These results name ${fmtInt(read.districts.length)} electoral districts `
+      + `(${read.districts.slice(0, 4).join(', ')}…), and a voting place can only serve areas of its `
+      + 'own district. Set the electoral district field in section 1 — for the Elections BC file '
+      + 'that is ED_ABBREVIATION — and the catchments will build.']);
+    store.values = null; store.report = null;
+    refreshPartySelectors(); draw(); renderReadout(); refreshTurnout();
+    return;
+  }
   const assigned = Places.assignAreas(state.prov.all, read.places, {
     districtOf: (f) => String((keyDistrict ? f.properties[keyDistrict] : '') ?? '').trim().toUpperCase(),
     pointOf: (f) => (f.__pt || (f.__pt = Geo.representativePoint(f.geometry))),
   });
+  const weighting = provWeightFunction();
   const spread = Places.spreadToAreas(state.prov.all, read, assigned, {
-    weightOf: provWeightFunction(),
+    weightOf: weighting.weightOf,
     pollOf: (f) => String((state.prov.keyDef?.poll ? f.properties[state.prov.keyDef.poll] : '') ?? '').trim(),
     catchmentBasis: $('prov-place-basis').value,
   });
+  spread.report.splitBasis = weighting.label;
   store.read = read;
   store.assigned = assigned;
   store.values = spread.values;
@@ -7501,6 +7666,10 @@ function placeReportNode(report) {
       `An area sits ${fmtInt(Math.round(report.medianDistanceM))} m from its voting place at the `
       + `median, ${fmtInt(Math.round(report.maxDistanceM))} m at the furthest.`));
   }
+  frag.append(el('p', 'text-small text-muted',
+    `Both splits are in proportion to ${report.splitBasis || 'ground area'}`
+    + (report.splitBasis === 'ground area'
+      ? ' — load the census layers and build the crosswalk to split by population instead.' : '.')));
   frag.append(el('p', 'text-small text-muted',
     'Catchments are modelled here, not published by Elections BC: each area goes to the '
     + 'nearest final-voting place of its own district. See the Method tab.'));
@@ -7575,13 +7744,35 @@ function refreshPartySelectors() {
 /* --- Crosswalk -------------------------------------------------------------- */
 
 function refreshCrosswalkStatus() {
-  const has = state.prov.all.length > 0 || state.da.all.length > 0;
-  if (!has) {
+  const loaded = state.prov.all.length > 0 || state.da.all.length > 0;
+  /* Taken from the layers' own extents rather than their active sets: this
+     runs from invalidateSample, which fires before the next draw() re-trims
+     them, so the active sets can still be the previous layer's. */
+  const fedExtent = extentOf(state.fed.active);
+  const touches = (layer) => {
+    if (!layer.all.length || !fedExtent) return false;
+    const e = extentOf(layer.all);
+    return Boolean(e) && e[0] <= fedExtent[2] && e[2] >= fedExtent[0]
+      && e[1] <= fedExtent[3] && e[3] >= fedExtent[1];
+  };
+  const here = touches(state.prov) || touches(state.da);
+  if (!loaded) {
     setStatus('status-crosswalk', 'idle',
       ['Load a provincial voting-area layer or a census layer on the Data tab first.']);
     $('corr-controls').hidden = true;
     return;
   }
+  if (!here) {
+    /* Loaded, but nowhere near the federal layer: saying "Ready" and then
+       refusing to build would be the worst of both. */
+    setStatus('status-crosswalk', 'error', [
+      'The loaded layers do not overlap the study area, so there is nothing to cross. '
+      + 'Check the Area filter above the map, or reload the file with clipping switched off.']);
+    $('build-crosswalk').disabled = true;
+    $('corr-controls').hidden = true;
+    return;
+  }
+  $('build-crosswalk').disabled = false;
   if (!state.sample) {
     setStatus('status-crosswalk', 'idle',
       ['Ready. Sampling the layers takes a few seconds; every crosswalk is derived from that one sample.']);
@@ -7630,9 +7821,39 @@ function buildCrosswalk() {
     $('build-crosswalk').disabled = false;
 
     const seconds = ((Date.now() - started) / 1000).toFixed(1);
+    state.sampleSeconds = seconds;
+    renderCrosswalkStatus();
+    recomputeProvincialOnFederal();
+    /* Results reported by voting place are split by population once the
+       lattice exists, so they have to be rebuilt against it -- otherwise the
+       numbers on screen stay the area-weighted ones from before the build. */
+    if (state.provResults?.kind === 'places') rejoinProvincialPlaces();
+    $('corr-controls').hidden = !crossPair('fed', 'prov');
+    refreshCorrelation();
+    refreshTurnout();
+    refreshSocio();
+    draw();
+  };
+  setTimeout(step, 0);
+}
+
+/* Rebuilt whenever the crosswalk is, including after a weighting or sliver
+   change: every figure in it moves with those controls, and a status line
+   describing the previous crosswalk is worse than none. */
+function renderCrosswalkStatus() {
+  const sample = state.sample;
+  if (!sample) { setStatus('status-crosswalk', 'idle', []); return; }
+  const fp = crossPair('fed', 'prov');
+  const seconds = state.sampleSeconds || '0.0';
+  {
+    /* The names come from the sample itself, not from the build that made it,
+       so this reads the same whether it runs after a build or after a
+       weighting change. */
+    const LAYER_NAMES = { fed: 'federal polls', prov: 'voting areas',
+                          da: 'dissemination areas', db: 'dissemination blocks' };
     const lines = [
       `Sampled ${fmtInt(sample.points)} lattice points at ${sample.spacingM} m over `
-        + `${layers.map((l) => ({ fed: 'federal polls', prov: 'voting areas', da: 'dissemination areas', db: 'dissemination blocks' })[l.id]).join(', ')} in ${seconds}s.`,
+        + `${(sample.ids || []).map((id) => LAYER_NAMES[id] || id).join(', ')} in ${seconds}s.`,
     ];
     if (fp) {
       const cov = fp.coverage.fed;
@@ -7663,14 +7884,7 @@ function buildCrosswalk() {
       + (fp && fp.cw.weighted && (fp.cw.areaFallback.a.length || fp.cw.areaFallback.b.length)
         ? `; ${fmtInt(fp.cw.areaFallback.a.length + fp.cw.areaFallback.b.length)} polygons with no population fell back to area.` : '.')));
     setStatus('status-crosswalk', 'ok', lines);
-    recomputeProvincialOnFederal();
-    $('corr-controls').hidden = !fp;
-    refreshCorrelation();
-    refreshTurnout();
-    refreshSocio();
-    draw();
-  };
-  setTimeout(step, 0);
+  }
 }
 
 $('build-crosswalk').addEventListener('click', buildCrosswalk);
@@ -7679,12 +7893,23 @@ for (const id of ['min-overlap', 'sample-weighting']) {
     if (!state.sample) return;
     invalidateCross();
     recomputeProvincialOnFederal();
+    if (state.provResults?.kind === 'places') rejoinProvincialPlaces();
+    renderCrosswalkStatus();
     refreshCorrelation();
     refreshTurnout();
     refreshSocio();
     draw();
   });
 }
+/* Resolution only takes effect on the next sample, so say so rather than
+   letting the control look as though it did something. */
+$('lattice').addEventListener('change', () => {
+  if (!state.sample) return;
+  if (String(state.sample.spacingM) === $('lattice').value) { renderCrosswalkStatus(); return; }
+  setStatus('status-crosswalk', 'busy', [
+    `The crosswalk on screen was sampled at ${state.sample.spacingM} m. `
+    + 'Press Build crosswalk again to resample at the new resolution.']);
+});
 
 /* Provincial votes pushed onto federal divisions, for map shading. */
 function recomputeProvincialOnFederal() {
@@ -7709,17 +7934,22 @@ function recomputeProvincialOnFederal() {
 
 function correlationInputs() {
   if (!state.pairs || !state.fedResults?.values || !state.provResults?.values) return null;
-  const fedValues = new Map();
+  /* Through resultsFor, not the raw store: the Turnout tab's apportionment
+     setting changes the map, the readout and the turnout table, and a
+     correlation computed on different ballots from all three would be a trap. */
+  const fedSource = fedValues(), provSource = provValues();
+  if (!fedSource || !provSource) return null;
+  const fedOnCross = new Map();
   state.crosswalkFed.forEach((f, i) => {
-    const unit = state.fedResults.values.get(f.idx);
-    if (unit) fedValues.set(i, unit);
+    const unit = fedSource.get(f.idx);
+    if (unit) fedOnCross.set(i, unit);
   });
-  const provValues = new Map();
+  const provOnCross = new Map();
   state.crosswalkProv.forEach((f, i) => {
-    const unit = state.provResults.values.get(f.__idx);
-    if (unit) provValues.set(i, unit);
+    const unit = provSource.get(f.__idx);
+    if (unit) provOnCross.set(i, unit);
   });
-  return { fedValues, provValues };
+  return { fedValues: fedOnCross, provValues: provOnCross };
 }
 
 function refreshCorrelation() {
@@ -7796,9 +8026,22 @@ function refreshCorrelation() {
     `${fmtInt(result.n)} ${unitName}, carrying ${fmtInt(result.totalWeight)} votes on the lighter side of each pair.`,
   ];
   const fedRep = state.fedResults.report, provRep = state.provResults.report;
-  if (fedRep && provRep) {
-    parts.push(`Federal results cover ${fmtPct(fedRep.matchedVotes / fedRep.tableVotes)} of the votes in the loaded federal file, `
-      + `provincial ${fmtPct(provRep.matchedVotes / provRep.tableVotes)} — the rest are advance polls and special ballots with no boundary.`);
+  if (fedRep && fedRep.tableVotes) {
+    parts.push(`Federal results cover ${fmtPct(fedRep.matchedVotes / fedRep.tableVotes)} of the votes in the `
+      + 'loaded federal file; the rest are advance polls and special ballots with no boundary.');
+  }
+  /* Results reported by voting place leave nothing out -- every ballot was
+     spread onto an area -- so the figure worth quoting is how much of that was
+     modelled rather than measured. */
+  if (state.provResults.kind === 'places' && provRep && provRep.ballotsTotal) {
+    parts.push(`Every provincial ballot is on the map, but ${fmtPct(provRep.ballotsSpread / provRep.ballotsTotal)} `
+      + 'of them had no voting place and were spread across a whole district.');
+  } else if (provRep && provRep.tableVotes) {
+    parts.push(`Provincial results cover ${fmtPct(provRep.matchedVotes / provRep.tableVotes)} of the votes in the `
+      + 'loaded provincial file.');
+  }
+  if (minVotes > 0) {
+    parts.push(`Units under ${fmtInt(minVotes)} votes on either side are left out.`);
   }
   caption.textContent = parts.join(' ');
 }
@@ -8696,7 +8939,7 @@ new ResizeObserver(() => {
 $('tab-map').addEventListener('click', () => setTimeout(() => map.invalidateSize({ animate: false }), 0));
 /* For the browser console and the test suites: the live state, read-only by
    convention. */
-window.vanPoliAtlas = { state, crossPair, map, selectAt };
+window.vanPoliAtlas = { state, crossPair, map, selectAt, fedValues, provValues };
 })();
 
 </script>
