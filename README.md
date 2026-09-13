@@ -255,7 +255,17 @@ It needs the 2021 Geographic Attribute File (one row per dissemination block
 with its population and its parent geographies), the comprehensive Census
 Profile download for the province at the dissemination-area level, and the
 zipped dissemination-area and dissemination-block boundary files; 5915022 is
-the City of Vancouver's census subdivision id. It writes `db_population.csv`
+the City of Vancouver's census subdivision id.
+
+**Two ways to fetch the wrong profile**, both of which look right until you
+open them. `98-401-X2021025` is *Census Subdivisions in British Columbia* —
+751 municipalities, with Vancouver as a single row; the product that reaches
+dissemination areas is `98-401-X2021006`. And a catalogue number ending `CI`
+is the confidence-interval variant, which carries only the 25% sample
+characteristics: population, population density, median age, the age groups,
+household size, income and low income are all absent from it, so nine of the
+fifteen starter variables cannot be derived and neither can the resident-15+
+denominator. Take the plain number at the dissemination-area level. It writes `db_population.csv`
 and `da_population.csv`, `census_da_wide.csv` (every characteristic, one row
 per area), `variables.csv` (the characteristic list with its hierarchy),
 `starter.csv` (the fourteen starter variables), and a clipped copy of each
@@ -270,7 +280,7 @@ national profile must fit in memory. With blocks loaded, every crosswalk is
 weighted by where people live rather than by area; the Correlation tab says
 which weighting is in effect.
 
-Fourteen starter variables are derived by characteristic name (population,
+Fifteen starter variables are derived by characteristic name (population,
 density, age, household size and tenure, income, low income, unemployment,
 mobility, immigration, education); any of the ~2,600 characteristics can be
 added by name on the Socioeconomic tab. The Census Profile's column names, the
@@ -278,6 +288,14 @@ DGUID prefix and the suppression symbols were written from documentation and
 memory rather than from the real files, so both the reader and the tool detect
 by pattern and report what they matched; if a name differs in your download,
 the match report will say so.
+
+The long layout has since been checked against a real Statistics Canada
+profile (`98-401-X2021025CI`, Vancouver's census subdivision): the columns are
+found by name as intended, the six confidence-interval columns that sit between
+the counts and the rates are skipped rather than mistaken for data, all 1,624
+characteristics in that file parse, and the starter variables it does contain
+come out right — 54.5% renters, 42.2% immigrants, 52.8% with a bachelor's
+degree or higher, 9.0% unemployment.
 
 Adapted from Statistics Canada, Census Profile, 2021 Census of Population, and
 the 2021 Geographic Attribute File. This does not constitute an endorsement by
