@@ -89,6 +89,7 @@ function buildCrosswalk() {
     refreshCorrelation();
     refreshTurnout();
     refreshSocio();
+    refreshReadiness();
     draw();
   };
   setTimeout(step, 0);

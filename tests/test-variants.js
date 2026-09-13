@@ -596,7 +596,12 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     const errs = []; page.on('pageerror', (e) => errs.push(e.message));
     page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
     await stubTiles(page);
-    await page.goto('file://' + built); await openDrawers(page);
+    await page.goto('file://' + built);
+    /* A build that carries its data leads with what it has, not with eight file
+       inputs, so the replace-data drawer starts shut here -- the opposite of the
+       keyless build in test-browser, where loading files is the whole job. */
+    const advancedShut = await page.evaluate(() => document.getElementById('advanced-data').open);
+    await openDrawers(page);
     await page.waitForTimeout(1000);
     await page.waitForTimeout(1500);
     const st = await page.evaluate(() => {
@@ -612,6 +617,11 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     await page.locator('#tab-data').click();
     await page.waitForTimeout(200);
     const note = (await page.locator('#status-payload').innerText()).replace(/\s+/g, ' ');
+    ok('a baked-in build starts with the replace-data drawer shut',
+       advancedShut === false, String(advancedShut));
+    ok('the checklist ticks what was baked in',
+       /✓/.test(await page.locator('#readiness-list').innerText()),
+       (await page.locator('#readiness-list').innerText()).replace(/\s+/g, ' ').slice(0, 200));
     ok('the Data tab lists what was built in',
        /dissemination areas/.test(note) && /federal 2025 results/.test(note), note.slice(0, 200));
     ok('and says loading your own replaces it', /replaces it/.test(note), note.slice(0, 240));

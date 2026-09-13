@@ -121,8 +121,22 @@ adoptPayloads().then((payload) => {
       ...payload.failed.map((f) => el('p', 'text-small', f)),
     ]);
   }
-  $('payload-note').hidden = !names.length && !payload.failed.length;
+  refreshReadiness();
 });
+
+/* The checklist is rendered when a tab that shows it is opened, not when the
+   data changes. There is then no call site to forget -- the failure mode these
+   suites keep finding -- because it reads live state each time it is shown. */
+$('tab-data').addEventListener('click', refreshReadiness);
+$('readiness-build').addEventListener('click', () => {
+  $('readiness-build-note').hidden = false;
+  buildCrosswalk();
+});
+/* A build with nothing baked in is the one used to PREPARE the data, and its
+   file inputs are the whole point, so the drawer starts open there and shut on
+   a build that already carries everything. */
+$('advanced-data').open = !bakedIn();
+refreshReadiness();
 
 /* Watch the map's own box, not #atlas: the atlas changes height on every tab
    switch, and a Leaflet map only needs telling when its container resized. */

@@ -192,10 +192,24 @@
 
 <!-- ----------------------------------------------------------------- DATA -->
 <section id="panel-data" role="tabpanel" aria-labelledby="tab-data" hidden>
-  <div class="card" id="payload-note" hidden>
-    <h2>Data built into this file</h2>
+  <!-- What is in the file, before how to change it. Whoever opens a prepared
+       build wants to know what they are looking at and whether it is safe to
+       quote; whoever prepared it already knows, and wants the file inputs. The
+       first is a list, the second is a drawer. -->
+  <div class="card" id="data-ready">
+    <h2>Included data</h2>
+    <p class="text-small text-muted" id="data-ready-note"></p>
+    <ul class="readiness" id="readiness-list"></ul>
+    <div class="viz-controls">
+      <button type="button" class="btn btn-primary" id="readiness-build" hidden>Build the crosswalk</button>
+      <span class="text-small text-muted" id="readiness-build-note" hidden>
+        Compare, Turnout and Neighbourhood profile need it; it takes a few seconds and runs here.
+      </span>
+    </div>
     <div id="status-payload" class="status"></div>
   </div>
+  <details class="disclosure" id="advanced-data">
+    <summary>Advanced &mdash; replace or add data</summary>
   <div class="card">
     <h2>1. Provincial (2024) voting-area boundaries</h2>
     <p class="text-small text-muted">
@@ -439,6 +453,7 @@
     </div>
     <div id="status-muni" class="status"></div>
   </div>
+  </details>
 </section>
 
 <!-- ---------------------------------------------------------- CORRELATION -->

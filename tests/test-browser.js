@@ -44,7 +44,8 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
       return !!r && r.width > 0 && r.height > 0;
     };
     return {
-      drawers: [...document.querySelectorAll('details.disclosure')].map((d) => d.open),
+      mapOptions: document.getElementById('map-options').open,
+      advancedData: document.getElementById('advanced-data').open,
       headline: ['area-filter', 'shade-by', 'find-poll'].map(shown),
       tucked: ['prov-opacity', 'prov-weight', 'basemap', 'carto-key'].map(shown),
     };
@@ -65,8 +66,12 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   ok(`poll finder populated (${finder})`, finder === fedPaths + 1);
 
   console.log('\n== The map leads with the map ==');
-  ok('the options drawer starts shut', firstLook.drawers.length > 0
-     && firstLook.drawers.every((open) => open === false), JSON.stringify(firstLook.drawers));
+  ok('the map options drawer starts shut', firstLook.mapOptions === false, String(firstLook.mapOptions));
+  /* This build bakes nothing in, so it is the one used to PREPARE the data and
+     its file inputs are the point. The drawer follows that: open here, shut on
+     a build that already carries everything (asserted in test-variants). */
+  ok('the data drawer starts open when nothing is baked in',
+     firstLook.advancedData === true, String(firstLook.advancedData));
   ok('area, colouring and the finder are in front of the reader',
      firstLook.headline.every(Boolean), JSON.stringify(firstLook.headline));
   ok('sliders, basemap and the key are not',
