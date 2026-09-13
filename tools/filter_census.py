@@ -47,6 +47,7 @@ Standard library only. Column names are found by pattern and reported; when
 a required column is missing the tool says which and stops.
 """
 import argparse
+import codecs
 import csv
 import io
 import os
@@ -128,27 +129,50 @@ def csv_in_zip(path):
     return members[0].filename
 
 
+def detect_encoding(chunk):
+    """UTF-8 or cp1252, the two Statistics Canada ships.
+
+    Decided with an incremental decoder rather than a plain decode, so a
+    multi-byte character straddling the end of the chunk is not mistaken for
+    the wrong encoding -- a whole file read as cp1252 because of where a
+    buffer happened to end is a very quiet kind of wrong.
+
+    Not hypothetical either: the Geographic Attribute File is bilingual, and
+    the French place names in it carry accents. An e-acute is byte 0xE9, which
+    is perfectly good cp1252 and is not valid UTF-8 at all."""
+    try:
+        codecs.getincrementaldecoder("utf-8-sig")().decode(chunk, False)
+        return "utf-8-sig"
+    except UnicodeDecodeError:
+        return "cp1252"
+
+
 def open_text(path, encoding=None):
-    """Opens a StatCan CSV, trying UTF-8 (with BOM) first and cp1252 second
-    unless an encoding is given.
+    """Opens a StatCan CSV, sniffing UTF-8 then cp1252 unless told otherwise.
 
     A .zip is read without being extracted. This matters more than it sounds:
     the British Columbia dissemination-area profile is 3.5 GB uncompressed and
     300 MB packed, so extracting it first costs several gigabytes of disk to
     produce a file this script streams once and never needs again. Python reads
-    it out of the archive at the same speed."""
+    it out of the archive at the same speed.
+
+    Packed and loose go through one code path on purpose. They did not to begin
+    with, and the zip half quietly lacked the cp1252 fallback -- so the file
+    most likely to need it, the bilingual attribute file, was the one that
+    could not be read."""
     if path.lower().endswith(".zip"):
         inner = csv_in_zip(path)
-        raw = zipfile.ZipFile(path).open(inner, "r")
-        return io.TextIOWrapper(raw, encoding=encoding or "utf-8-sig", newline="")
-    if encoding:
-        return open(path, "r", encoding=encoding, newline="")
-    try:
-        with open(path, "r", encoding="utf-8-sig", newline="") as fh:
-            fh.read(1 << 20)
-        return open(path, "r", encoding="utf-8-sig", newline="")
-    except UnicodeDecodeError:
-        return open(path, "r", encoding="cp1252", newline="")
+
+        def open_binary():
+            return zipfile.ZipFile(path).open(inner, "r")
+    else:
+        def open_binary():
+            return open(path, "rb")
+
+    if not encoding:
+        with open_binary() as fh:
+            encoding = detect_encoding(fh.read(1 << 20))
+    return io.TextIOWrapper(open_binary(), encoding=encoding, newline="")
 
 
 # --- Geographic Attribute File ------------------------------------------------

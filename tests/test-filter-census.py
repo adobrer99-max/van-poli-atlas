@@ -191,6 +191,47 @@ class Tool(unittest.TestCase):
             self.assertIn("Census subdivision", out.stderr)
             self.assertIn("98-401-X2021006", out.stderr)
 
+    def test_a_bilingual_cp1252_file_is_read_packed_or_loose(self):
+        """The Geographic Attribute File is bilingual and its French place
+        names carry accents: an e-acute is byte 0xE9, good cp1252 and not valid
+        UTF-8. Reading a .zip used to skip the cp1252 fallback that the loose
+        path had, so the one file most likely to need it was the one that could
+        not be read. Both paths go through one sniff now, and this holds them
+        to it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            loose = os.path.join(tmp, "2021_92-151_X.csv")
+            rows = [["DBUID", "DBPOP2021", "DBTDWELL2021", "DBURDWELL2021", "DAUID", "CSDUID", "CSDNAME", "PRUID"],
+                    ["5915010101", "120", "50", "48", "59150101", "5915022", "Vancouver", "59"],
+                    ["2423027001", "90", "40", "38", "24230270", "2423027", "Montr\u00e9al", "24"]]
+            with open(loose, "w", newline="", encoding="cp1252") as fh:
+                csv.writer(fh).writerows(rows)
+            self.assertIn(b"\xe9", open(loose, "rb").read(), "the fixture must carry the byte in question")
+            packed = os.path.join(tmp, "2021_92-151_X.zip")
+            with zipfile.ZipFile(packed, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.write(loose, "2021_92-151_X.csv")
+            for path in (loose, packed):
+                with fc.open_text(path) as fh:
+                    reader = csv.reader(fh)
+                    next(reader)
+                    self.assertEqual([r[6] for r in reader], ["Vancouver", "Montr\u00e9al"], path)
+            # A UTF-8 file must still be read as UTF-8, not guessed into cp1252.
+            utf8 = os.path.join(tmp, "utf8.csv")
+            with open(utf8, "w", newline="", encoding="utf-8-sig") as fh:
+                csv.writer(fh).writerows(rows)
+            with fc.open_text(utf8) as fh:
+                reader = csv.reader(fh)
+                next(reader)
+                self.assertEqual([r[6] for r in reader], ["Vancouver", "Montr\u00e9al"])
+
+    def test_a_character_split_by_the_chunk_boundary_does_not_flip_the_guess(self):
+        """The sniff reads a megabyte. A multi-byte character straddling the
+        end of it must not be read as a broken byte, or a whole UTF-8 file is
+        decoded as cp1252 because of where a buffer happened to end."""
+        blob = ("\u00e9" * 600_000).encode("utf-8")
+        self.assertGreater(len(blob), 1 << 20)
+        self.assertEqual(fc.detect_encoding(blob[:1 << 20]), "utf-8-sig")
+        self.assertEqual(fc.detect_encoding("Montr\u00e9al".encode("cp1252")), "cp1252")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)
