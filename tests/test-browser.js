@@ -920,6 +920,78 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   ok('removing it hides the municipal shade options again',
      (await muniOptions()).every((v) => v === false), JSON.stringify(await muniOptions()));
 
+  /* Apportionment changes which ballots every reader sees. The correlation is
+     computed from those ballots, so it has to follow -- it did not, and the
+     Correlation tab went on showing an r computed under the previous setting
+     with nothing to say so. Numbers that look stable because they never
+     recomputed are worse than numbers that move. */
+  /* The aggregate weight is read in three places: the map's turnout-agg
+     shading, the legend that names the split, and the socioeconomic table's
+     aggregate column. refreshTurnout restyled the federal and provincial
+     layers and re-rendered the legend, but never recomputed the socio side --
+     so the Socioeconomic tab went on showing an aggregate built from the
+     previous weighting.
+
+     The map is deliberately NOT asserted here. Its ramp normalises to the
+     5th-95th percentile of what is on screen, and the aggregate is an affine
+     function of the two turnouts, so where they move together the colours are
+     genuinely unchanged by the weight. Asserting otherwise would be asserting
+     a coincidence of the fixture. */
+  console.log('\n== The aggregate weight reaches the socioeconomic side ==');
+  const aggOf = () => page.evaluate(() => {
+    const byDa = window.vanPoliAtlas.state.socio?.byDa;
+    if (!byDa) return null;
+    return [...byDa.values()].map((r) => (r.agg == null ? 'x' : r.agg.toFixed(6))).join(',');
+  });
+  await page.locator('#tab-turnout').click();
+  await page.waitForTimeout(200);
+  await page.locator('#turnout-weight').fill('0.5');
+  await page.locator('#turnout-weight').dispatchEvent('change');
+  await page.waitForTimeout(900);
+  const aggHalf = await aggOf();
+  ok('the census layer carries an aggregate to begin with',
+     aggHalf && /\d/.test(aggHalf), String(aggHalf).slice(0, 60));
+  await page.locator('#turnout-weight').fill('0.9');
+  await page.locator('#turnout-weight').dispatchEvent('change');
+  await page.waitForTimeout(900);
+  const aggNinety = await aggOf();
+  ok('moving the weight recomputes it rather than leaving it stale',
+     aggNinety !== aggHalf, `${String(aggHalf).slice(0, 40)} vs ${String(aggNinety).slice(0, 40)}`);
+  await page.locator('#tab-turnout').click();
+  await page.waitForTimeout(200);
+  await page.locator('#turnout-weight').fill('0.5');
+  await page.locator('#turnout-weight').dispatchEvent('change');
+  await page.waitForTimeout(900);
+  ok('and setting it back restores the original figures', (await aggOf()) === aggHalf);
+  await page.locator('#tab-map').click();
+  await page.waitForTimeout(200);
+
+  console.log('\n== Apportionment reaches the correlation, not just the turnout table ==');
+  await page.locator('#tab-corr').click();
+  await page.waitForTimeout(400);
+  const corrStats = () => page.evaluate(() => {
+    const n = document.querySelector('#corr-stats');
+    return n ? n.innerText.replace(/\s+/g, ' ').trim() : '';
+  });
+  const corrOff = await corrStats();
+  await page.locator('#tab-turnout').click();
+  await page.waitForTimeout(200);
+  await page.locator('#apportion-fed').selectOption('electors');
+  await page.waitForTimeout(1200);
+  await page.locator('#tab-corr').click();
+  await page.waitForTimeout(600);
+  const corrOn = await corrStats();
+  ok('switching apportionment recomputes the correlation',
+     corrOff !== '' && corrOn !== '' && corrOff !== corrOn,
+     `off: ${corrOff.slice(0, 70)} | on: ${corrOn.slice(0, 70)}`);
+  await page.locator('#tab-turnout').click();
+  await page.waitForTimeout(200);
+  await page.locator('#apportion-fed').selectOption('none');
+  await page.waitForTimeout(1000);
+  await page.locator('#tab-corr').click();
+  await page.waitForTimeout(600);
+  ok('and switching back restores the original figures', (await corrStats()) === corrOff);
+
   console.log('\n== Tabs and method ==');
   await page.locator('#tab-method').click();
   await page.waitForTimeout(200);

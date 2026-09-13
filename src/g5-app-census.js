@@ -217,16 +217,31 @@ function refreshSocio() {
      their own rows, so they are kept whichever unit the table is using. */
   st.byDa = unit === 'da' ? null
     : new Map(scoredOn('da', socioSources('da')).map((r) => [r.feature.__idx, r]));
+  const outcome = socioOutcome(st.outcome);
   /* An area covered by only one election carries that election alone as its
-     "aggregate"; by default those stay out of a correlation. */
-  const partialCount = rows.filter((r) => r.partial).length;
+     "aggregate"; by default those stay out of a correlation.
+
+     What "covered" means depends on the outcome, and getting that wrong empties
+     the tab. row.partial asks whether both sides produced a turnout RATE, and a
+     rate needs electors. Results reported by voting place carry none -- which is
+     the entire reason the two participation outcomes exist. Filtering by
+     row.partial therefore removed every area for exactly the outcomes built to
+     survive a missing denominator, and the tab read "0 areas" with no hint why.
+
+     So an outcome that needs rates keeps the rate test, and everything else
+     asks the weaker, correct question: did both elections put ballots here. */
+  const sideKeys = sources.map((s) => s.key);
+  const needsRates = ['turnout-fed', 'turnout-prov', 'agg'].includes(st.outcome)
+    || !/^(part-fed|part-adult|fed:|prov:)/.test(st.outcome);
+  const incomplete = needsRates
+    ? (r) => r.partial
+    : (r) => !sideKeys.every((k) => (r.ballots && r.ballots[k] > 0));
+  const partialCount = rows.filter(incomplete).length;
   const bothOnly = $('socio-both-only').checked && sources.length > 1;
-  if (bothOnly) rows = rows.filter((r) => !r.partial);
+  if (bothOnly) rows = rows.filter((r) => !incomplete(r));
   st.rows = rows;
   st.byUnit = new Map(rows.map((r) => [r.feature.__idx, r]));
   if (unit === 'da') st.byDa = st.byUnit;
-
-  const outcome = socioOutcome(st.outcome);
   const groupOf = unit === 'prov' ? provPlaceGroup : daPlaceGroup;
   const table = [];
   for (const v of socioVariables(unit)) {
@@ -265,7 +280,20 @@ function refreshSocio() {
   );
   const lines = [`${fmtInt(withOutcome.length)} ${U.name} carry ${outcome.label.toLowerCase()}; `
     + `${sources.map((s) => (s.id === 'fed' ? 'federal (2025)' : 'provincial (2024)')).join(' and ')} results moved through the crosswalk`
-    + (partialCount ? ` (${fmtInt(partialCount)} areas touch only one election${bothOnly ? ' and are left out' : ' and are included with that election alone'}).` : '.')];
+    + (partialCount
+      ? ` (${fmtInt(partialCount)} areas ${needsRates ? 'lack a turnout rate on one side' : 'carry ballots from only one election'}`
+        + `${bothOnly ? ' and are left out' : ' and are included with what they have'}).`
+      : '.')];
+  if (bothOnly && !withOutcome.length && partialCount) {
+    lines.push(el('p', 'text-warning',
+      needsRates
+        ? 'Every area is missing a turnout rate on one side, so this outcome has nothing to show. '
+          + 'Results reported by voting place carry no electors, and a turnout rate needs them — '
+          + 'pick one of the two "ballots per…" outcomes instead, which exist for this case, '
+          + 'or untick "Only areas with both elections".'
+        : 'No area carries ballots from both elections. Untick "Only areas with both elections" '
+          + 'to see the areas that carry one.'));
+  }
   if (state.da.census?.unmatched?.length) {
     lines.push(el('p', 'text-small text-muted',
       `Starter variables not found in this profile: ${state.da.census.unmatched.join(', ')}. Add them by name below if the file spells them differently.`));

@@ -871,10 +871,16 @@ function refreshPartySelectors() {
       { value: 'turnout-agg', label: 'Aggregate turnout, both elections' },
       { value: 'turnout-fed', label: 'Federal (2025) turnout' },
       { value: 'turnout-prov', label: 'Provincial (2024) turnout' },
-      /* Offered only where the provincial results have ballots to divide: with
-         none loaded these would be an outcome with no numerator. */
+      /* A ratio needs both halves, and these two have different denominators.
+         Checking only the numerator -- as this did -- offered "per resident
+         15+" against a census profile with no pop_15_plus in it, so choosing
+         it produced an empty tab and no reason why. Statistics Canada spells
+         that variable as a complement (total minus 0-to-14), so a profile that
+         omits either part cannot supply it. */
       ...(provParties.length ? [
         { value: 'part-fed', label: 'Provincial ballots per federal elector' },
+      ] : []),
+      ...(provParties.length && residentAdultsOn('da') ? [
         { value: 'part-adult', label: 'Provincial ballots per resident 15+' },
       ] : []),
       ...fedParties.map(([name]) => ({ value: `fed:${name}`, label: `${name} share, federal 2025` })),
