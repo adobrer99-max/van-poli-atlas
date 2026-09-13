@@ -172,7 +172,10 @@ function renderMuniReport() {
    layer they were spread onto. */
 function updateMuniControls() {
   const m = state.muni;
-  for (const [sel, key] of [['shade-by', 'fed'], ['shade-prov-by', 'prov']]) {
+  /* Every layer the spread reached, not only the two election ones: the
+     municipal model produces a value per dissemination area as well, and
+     leaving that off the census dropdown hid a working path. */
+  for (const [sel, key] of [['shade-by', 'fed'], ['shade-prov-by', 'prov'], ['shade-da-by', 'da']]) {
     const node = $(sel);
     if (!node) continue;
     for (const value of ['muni-party', 'muni-ballots']) {

@@ -5,8 +5,10 @@ const path = require('path');
 // record which host was asked, so basemap switching can be asserted.
 const ONE_PX_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
 const tileHosts = [];
+const tileUrls = [];
 async function stubTiles(page) {
   await page.route(/basemaps\.cartocdn\.com|tile\.openstreetmap\.org/, (route) => {
+    tileUrls.push(route.request().url());
     tileHosts.push(new URL(route.request().url()).host);
     route.fulfill({ status: 200, contentType: 'image/png', body: ONE_PX_PNG });
   });
@@ -47,21 +49,28 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   const painted = await page.evaluate(() => { const b = document.querySelector('.layer-fed path').getBoundingClientRect(); const m = document.querySelector('#atlas-map').getBoundingClientRect();
     return b.width > 0 && b.left >= m.left - 1 && b.right <= m.right + 1 && b.top >= m.top - 1 && b.bottom <= m.bottom + 1; });
   ok('a polling division paints inside the map box', painted);
-  /* OpenStreetMap is the default because it is the one that still needs no
-     key. CARTO began stamping keyless tiles with API KEY REQUIRED at the end
-     of August 2026, and a map handed to somebody else should not open covered
-     in a notice meant for whoever built it. */
-  ok(`default basemap requests OpenStreetMap tiles (${tileHosts.filter((h) => /openstreetmap/.test(h)).length} requests)`,
-     tileHosts.some((h) => h === 'tile.openstreetmap.org'));
-  ok('and does not silently fall back to a basemap that needs a key',
-     !tileHosts.some((h) => /cartocdn\.com$/.test(h)), tileHosts.slice(0, 4).join(', '));
-  ok('tile images are in the tile pane', (await page.locator('.leaflet-tile-pane img.leaflet-tile').count()) > 0);
-  ok('attribution credits OpenStreetMap', /OpenStreetMap/.test(await page.locator('.leaflet-control-attribution').innerText()));
+  /* Neither free basemap can be the default any more. CARTO stamps keyless
+     tiles with API KEY REQUIRED; OpenStreetMap refuses a page it cannot
+     identify, and a file opened from disk sends no Referer to identify it. So
+     a build with no key asks for nothing at all, which is complete and correct
+     rather than broken-looking. */
+  ok('a build with no key requests no tiles at all', tileHosts.length === 0,
+     tileHosts.slice(0, 4).join(', '));
+  ok('and the street options are disabled rather than offered as if they worked',
+     (await page.evaluate(() => ['auto', 'positron', 'dark']
+       .every((v) => document.querySelector(`#basemap option[value="${v}"]`).disabled))));
+  ok('the boundaries are drawn regardless', (await page.locator('.layer-fed path').count()) === fedPaths);
+  /* Pasting a free key turns the street map on, and the key reaches the tile
+     URL -- without which CARTO serves the watermark instead. */
   const tileCountBefore = tileHosts.length;
-  await page.locator('#basemap').selectOption('positron');
-  await page.waitForTimeout(800);
-  ok('the CARTO styles are still reachable when chosen',
-     tileHosts.slice(tileCountBefore).some((h) => /cartocdn\.com$/.test(h)));
+  await page.locator('#carto-key').fill('TESTKEY123');
+  await page.locator('#carto-key').dispatchEvent('change');
+  await page.waitForTimeout(900);
+  ok('pasting a key turns the street basemap on without a second step',
+     (await page.locator('#basemap').inputValue()) === 'auto');
+  ok('and the key is on the tile request',
+     tileUrls.slice(tileCountBefore).some((u) => /cartocdn\.com.*[?&]key=TESTKEY123/.test(u)),
+     tileUrls[tileUrls.length - 1] || 'no tile requested');
   await page.locator('#basemap').selectOption('none');
   await page.waitForTimeout(400);
   ok('"None" removes every tile', (await page.locator('.leaflet-tile-pane img.leaflet-tile').count()) === 0);
@@ -839,6 +848,73 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
 
   await page.locator('#muni-race').selectOption('Mayor');
   await page.waitForTimeout(800);
+
+  /* The three things that make a shading usable rather than merely painted:
+     a legend saying what the colour means, every layer the model reached
+     offering it, and the one opacity slider governing every overlay it is read
+     by. None of these were covered before, and all three were broken. */
+  console.log('\n== A municipal shading has to explain itself ==');
+  await page.locator('#tab-map').click();
+  await page.waitForTimeout(200);
+  await page.locator('#shade-by').selectOption('muni-party');
+  await page.waitForTimeout(500);
+  const partyLegend = await page.locator('#map-legend').innerText();
+  ok('the legend names the party and the election', /ABC Vancouver/.test(partyLegend)
+     && /2022 municipal/.test(partyLegend), partyLegend.replace(/\s+/g, ' ').slice(0, 160));
+  ok('and says the ballots were smoothed rather than assigned',
+     /smoothed/i.test(partyLegend), partyLegend.replace(/\s+/g, ' ').slice(0, 200));
+  await page.locator('#shade-by').selectOption('muni-ballots');
+  await page.waitForTimeout(500);
+  const ballotLegend = await page.locator('#map-legend').innerText();
+  ok('the ballots legend calls the quantity ballots, and says so in as many words',
+     /Ballots, not turnout/i.test(ballotLegend),
+     ballotLegend.replace(/\s+/g, ' ').slice(0, 160));
+  ok('and points at the Method tab for why there is no municipal turnout',
+     /no municipal turnout by area/i.test(ballotLegend),
+     ballotLegend.replace(/\s+/g, ' ').slice(-140));
+
+  console.log('\n== Every layer the municipal model reached offers it ==');
+  const daMuni = await page.evaluate(() => ({
+    reached: Object.keys(window.vanPoliAtlas.state.muni.on),
+    offered: ['muni-party', 'muni-ballots'].map((v) =>
+      !document.querySelector(`#shade-da-by option[value="${v}"]`).hidden),
+  }));
+  ok('the model reaches the census layer', daMuni.reached.includes('da'), JSON.stringify(daMuni));
+  ok('and the census dropdown offers it', daMuni.offered.every(Boolean), JSON.stringify(daMuni));
+  await page.locator('#shade-da-by').selectOption('muni-party');
+  await page.waitForTimeout(600);
+  const daShaded = await page.evaluate(() => [...document.querySelectorAll('.layer-da path')]
+    .filter((n) => n.style.fill && n.style.fill !== 'none').length);
+  ok(`a municipal share shades dissemination areas (${daShaded})`, daShaded > 20, String(daShaded));
+  ok('and the legend says it is on dissemination areas',
+     /dissemination areas/.test(await page.locator('#map-legend').innerText()));
+
+  console.log('\n== One opacity slider, every overlay it governs ==');
+  const opacityOf = (layer) => page.evaluate((l) => {
+    const n = document.querySelector(`.layer-${l} path[style*="fill"]`);
+    return n ? n.style.fillOpacity : null;
+  }, layer);
+  /* Both overlays have to be shaded before the slider has anything to restyle;
+     an unshaded layer has no fill to carry an opacity. */
+  await page.locator('#shade-prov-by').selectOption('muni-party');
+  await page.waitForTimeout(500);
+  const fillBefore = { prov: await opacityOf('prov'), da: await opacityOf('da') };
+  await page.locator('#prov-opacity').fill('0.2');
+  await page.locator('#prov-opacity').dispatchEvent('input');
+  await page.waitForTimeout(400);
+  const fillAfter = { prov: await opacityOf('prov'), da: await opacityOf('da') };
+  ok('moving it restyles the census layer, not only the provincial one',
+     fillAfter.da !== fillBefore.da, `da ${fillBefore.da} -> ${fillAfter.da}`);
+  ok('and the provincial layer too', fillAfter.prov !== fillBefore.prov,
+     `prov ${fillBefore.prov} -> ${fillAfter.prov}`);
+  await page.locator('#prov-opacity').fill('0.7');
+  await page.locator('#prov-opacity').dispatchEvent('input');
+  await page.locator('#shade-prov-by').selectOption('none');
+  await page.locator('#shade-da-by').selectOption('none');
+  await page.locator('#shade-by').selectOption('none');
+  await page.locator('#tab-data').click();
+  await page.waitForTimeout(200);
+
   await page.locator('#clear-muni').click();
   await page.waitForTimeout(400);
   ok('removing it hides the municipal shade options again',

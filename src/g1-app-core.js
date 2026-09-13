@@ -251,34 +251,88 @@ const gProv = d3.select(map.getPane('prov'));
 const gDa = d3.select(map.getPane('da'));
 
 /* Basemaps. Tiles are the only thing in the file that ever touches the
-   network; without them the boundaries and every analysis still work.
+   network; without them the boundaries and every analysis still work, which is
+   why "None" is a first-class choice here rather than a failure state.
 
-   OpenStreetMap is the default because it is the one that still needs nothing.
-   CARTO changed their policy at the end of August 2026: a request to their
-   raster basemaps without an API key still returns tiles, but stamped
-   diagonally with API KEY REQUIRED. Nothing is blocked and the key is free,
-   but a map handed to somebody else should not be covered in a notice meant
-   for whoever built it, so the CARTO styles are kept and labelled rather than
-   left as the default for a reader to discover. */
+   Both free options changed under this atlas within a month of each other, and
+   the way they changed decides the design:
+
+   CARTO stamped keyless tiles with API KEY REQUIRED at the end of August 2026.
+   The key is free and takes a minute to get, and a build can carry one, so
+   this is a solvable problem.
+
+   OpenStreetMap's standard tiles cannot be used here at all. Their usage
+   policy requires a Referer or User-Agent that identifies the application, and
+   a page opened from a file:// URL sends no Referer -- so the request arrives
+   unidentified and comes back 403 Access blocked. No amount of code fixes
+   that: a browser will not let a script set either header. It is kept as an
+   option because the atlas can also be served over http, where a Referer does
+   go, but it is labelled rather than offered as though it worked.
+
+   So the default is None unless the build carries a CARTO key, which is the
+   honest position: a map with no basemap is complete and correct, and a map
+   covered in somebody's billing notice or in 403 tiles is neither. */
+
+const cartoKeyNode = document.getElementById('carto-key-payload');
+let cartoKey = cartoKeyNode ? cartoKeyNode.textContent.trim() : '';
+
+const keyed = (url) => (cartoKey ? `${url}?key=${encodeURIComponent(cartoKey)}` : url);
 const BASEMAPS = {
   positron: {
-    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', subdomains: 'abcd', maxZoom: 20,
+    url: () => keyed('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'),
+    subdomains: 'abcd', maxZoom: 20, needsKey: true,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
   },
   dark: {
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', subdomains: 'abcd', maxZoom: 20,
+    url: () => keyed('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'),
+    subdomains: 'abcd', maxZoom: 20, needsKey: true,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
   },
   osm: {
-    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', subdomains: 'abc', maxZoom: 19,
+    url: () => 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    subdomains: 'abc', maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   },
 };
+
 let tileLayer = null, tileErrors = 0, tileLoaded = false;
 const darkScheme = window.matchMedia('(prefers-color-scheme: dark)');
 function resolveBasemap(mode) {
   if (mode === 'auto') return darkScheme.matches ? 'dark' : 'positron';
   return mode;
+}
+
+/* The default is whichever basemap will actually work where the file is
+   opened, which is not the same question in both places.
+
+   Served over http or https, the browser sends a Referer, OpenStreetMap can
+   identify the page, and their standard tiles are fine for a tool with a
+   handful of users -- so that is the default and it needs no key.
+
+   Opened from disk there is no Referer, OSM returns 403 Access blocked, and
+   CARTO wants a key. So a file:// build defaults to a street map only if it
+   carries a CARTO key, and otherwise to None: boundaries only, which is
+   complete and correct rather than a grid of error tiles. */
+const servedOverHttp = /^https?:$/.test(window.location.protocol);
+function defaultBasemap() {
+  if (servedOverHttp) return 'osm';
+  return cartoKey ? 'auto' : 'none';
+}
+
+function applyCartoKey(value) {
+  cartoKey = String(value || '').trim();
+  for (const id of ['positron', 'dark', 'auto']) {
+    const option = $('basemap').querySelector(`option[value="${id}"]`);
+    if (option) option.disabled = !cartoKey;
+  }
+  if (!cartoKey && ['positron', 'dark', 'auto'].includes($('basemap').value)) {
+    $('basemap').value = 'none';
+  } else if (cartoKey && $('basemap').value === 'none') {
+    /* Somebody who pastes a key wants to see streets; making them then choose
+       a basemap as well is a second step for no reason. */
+    $('basemap').value = 'auto';
+  }
+  setBasemap($('basemap').value);
 }
 function setBasemap(mode) {
   if (tileLayer) { map.removeLayer(tileLayer); tileLayer = null; }
@@ -288,11 +342,27 @@ function setBasemap(mode) {
   const def = BASEMAPS[key];
   root.classList.toggle('basemap-none', !def);
   if (!def) return;
-  tileLayer = L.tileLayer(def.url, {
+  tileLayer = L.tileLayer(def.url(), {
     subdomains: def.subdomains, maxZoom: def.maxZoom, attribution: def.attribution, detectRetina: false,
   });
-  /* Eight failures with nothing loaded is offline, not a slow tile. */
-  tileLayer.on('tileerror', () => { tileErrors++; if (tileErrors >= 8 && !tileLoaded) $('basemap-note').hidden = false; });
+  /* Eight failures with nothing loaded is offline, not a slow tile -- or, far
+     more likely now, a provider refusing the request. The note says which,
+     because "the tiles are not loading" sends someone to check their wifi when
+     the answer is a missing key or a usage policy. */
+  tileLayer.on('tileerror', () => {
+    tileErrors++;
+    if (tileErrors >= 8 && !tileLoaded) {
+      $('basemap-note').hidden = false;
+      const why = key === 'osm' && !servedOverHttp
+        ? 'OpenStreetMap refuses tiles to a page it cannot identify, and a file opened from disk '
+          + 'sends nothing to identify it. Serve this page over http, choose None, or paste a '
+          + 'CARTO key above.'
+        : def.needsKey && !cartoKey
+          ? 'CARTO needs a free API key since August 2026. Paste one above, or choose None.'
+          : 'The tiles are not loading. The map and every figure on it still work; choose None to stop asking.';
+      $('basemap-note').textContent = why;
+    }
+  });
   tileLayer.on('tileload', () => { tileLoaded = true; $('basemap-note').hidden = true; });
   tileLayer.addTo(map);
 }
@@ -388,6 +458,26 @@ function muniValue(layerKey, f, mode) {
   if (mode === 'muni-ballots') return u.ballots;
   const party = $('muni-party') ? $('muni-party').value : '';
   return party ? Analysis.shareOf(u, party) : null;
+}
+
+/* A municipal shading names itself the same way on whichever layer is carrying
+   it, and says "smoothed" where the number is a model's output rather than a
+   count of anything that happened inside the area. */
+function muniLegend(mode, layerKey, on) {
+  const where = { fed: 'on federal polls', prov: 'on voting areas', da: 'on dissemination areas' }[layerKey];
+  if (mode === 'muni-party') {
+    const party = $('muni-party') ? $('muni-party').value : '';
+    if (!party) return [];
+    return [[partyColour(party), `${party} share, 2022 municipal, ${where}`],
+            ['note', 'Smoothed by distance from each voting place, not assigned: you may vote '
+             + 'anywhere in Vancouver, so a ballot says less about where its voter lives.']];
+  }
+  const dom = state.shadeDomain[layerKey];
+  return [['var(--viz-series-3)',
+           `2022 municipal ballots ${where}, smoothed`
+           + (dom ? ` — ${fmtInt(dom.lo)} to ${fmtInt(dom.hi)}` : '')],
+          ['note', 'Ballots, not turnout. This atlas reports no municipal turnout by area; '
+           + 'the Method tab says why.']];
 }
 
 /* What a loaded point file put on this feature. Keyed by the feature's own
@@ -815,12 +905,16 @@ function renderLegend() {
     items.push(['var(--viz-series-1)', 'Federal turnout higher'], ['var(--viz-series-2)', 'Provincial turnout higher']);
   } else if (POINT_MODES.has(mode)) {
     items.push(...pointsLegend(mode, 'fed'));
+  } else if (MUNI_MODES.has(mode)) {
+    items.push(...muniLegend(mode, 'fed', state.muni));
   }
   if (state.prov.active.length) {
     if (provMode === 'prov-party' && provParty) {
       items.push([partyColour(provParty), `${provParty} share, 2024, on voting areas`]);
     } else if (provMode === 'turnout-prov') {
       items.push(['var(--viz-series-1)', `2024 provincial turnout on voting areas${range(state.shadeDomain.prov)}`]);
+    } else if (MUNI_MODES.has(provMode)) {
+      items.push(...muniLegend(provMode, 'prov', state.muni));
     } else if (POINT_MODES.has(provMode)) {
       items.push(...pointsLegend(provMode, 'prov'));
     } else if (PART_MODES.has(provMode)) {
@@ -846,7 +940,9 @@ function renderLegend() {
   }
   if (state.da.active.length) {
     const daMode = $('shade-da-by').value;
-    if (DATA_MODES.has(daMode)) {
+    if (MUNI_MODES.has(daMode)) {
+      items.push(...muniLegend(daMode, 'da', state.muni));
+    } else if (DATA_MODES.has(daMode)) {
       const name = daMode === 'variable'
         ? ($('shade-da-var').selectedOptions[0]?.textContent || 'census variable')
         : { 'turnout-agg': 'Aggregate turnout', 'turnout-fed': '2025 federal turnout', 'turnout-prov': '2024 provincial turnout' }[daMode];
