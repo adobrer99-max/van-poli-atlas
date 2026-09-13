@@ -47,13 +47,21 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   const painted = await page.evaluate(() => { const b = document.querySelector('.layer-fed path').getBoundingClientRect(); const m = document.querySelector('#atlas-map').getBoundingClientRect();
     return b.width > 0 && b.left >= m.left - 1 && b.right <= m.right + 1 && b.top >= m.top - 1 && b.bottom <= m.bottom + 1; });
   ok('a polling division paints inside the map box', painted);
-  ok(`default basemap requests CARTO tiles (${tileHosts.filter((h) => /cartocdn/.test(h)).length} requests)`, tileHosts.some((h) => /cartocdn\.com$/.test(h)));
+  /* OpenStreetMap is the default because it is the one that still needs no
+     key. CARTO began stamping keyless tiles with API KEY REQUIRED at the end
+     of August 2026, and a map handed to somebody else should not open covered
+     in a notice meant for whoever built it. */
+  ok(`default basemap requests OpenStreetMap tiles (${tileHosts.filter((h) => /openstreetmap/.test(h)).length} requests)`,
+     tileHosts.some((h) => h === 'tile.openstreetmap.org'));
+  ok('and does not silently fall back to a basemap that needs a key',
+     !tileHosts.some((h) => /cartocdn\.com$/.test(h)), tileHosts.slice(0, 4).join(', '));
   ok('tile images are in the tile pane', (await page.locator('.leaflet-tile-pane img.leaflet-tile').count()) > 0);
   ok('attribution credits OpenStreetMap', /OpenStreetMap/.test(await page.locator('.leaflet-control-attribution').innerText()));
   const tileCountBefore = tileHosts.length;
-  await page.locator('#basemap').selectOption('osm');
+  await page.locator('#basemap').selectOption('positron');
   await page.waitForTimeout(800);
-  ok('switching to OpenStreetMap requests tile.openstreetmap.org', tileHosts.slice(tileCountBefore).some((h) => h === 'tile.openstreetmap.org'));
+  ok('the CARTO styles are still reachable when chosen',
+     tileHosts.slice(tileCountBefore).some((h) => /cartocdn\.com$/.test(h)));
   await page.locator('#basemap').selectOption('none');
   await page.waitForTimeout(400);
   ok('"None" removes every tile', (await page.locator('.leaflet-tile-pane img.leaflet-tile').count()) === 0);

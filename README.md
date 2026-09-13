@@ -441,9 +441,17 @@ Contains information licensed under the Open Government Licence – Vancouver.
 ## Basemap
 
 The map is drawn with [Leaflet](https://leafletjs.com). Street tiles come from
-CARTO's Positron (light) and Dark Matter basemaps, which follow the page's
-light or dark theme, or from OpenStreetMap's standard style; all are built on
-OpenStreetMap data. Tiles are requested from the provider while the page is
+OpenStreetMap's standard style by default, or from CARTO's Positron (light) and
+Dark Matter basemaps, which follow the page's light or dark theme; all are built
+on OpenStreetMap data.
+
+**OpenStreetMap is the default because it is the one that still needs nothing.**
+CARTO changed their policy at the end of August 2026: a request to their raster
+basemaps without an API key still returns tiles, but stamped diagonally with
+"API KEY REQUIRED". Nothing is blocked, and the key is free from
+[carto.com/basemaps/apikey](https://carto.com/basemaps/apikey/) — but a map
+handed to somebody else should not open covered in a notice meant for whoever
+built it, so the CARTO styles are kept, labelled, and no longer the default. Tiles are requested from the provider while the page is
 open and are never bundled. Each tile request is an ordinary web request to
 the provider's servers: like any web request it carries your IP address,
 browser identification and request headers, together with the coordinates of

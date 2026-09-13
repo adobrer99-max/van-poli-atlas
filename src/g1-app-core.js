@@ -250,8 +250,16 @@ const gFed = d3.select(map.getPane('fed'));
 const gProv = d3.select(map.getPane('prov'));
 const gDa = d3.select(map.getPane('da'));
 
-/* Free basemaps. Tiles are the only thing in the file that ever touches the
-   network; without them the boundaries and every analysis still work. */
+/* Basemaps. Tiles are the only thing in the file that ever touches the
+   network; without them the boundaries and every analysis still work.
+
+   OpenStreetMap is the default because it is the one that still needs nothing.
+   CARTO changed their policy at the end of August 2026: a request to their
+   raster basemaps without an API key still returns tiles, but stamped
+   diagonally with API KEY REQUIRED. Nothing is blocked and the key is free,
+   but a map handed to somebody else should not be covered in a notice meant
+   for whoever built it, so the CARTO styles are kept and labelled rather than
+   left as the default for a reader to discover. */
 const BASEMAPS = {
   positron: {
     url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', subdomains: 'abcd', maxZoom: 20,
