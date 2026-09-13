@@ -603,6 +603,90 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.locator('#tab-socio').click();
   await page.waitForTimeout(400);
 
+  console.log('\n== A file of places, counted onto the layers ==');
+  /* Real coordinates inside known Vancouver Centre polls, so the counts are
+     checkable rather than merely non-zero. */
+  await page.locator('#tab-data').click();
+  await page.waitForTimeout(300);
+  const ADDR = 'geo_point_2d;households\n'
+    + '49.27410, -123.13294;3\n49.27607, -123.12946;1\n49.27342, -123.11793;2\n'
+    + '49.27295, -123.12774;1\n49.27464, -123.13276;5\n0.0, 0.0;1\n';
+  await page.locator('#file-points').setInputFiles(
+    { name: 'addresses.csv', mimeType: 'text/csv', buffer: Buffer.from(ADDR) });
+  await page.waitForTimeout(1500);
+  const pstatus = (await page.locator('#status-points').innerText()).replace(/\s+/g, ' ');
+  ok('six rows read from one column holding both numbers', /6 of 6 rows located/.test(pstatus), pstatus.slice(0, 200));
+  /* The pair order is the trap this whole module exists for: reversed, every
+     one of these lands in the Indian Ocean and nothing errors. */
+  ok('the coordinate order is stated, not assumed',
+     /Read as lat,lon/.test(pstatus) && /decided by range/.test(pstatus), pstatus.slice(0, 300));
+  ok('and the row at the origin is reported as outside every area',
+     /fell outside every one of them/.test(pstatus), pstatus.slice(0, 400));
+  ok('coverage names the areas that got none', /carry none/.test(pstatus), pstatus.slice(0, 400));
+
+  const perFed = await page.evaluate(() => {
+    const per = window.vanPoliAtlas.state.points.per.fed;
+    let n = 0, w = 0;
+    for (const a of per.values()) { n += a.count; w += a.weight; }
+    return { areas: per.size, n, w };
+  });
+  ok(`five points landed on federal polls (${perFed.n} across ${perFed.areas} polls)`,
+     perFed.n === 5 && perFed.areas >= 3, JSON.stringify(perFed));
+  ok('unweighted, each row counts one', perFed.w === 5, String(perFed.w));
+
+  await page.locator('#points-weight-col').selectOption('households');
+  await page.waitForTimeout(900);
+  const weighted = await page.evaluate(() => {
+    let w = 0;
+    for (const a of window.vanPoliAtlas.state.points.per.fed.values()) w += a.weight;
+    return w;
+  });
+  ok(`choosing a weight column sums it instead (${weighted} households)`, weighted === 12, String(weighted));
+
+  await page.locator('#tab-map').click();
+  await page.waitForTimeout(600);
+  const optVisible = await page.evaluate(() =>
+    !document.querySelector('#shade-by option[value="points-weight"]').hidden);
+  ok('the weighted shade option appears only once a weight column is chosen', optVisible);
+  await page.locator('#shade-by').selectOption('points-count');
+  await page.waitForTimeout(700);
+  const shaded = await page.$$eval('.layer-fed path', (ps) => ps
+    .map((p) => parseFloat(getComputedStyle(p).fillOpacity)).filter((o) => o > 0.07).length);
+  ok(`the polls holding points are shaded (${shaded})`, shaded >= 3 && shaded < 50, String(shaded));
+  ok('the legend names them by the noun the file was given',
+     /addresses per area/.test(await page.locator('#map-legend').innerText()),
+     (await page.locator('#map-legend').innerText()).replace(/\s+/g, ' ').slice(0, 160));
+  await page.locator('#shade-by').selectOption('fed-party');
+  await page.waitForTimeout(300);
+
+  console.log('\n== Addresses with no coordinates, joined to a reference ==');
+  const REF = 'CIVIC_NUMBER;STD_STREET;geo_point_2d\n'
+    + '3449;ANZIO DRIVE;49.27410, -123.13294\n1234;W 16TH AV;49.27607, -123.12946\n'
+    + '500;ST. CATHERINES ST;49.27342, -123.11793\n';
+  const ROLL = 'House Number,Street Name,electors\n'
+    + '101-3449,Anzio Dr,2\n1234,West 16th Avenue,3\n500,Saint Catherines Street,1\n'
+    + '9999,Nowhere Road,4\n';
+  await page.locator('#tab-data').click();
+  await page.waitForTimeout(300);
+  await page.locator('#file-points').setInputFiles(
+    { name: 'roll.csv', mimeType: 'text/csv', buffer: Buffer.from(ROLL) });
+  await page.waitForTimeout(1200);
+  ok('a roll with addresses says it needs a reference first',
+     /need a reference file|needs? a reference/i.test(await page.locator('#status-points').innerText()),
+     (await page.locator('#status-points').innerText()).replace(/\s+/g, ' ').slice(0, 200));
+  await page.locator('#file-points-ref').setInputFiles(
+    { name: 'ref.csv', mimeType: 'text/csv', buffer: Buffer.from(REF) });
+  await page.waitForTimeout(1500);
+  const rollJoined = (await page.locator('#status-points').innerText()).replace(/\s+/g, ' ');
+  ok('loading the reference joins the roll that was already waiting',
+     /3 of 4 rows located/.test(rollJoined), rollJoined.slice(0, 200));
+  ok('and the miss rate and the key that missed are both named',
+     /75(\.0)?% of rows matched/.test(rollJoined) && /9999 NOWHERE RD/.test(rollJoined), rollJoined.slice(0, 320));
+  await page.locator('#clear-points').click();
+  await page.waitForTimeout(500);
+  await page.locator('#clear-points-ref').click();
+  await page.waitForTimeout(400);
+
   console.log('\n== Census on the map ==');
   await page.locator('#tab-map').click();
   await page.waitForTimeout(600);

@@ -1,0 +1,157 @@
+/* Reading a file of places and putting it on a geography: the coordinate
+   shapes, the pair-order trap, address normalisation grounded in the real
+   City of Vancouver street list, and the join that an elector roll needs. */
+const { load } = require('./harness');
+const { Points: P, Geo } = load(
+  ['a-geo.js', 'b-text.js', 'c-binary.js', 'd-ingest.js', 'e-analysis.js',
+   'f-results.js', 'f2-turnout.js', 'f3-census.js', 'f4-places.js', 'f5-summary.js',
+   'f6-points.js'],
+  ['Points', 'Geo']);
+
+let fails = 0;
+const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { console.log(`  FAIL  ${n} ${e}`); fails++; } };
+const eq = (n, a, b) => ok(n, JSON.stringify(a) === JSON.stringify(b), `got ${JSON.stringify(a)} want ${JSON.stringify(b)}`);
+
+console.log('\n== Normalising a street, against how Vancouver actually writes them ==');
+/* The city's own file is not internally consistent: 386 of its streets end ST
+   and none end STREET, while 77 end DRIVE and none end DR. Both directions
+   have to fold to one spelling or a roll written the other way matches
+   nothing. */
+eq('AV and AVENUE reach the same street', P.normalizeStreet('W 16TH AV'), P.normalizeStreet('West 16th Avenue'));
+eq('ST and STREET too', P.normalizeStreet('MAIN ST'), P.normalizeStreet('Main Street'));
+eq('and DR and DRIVE, which the city writes the other way round',
+   P.normalizeStreet('ANZIO DRIVE'), P.normalizeStreet('Anzio Dr.'));
+eq('a leading direction folds to one letter', P.normalizeStreet('EAST BROADWAY'), P.normalizeStreet('E Broadway'));
+/* W KENT AV NORTH: the last token is a direction, so the street type is the
+   one before it. Taking the last token as the type loses the AV entirely. */
+eq('a trailing direction is not mistaken for the street type',
+   P.normalizeStreet('W KENT AV NORTH'), 'W KENT AVE N');
+ok('and it still differs from its southern twin',
+   P.normalizeStreet('W KENT AV NORTH') !== P.normalizeStreet('W KENT AV SOUTH'));
+/* ST. CATHERINES ST is Saint at the front and Street at the back. Expanding
+   every ST would make it STREET CATHERINES STREET. */
+eq('a leading Saint survives a trailing Street', P.normalizeStreet('ST. CATHERINES ST'), 'ST CATHERINES ST');
+eq('however the other file spells Saint', P.normalizeStreet('Saint Catherines St'), P.normalizeStreet('ST. CATHERINES ST'));
+eq('an apostrophe is folded away', P.normalizeStreet("CAPTAIN'S COVE"), P.normalizeStreet('CAPTAINS COVE'));
+eq('a street that is all name keeps all of it', P.normalizeStreet('KINGSWAY'), 'KINGSWAY');
+eq('and BROADWAY is a name, not a type', P.normalizeStreet('BROADWAY'), 'BROADWAY');
+
+console.log('\n== The civic number, and the unit in front of it ==');
+const want = P.addressKey('3449', 'ANZIO DRIVE');
+for (const [n, s] of [['101-3449', 'Anzio Dr'], ['#101 3449', 'ANZIO DRIVE'],
+                      ['Suite 101, 3449', 'anzio drive'], ['UNIT 101-3449', 'Anzio DR.']]) {
+  eq(`a unit prefix is dropped: "${n}"`, P.addressKey(n, s), want);
+}
+ok('a different number is a different key', P.addressKey('3451', 'ANZIO DRIVE') !== want);
+eq('one column holding the lot splits the same way',
+   (() => { const a = P.splitAddress('101-3449 Anzio Drive'); return P.addressKey(a.number, a.street); })(), want);
+eq('a postal code folds case and spacing', P.postalKey('v5k 1a1'), P.postalKey('V5K1A1'));
+
+console.log('\n== The pair-order trap ==');
+/* GeoJSON is [lon, lat]; the city's geo_point_2d is "lat, lon". Reversed,
+   every Vancouver address lands in the Indian Ocean with a plausible row
+   count and no error at all. */
+const VAN = [-123.27, 49.19, -123.02, 49.32];
+const latLon = [[49.2522, -123.0296], [49.2611, -123.1139]];
+const lonLat = [[-123.0296, 49.2522], [-123.1139, 49.2611]];
+eq('a longitude outside +/-90 settles it on its own', P.detectPairOrder(latLon, null),
+   { order: 'lat,lon', by: 'range' });
+eq('and the other way round', P.detectPairOrder(lonLat, null), { order: 'lon,lat', by: 'range' });
+/* Both in range: only the study area can say. Vancouver has no such pair, so
+   this is a constructed one. */
+const ambiguous = [[49.25, 50.1], [49.26, 50.2]];
+eq('with both in range and no extent, it says it assumed',
+   P.detectPairOrder(ambiguous, null).by, 'assumed');
+const near = [[49.2522, 60], [49.26, 61]];
+ok('an extent breaks the tie and says so',
+   P.detectPairOrder(near, [49, 49.2, 61, 49.3]).by === 'study area');
+
+const PAIR_H = ['id', 'geo_point_2d'];
+const PAIR_R = [['a', '49.2522, -123.0296'], ['b', '49.2611, -123.1139']];
+const pairLayout = P.detectPointLayout(PAIR_H, PAIR_R, { extent: VAN });
+eq('the layout records the order it found', [pairLayout.kind, pairLayout.order.order], ['pair', 'lat,lon']);
+const pairRead = P.readPoints({ header: PAIR_H, rows: PAIR_R }, pairLayout);
+ok(`read back inside Vancouver (${pairRead.points[0].lon.toFixed(3)}, ${pairRead.points[0].lat.toFixed(3)})`,
+   pairRead.points.every((p) => p.lon > -124 && p.lon < -122 && p.lat > 48 && p.lat < 50));
+/* Forced the wrong way, the same rows land in the sea. This is what the
+   detection is for. */
+const wrong = P.readPoints({ header: PAIR_H, rows: PAIR_R },
+  { ...pairLayout, order: { order: 'lon,lat', by: 'forced' } });
+ok('forced the wrong way, the points leave the country entirely',
+   wrong.points.every((p) => p.lon > 40 && p.lat < -100));
+
+console.log('\n== The three coordinate shapes ==');
+const shapes = {
+  lonlat: { header: ['longitude', 'latitude'], rows: [['-123.0296', '49.2522']] },
+  geometry: { header: ['id', 'Geom'], rows: [['a', '{"coordinates": [-123.0296, 49.2522], "type": "Point"}']] },
+  pair: { header: ['geo_point_2d'], rows: [['49.2522, -123.0296']] },
+};
+for (const [kind, t] of Object.entries(shapes)) {
+  const L = P.detectPointLayout(t.header, t.rows, { extent: VAN });
+  const r = P.readPoints(t, L);
+  ok(`${kind}: one point at the same place`, L.kind === kind && r.points.length === 1
+     && Math.abs(r.points[0].lon + 123.0296) < 1e-9 && Math.abs(r.points[0].lat - 49.2522) < 1e-9,
+     JSON.stringify(r.points));
+}
+const bad = P.detectPointLayout(['name', 'colour'], [['a', 'red']]);
+ok('a file with no way to be located at all is refused', bad === null);
+const broken = P.readPoints({ header: ['longitude', 'latitude'], rows: [['', ''], ['x', 'y'], ['-123.1', '49.2']] },
+  P.detectPointLayout(['longitude', 'latitude'], []));
+eq('rows that cannot be read are counted, not silently dropped',
+   [broken.points.length, broken.report.unreadable], [1, 2]);
+
+console.log('\n== The join an elector roll needs ==');
+/* A reference file with coordinates, and a roll with addresses spelled the way
+   another agency would spell them. */
+const REF_H = ['CIVIC_NUMBER', 'STD_STREET', 'geo_point_2d'];
+const REF_R = [
+  ['3449', 'ANZIO DRIVE', '49.2522, -123.0296'],
+  ['1234', 'W 16TH AV', '49.2580, -123.1500'],
+  ['500', 'ST. CATHERINES ST', '49.2700, -123.0800'],
+  ['77', 'W KENT AV NORTH', '49.2100, -123.1000'],
+];
+const refLayout = P.detectPointLayout(REF_H, REF_R, { extent: VAN });
+const ref = P.buildReference({ header: REF_H, rows: REF_R }, refLayout);
+eq('the reference indexes every row', [ref.keys, ref.duplicates, ref.unusable], [4, 0, 0]);
+
+const ROLL_H = ['House Number', 'Street Name', 'electors'];
+const ROLL_R = [
+  ['3449', 'Anzio Dr', '2'],
+  ['101-1234', 'West 16th Avenue', '3'],
+  ['500', 'Saint Catherines Street', '1'],
+  ['77', 'W Kent Ave N', '4'],
+  ['9999', 'Nowhere Rd', '1'],
+];
+const rollLayout = P.detectPointLayout(ROLL_H, ROLL_R, { weightColumn: 'electors' });
+eq('a roll with addresses and no coordinates needs the reference', rollLayout.kind, 'address');
+const roll = P.readPoints({ header: ROLL_H, rows: ROLL_R }, rollLayout, { reference: ref.map });
+eq('four of five addresses land, however they were spelled',
+   [roll.report.matched, roll.report.read], [4, 4]);
+eq('and the one that did not is named rather than absorbed', roll.report.misses, ['9999 NOWHERE RD']);
+ok(`the miss rate is reported (${(roll.report.missRate * 100).toFixed(0)}%)`,
+   Math.abs(roll.report.missRate - 0.2) < 1e-9);
+eq('the weight column is summed, not just the rows counted',
+   roll.points.reduce((a, p) => a + p.weight, 0), 10);
+
+console.log('\n== Putting them on a layer ==');
+const cell = (x0, y0, w, h, id) => ({ type: 'Feature', properties: { id }, geometry: { type: 'Polygon',
+  coordinates: [[[x0, y0], [x0 + w, y0], [x0 + w, y0 + h], [x0, y0 + h], [x0, y0]]] } });
+const feats = [cell(-123.20, 49.20, 0.10, 0.10, 'A'), cell(-123.10, 49.20, 0.10, 0.10, 'B'),
+               cell(-123.00, 49.20, 0.10, 0.10, 'C')];
+feats.forEach((f) => Geo.normalizeWinding(f.geometry));
+const index = Geo.buildIndex(feats);
+const pts = [
+  { lon: -123.15, lat: 49.25, weight: 5 }, { lon: -123.16, lat: 49.26, weight: 1 },
+  { lon: -123.05, lat: 49.25, weight: 2 }, { lon: -122.50, lat: 49.25, weight: 9 },
+];
+const a = P.assignToLayer(pts, index, (i) => feats[i].properties.id);
+eq('each point lands in exactly one area', [a.inside, a.outside], [3, 1]);
+eq('counts and weights are kept apart', [a.per.get('A').count, a.per.get('A').weight], [2, 6]);
+eq('and a point outside every polygon is counted, not discarded', a.outside, 1);
+ok('the area with nothing in it simply has no entry', !a.per.has('C'));
+const cov = P.coverage(a.per, ['A', 'B', 'C'], { disclosureBelow: 2 });
+eq('coverage names the empty areas', [cov.areas, cov.empty], [3, 1]);
+ok(`and how many are small enough to be disclosive (${cov.sparse})`, cov.sparse === 1);
+
+console.log(fails ? `\n${fails} FAILURE(S)\n` : '\nAll point tests passed.\n');
+process.exit(fails ? 1 : 0);

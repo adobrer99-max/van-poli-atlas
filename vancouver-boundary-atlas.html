@@ -1949,6 +1949,8 @@ html>body{padding:0}
         <option value="turnout-agg">Aggregate turnout, both elections</option>
         <option value="turnout-delta">Federal minus provincial turnout</option>
         <option value="gap">Federal minus provincial party share</option>
+        <option value="points-count" hidden>Places loaded (count)</option>
+        <option value="points-weight" hidden>Places loaded (weighted)</option>
       </select>
     </label>
     <label class="form-label grow" for="shade-party-fed">Federal (2025) party
@@ -1969,6 +1971,8 @@ html>body{padding:0}
         <option value="catchment" hidden>Voting-place catchment (modelled)</option>
         <option value="prov-per-elector" hidden>Ballots per federal elector (not turnout)</option>
         <option value="prov-per-resident" hidden>Ballots per resident 15+ (not turnout)</option>
+        <option value="points-count" hidden>Places loaded (count)</option>
+        <option value="points-weight" hidden>Places loaded (weighted)</option>
       </select>
     </label>
     <label class="form-label" for="prov-opacity">Overlay fill strength
@@ -1985,6 +1989,8 @@ html>body{padding:0}
         <option value="turnout-fed">Federal (2025) turnout</option>
         <option value="turnout-prov">Provincial (2024) turnout</option>
         <option value="variable">A census variable</option>
+        <option value="points-count" hidden>Places loaded (count)</option>
+        <option value="points-weight" hidden>Places loaded (weighted)</option>
       </select>
     </label>
     <label class="form-label grow" for="shade-da-var">Census variable
@@ -2221,6 +2227,47 @@ html>body{padding:0}
       <button type="button" class="btn" id="clear-census" hidden>Remove</button>
     </div>
     <div id="status-census" class="status"></div>
+  </div>
+
+  <div class="card">
+    <h2>5. A file of places (addresses, an elector roll)</h2>
+    <p class="text-small text-muted">
+      Any list of locations, counted onto every layer that is loaded. Rows can carry
+      their own coordinates &mdash; longitude and latitude columns, a GeoJSON geometry
+      column, or one column holding both numbers &mdash; or they can carry a civic
+      number and a street, in which case load a reference file below and they are
+      joined against it. Nothing is uploaded: like every other file here, it is read
+      in this browser tab and stays on this machine.
+    </p>
+    <p class="text-small text-muted">
+      An elector roll is personal data. The atlas only ever writes counts per area,
+      never records, and the report says how many areas hold so few that the count
+      describes the people in it.
+    </p>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-points">Places to count
+        <input class="form-control" type="file" id="file-points" accept=".csv,.tsv,.txt,.zip,.geojson,.json">
+      </label>
+      <button type="button" class="btn" id="clear-points" hidden>Remove</button>
+    </div>
+    <div id="status-points" class="status"></div>
+    <div class="viz-controls" id="points-controls" hidden>
+      <label class="form-label grow" for="points-weight-col">Count by
+        <select class="form-select" id="points-weight-col">
+          <option value="">Count the rows</option>
+        </select>
+      </label>
+      <label class="form-label grow" for="points-noun">Call them
+        <input class="form-control" type="text" id="points-noun" value="addresses" maxlength="24">
+      </label>
+    </div>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-points-ref">Reference file, if the rows carry addresses rather than coordinates
+        <input class="form-control" type="file" id="file-points-ref" accept=".csv,.tsv,.txt,.zip">
+      </label>
+      <button type="button" class="btn" id="clear-points-ref" hidden>Remove</button>
+    </div>
+    <div id="status-points-ref" class="status"></div>
   </div>
 </section>
 
@@ -6712,6 +6759,380 @@ const Summary = (() => {
   return { fromUnits, fromPlaces, toCsv, rank, readElectors };
 })();
 
+/* --- A file of places, put on the geographies the atlas already carries -------
+
+   Every other reader here takes numbers already attached to a geography. This
+   one takes a list of locations -- addresses, facilities, an elector roll --
+   and works out which area each one falls in. The point-in-polygon itself is
+   Geo.buildIndex().hit(), the same call the map readout uses; what lives here
+   is everything around it, which is where the mistakes are.
+
+   Two of those mistakes are worth naming, because both are silent.
+
+   A coordinate pair has no inherent order. GeoJSON writes [longitude,
+   latitude]; the City of Vancouver's geo_point_2d writes "latitude,
+   longitude". Reverse them and every Vancouver address lands in the Indian
+   Ocean, with a perfectly plausible row count and no error anywhere. So the
+   order is detected rather than assumed, and reported rather than detected
+   quietly.
+
+   And an address is a string that two agencies will spell differently. The
+   city's own file is not even internally consistent: 386 of its streets end
+   "ST" and none end "STREET", while 77 end "DRIVE" and none end "DR". A roll
+   written the other way round would match nothing, and a join that drops a
+   third of its rows looks exactly like a third of the electorate not voting.
+--------------------------------------------------------------------------- */
+const Points = (() => {
+
+  /* --- Finding the columns ------------------------------------------------- */
+
+  const PATTERNS = {
+    lon: [/^longitude$/i, /^lon$/i, /^lng$/i, /^x$/i, /longitude/i],
+    lat: [/^latitude$/i, /^lat$/i, /^y$/i, /latitude/i],
+    /* One column holding both numbers, comma separated. */
+    pair: [/^geo_point_2d$/i, /^coordinates$/i, /^point$/i, /^lat[_ ]?lon[g]?$/i, /^lon[g]?[_ ]?lat$/i],
+    /* One column holding GeoJSON. */
+    geometry: [/^geom$/i, /^geometry$/i, /^geo_shape$/i, /^shape$/i],
+    number: [/^civic_number$/i, /civic.?number/i, /^house.?number$/i, /^street.?number$/i, /^number$/i],
+    street: [/^std_street$/i, /^street_name$/i, /^street$/i, /street.?name/i],
+    /* A single column carrying the whole address. */
+    address: [/^full[_ ]?address$/i, /^address$/i, /civic.?address/i, /street.?address/i],
+    postal: [/^postal[_ ]?code$/i, /^postcode$/i, /^pc$/i, /postal/i],
+    label: [/^name$/i, /^label$/i, /building/i, /^description$/i],
+  };
+
+  const find = (header, key) => {
+    const H = header.map((h) => String(h == null ? '' : h).trim());
+    for (const re of PATTERNS[key]) {
+      const i = H.findIndex((h) => re.test(h));
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+
+  /* --- Normalising an address ---------------------------------------------
+
+     Grounded in the real City of Vancouver street list, not in what a street
+     name ought to look like. Three things that list actually does:
+
+       ST. CATHERINES ST   the first token is Saint and the last is Street,
+                           so a blanket ST -> STREET breaks it
+       W KENT AV NORTH     the last token is a direction, so the street type
+                           is not always last
+       AV but DRIVE        the file mixes short and long forms between types,
+                           so both directions have to fold to one spelling  */
+
+  const DIRECTIONS = new Map([
+    ['N', 'N'], ['NORTH', 'N'], ['S', 'S'], ['SOUTH', 'S'],
+    ['E', 'E'], ['EAST', 'E'], ['W', 'W'], ['WEST', 'W'],
+    ['NE', 'NE'], ['NW', 'NW'], ['SE', 'SE'], ['SW', 'SW'],
+  ]);
+
+  /* Many spellings in, one out. The canonical token is arbitrary; what matters
+     is that every spelling of a type reaches the same one. */
+  const TYPES = new Map([
+    ['AV', 'AVE'], ['AVE', 'AVE'], ['AVEN', 'AVE'], ['AVENUE', 'AVE'],
+    ['ST', 'ST'], ['STR', 'ST'], ['STREET', 'ST'],
+    ['DR', 'DR'], ['DRIVE', 'DR'],
+    ['RD', 'RD'], ['ROAD', 'RD'],
+    ['BLVD', 'BLVD'], ['BOUL', 'BLVD'], ['BOULEVARD', 'BLVD'],
+    ['CR', 'CRES'], ['CRES', 'CRES'], ['CRESCENT', 'CRES'],
+    ['PL', 'PL'], ['PLACE', 'PL'],
+    ['CT', 'CT'], ['CRT', 'CT'], ['COURT', 'CT'],
+    ['LN', 'LN'], ['LANE', 'LN'],
+    ['HWY', 'HWY'], ['HIGHWAY', 'HWY'],
+    ['PKY', 'PKWY'], ['PKWY', 'PKWY'], ['PARKWAY', 'PKWY'],
+    ['SQ', 'SQ'], ['SQUARE', 'SQ'],
+    ['TER', 'TERR'], ['TERR', 'TERR'], ['TERRACE', 'TERR'],
+    ['CIR', 'CIR'], ['CIRCLE', 'CIR'],
+    ['DIV', 'DIV'], ['DIVERSION', 'DIV'],
+    ['GR', 'GROVE'], ['GRV', 'GROVE'], ['GROVE', 'GROVE'],
+    ['XING', 'CROSSING'], ['CROSSING', 'CROSSING'],
+    ['MEWS', 'MEWS'], ['WALK', 'WALK'], ['CLOSE', 'CLOSE'], ['GATE', 'GATE'],
+    ['WAY', 'WAY'], ['CONNECTOR', 'CONNECTOR'], ['LINK', 'LINK'],
+  ]);
+
+  /* A unit written in front of the civic number, in any of the shapes a person
+     or a system might write it. Dropped: an elector lives at a property, and
+     the property is what carries a coordinate. */
+  const UNIT_WORD = /^\s*(?:#|APT\.?|APARTMENT|UNIT|SUITE|STE\.?|PH|RM\.?|ROOM)\s*/i;
+  /* What is left of a unit once any word for it is gone: "101-3449", "101 3449",
+     "101, 3449". Only ever stripped when a civic number follows. */
+  const UNIT_NUMBER = /^\s*[0-9A-Z]+\s*[-,]\s*(?=\d)|^\s*[0-9A-Z]+\s+(?=\d)/i;
+  const stripUnit = (raw) => {
+    let s = String(raw == null ? '' : raw);
+    const hadWord = UNIT_WORD.test(s);
+    s = s.replace(UNIT_WORD, '');
+    const next = s.replace(UNIT_NUMBER, '');
+    /* Without a word saying "unit", only the hyphen form is safe: "101 3449"
+       could be a number and a street that begins with a digit. */
+    return hadWord || /^\s*[0-9A-Z]+\s*[-,]\s*\d/i.test(s) ? next : s;
+  };
+
+  function normalizeStreet(raw) {
+    let s = String(raw == null ? '' : raw).toUpperCase();
+    s = s.replace(/[.,]/g, ' ').replace(/['’`]/g, '').replace(/\s+/g, ' ').trim();
+    if (!s) return '';
+    let parts = s.split(' ');
+    /* Saint, so that a file writing it out still meets one that does not. */
+    if (parts[0] === 'SAINT') parts[0] = 'ST';
+    /* A direction at the end comes off first: in "W KENT AV NORTH" the type is
+       the token before it, not the last one. */
+    let suffix = '';
+    if (parts.length > 2 && DIRECTIONS.has(parts[parts.length - 1])) {
+      suffix = DIRECTIONS.get(parts.pop());
+    }
+    /* Now the last token may be a street type -- or may be the whole name, as
+       in BROADWAY and KINGSWAY, which are streets with no type at all. */
+    let type = '';
+    if (parts.length > 1 && TYPES.has(parts[parts.length - 1])) {
+      type = TYPES.get(parts.pop());
+    }
+    let prefix = '';
+    if (parts.length > 1 && DIRECTIONS.has(parts[0])) {
+      prefix = DIRECTIONS.get(parts.shift());
+    }
+    return [prefix, parts.join(' '), type, suffix].filter(Boolean).join(' ');
+  }
+
+  /* The key a civic number and a street join on. Kept readable rather than
+     hashed, because when a join misses, the first question is always what the
+     two sides actually looked like. */
+  function addressKey(number, street) {
+    const n = stripUnit(String(number == null ? '' : number).toUpperCase())
+      .replace(/[^0-9A-Z]/g, '').trim();
+    const s = normalizeStreet(street);
+    return n && s ? `${n} ${s}` : '';
+  }
+
+  /* One column holding the lot: "101-3449 ANZIO DRIVE" or "3449 Anzio Dr". */
+  function splitAddress(full) {
+    const s = stripUnit(String(full == null ? '' : full)).trim();
+    const m = /^(\d+[A-Za-z]?)\s+(.*)$/.exec(s);
+    return m ? { number: m[1], street: m[2] } : { number: '', street: s };
+  }
+
+  const postalKey = (raw) =>
+    String(raw == null ? '' : raw).toUpperCase().replace(/[^0-9A-Z]/g, '');
+
+  /* --- Coordinates --------------------------------------------------------- */
+
+  const num = (v) => {
+    const n = parseFloat(String(v == null ? '' : v).replace(/[^0-9eE.+-]/g, ''));
+    return isFinite(n) ? n : null;
+  };
+
+  /* A pair with no stated order. Anything outside +/-90 can only be a
+     longitude, which settles nearly every real file in one row; when both
+     values are in range the caller's extent decides, and when even that cannot
+     the pair is reported as ambiguous rather than guessed. */
+  function detectPairOrder(samples, extent) {
+    let latFirst = 0, lonFirst = 0;
+    for (const [a, b] of samples) {
+      if (Math.abs(a) > 90 && Math.abs(b) <= 90) lonFirst++;
+      else if (Math.abs(b) > 90 && Math.abs(a) <= 90) latFirst++;
+    }
+    if (latFirst || lonFirst) {
+      return { order: latFirst >= lonFirst ? 'lat,lon' : 'lon,lat', by: 'range' };
+    }
+    if (extent && samples.length) {
+      const inside = ([x, y]) =>
+        x >= extent[0] && x <= extent[2] && y >= extent[1] && y <= extent[3];
+      const asLatLon = samples.filter(([a, b]) => inside([b, a])).length;
+      const asLonLat = samples.filter(([a, b]) => inside([a, b])).length;
+      if (asLatLon !== asLonLat) {
+        return { order: asLatLon > asLonLat ? 'lat,lon' : 'lon,lat', by: 'study area' };
+      }
+    }
+    return { order: 'lon,lat', by: 'assumed' };
+  }
+
+  /* --- Layout -------------------------------------------------------------- */
+
+  /* How a row can be located, in the order the reader should prefer: its own
+     coordinates beat a lookup, because a lookup is a second chance to be
+     wrong. */
+  function detectPointLayout(header, rows = [], options = {}) {
+    const h = (header || []).map((x) => String(x == null ? '' : x).trim());
+    const lon = find(h, 'lon'), lat = find(h, 'lat');
+    const pair = find(h, 'pair'), geometry = find(h, 'geometry');
+    const number = find(h, 'number'), street = find(h, 'street');
+    const address = find(h, 'address'), postal = find(h, 'postal');
+    /* The address columns are kept whatever wins below. A reference file locates
+       its own rows by coordinates AND is keyed by address, so dropping them
+       when coordinates are present leaves it with nothing to join on. */
+    const base = { header: h, label: find(h, 'label'),
+                   number, street, address, postal, weight: -1 };
+    if (options.weightColumn) {
+      const i = h.findIndex((c) => c === options.weightColumn);
+      base.weight = i;
+    }
+    if (lon >= 0 && lat >= 0) return { ...base, kind: 'lonlat', lon, lat, order: { order: 'lon,lat', by: 'named columns' } };
+    if (geometry >= 0) return { ...base, kind: 'geometry', geometry, order: { order: 'lon,lat', by: 'GeoJSON' } };
+    if (pair >= 0) {
+      const samples = [];
+      for (const r of rows.slice(0, 200)) {
+        const m = /(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)/.exec(String(r[pair] || ''));
+        if (m) samples.push([parseFloat(m[1]), parseFloat(m[2])]);
+      }
+      return { ...base, kind: 'pair', pair, order: detectPairOrder(samples, options.extent) };
+    }
+    if (number >= 0 && street >= 0) return { ...base, kind: 'address', number, street };
+    if (address >= 0) return { ...base, kind: 'address1', address };
+    if (postal >= 0) return { ...base, kind: 'postal' };
+    return null;
+  }
+
+  const NEEDS_REFERENCE = new Set(['address', 'address1', 'postal']);
+
+  /* --- Reading ------------------------------------------------------------- */
+
+  /* reference, when the rows carry no coordinates of their own, is what
+     buildReference returned: a Map from an address or postal key to a point. */
+  function readPoints(table, layout, options = {}) {
+    const rows = table.rows || [];
+    const reference = options.reference || null;
+    const points = [];
+    const misses = [];
+    let unreadable = 0, matched = 0;
+    const cell = (r, i) => (i >= 0 && i < r.length ? r[i] : '');
+
+    for (const r of rows) {
+      let lon = null, lat = null, key = '';
+      if (layout.kind === 'lonlat') {
+        lon = num(cell(r, layout.lon)); lat = num(cell(r, layout.lat));
+      } else if (layout.kind === 'geometry') {
+        try {
+          const g = JSON.parse(String(cell(r, layout.geometry)));
+          const c = g && (g.coordinates || (g.geometry && g.geometry.coordinates));
+          if (Array.isArray(c) && c.length >= 2) { lon = num(c[0]); lat = num(c[1]); }
+        } catch (e) { /* a row that is not JSON is simply unreadable */ }
+      } else if (layout.kind === 'pair') {
+        const m = /(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)/.exec(String(cell(r, layout.pair)));
+        if (m) {
+          const a = parseFloat(m[1]), b = parseFloat(m[2]);
+          if (layout.order.order === 'lat,lon') { lat = a; lon = b; } else { lon = a; lat = b; }
+        }
+      } else if (NEEDS_REFERENCE.has(layout.kind)) {
+        if (layout.kind === 'address') key = addressKey(cell(r, layout.number), cell(r, layout.street));
+        else if (layout.kind === 'address1') {
+          const { number, street } = splitAddress(cell(r, layout.address));
+          key = addressKey(number, street);
+        } else key = postalKey(cell(r, layout.postal));
+        const hit = key && reference ? reference.get(key) : null;
+        if (hit) { lon = hit.lon; lat = hit.lat; matched++; }
+        else if (key) { if (misses.length < 25) misses.push(key); }
+      }
+      if (lon == null || lat == null || !isFinite(lon) || !isFinite(lat)) { unreadable++; continue; }
+      const w = layout.weight >= 0 ? num(cell(r, layout.weight)) : null;
+      points.push({
+        lon, lat,
+        weight: w == null ? 1 : w,
+        label: layout.label >= 0 ? String(cell(r, layout.label)).trim() : '',
+      });
+    }
+    return {
+      points,
+      unreadable,
+      report: {
+        rows: rows.length,
+        read: points.length,
+        unreadable,
+        kind: layout.kind,
+        order: layout.order || null,
+        weighted: layout.weight >= 0,
+        joined: NEEDS_REFERENCE.has(layout.kind),
+        matched: NEEDS_REFERENCE.has(layout.kind) ? matched : null,
+        missRate: NEEDS_REFERENCE.has(layout.kind) && rows.length
+          ? (rows.length - matched) / rows.length : null,
+        misses,
+      },
+    };
+  }
+
+  /* --- The reference table ------------------------------------------------- */
+
+  /* A file that has both a location key and coordinates -- the city's property
+     addresses, or a postal table if one is ever published -- read into the Map
+     readPoints joins against. Duplicate keys keep the first, and the count of
+     them is reported: a key that names two different places is a key that
+     cannot place anything precisely. */
+  function buildReference(table, layout) {
+    const map = new Map();
+    let duplicates = 0, unusable = 0;
+    const read = readPoints(table, { ...layout, weight: -1, label: -1 });
+    const rows = table.rows || [];
+    const cell = (r, i) => (i >= 0 && i < r.length ? r[i] : '');
+    /* readPoints drops unreadable rows, so the keys are rebuilt here against
+       the original rows and paired by walking both in step. */
+    let p = 0;
+    for (const r of rows) {
+      const point = read.points[p];
+      let lon = null, lat = null;
+      if (layout.kind === 'lonlat') { lon = num(cell(r, layout.lon)); lat = num(cell(r, layout.lat)); }
+      else if (layout.kind === 'pair' || layout.kind === 'geometry') {
+        lon = point ? point.lon : null; lat = point ? point.lat : null;
+      }
+      if (lon == null || lat == null) { unusable++; continue; }
+      p++;
+      const keys = [];
+      if (layout.number >= 0 && layout.street >= 0) {
+        keys.push(addressKey(cell(r, layout.number), cell(r, layout.street)));
+      }
+      if (layout.address >= 0) {
+        const { number, street } = splitAddress(cell(r, layout.address));
+        keys.push(addressKey(number, street));
+      }
+      if (layout.postal >= 0) keys.push(postalKey(cell(r, layout.postal)));
+      for (const k of keys) {
+        if (!k) continue;
+        if (map.has(k)) { duplicates++; continue; }
+        map.set(k, { lon, lat });
+      }
+    }
+    return { map, duplicates, unusable, keys: map.size };
+  }
+
+  /* --- Putting them on a layer --------------------------------------------- */
+
+  /* index is a Geo.buildIndex over the features; idOf turns the index it
+     returns into whatever the caller keys features by. Counts and weights are
+     kept apart: a count of addresses and a sum of electors are different
+     questions and the tab asks both. */
+  function assignToLayer(points, index, idOf) {
+    const per = new Map();
+    let inside = 0, outside = 0, insideWeight = 0;
+    for (const p of points) {
+      const i = index.hit(p.lon, p.lat);
+      if (i < 0) { outside++; continue; }
+      inside++; insideWeight += p.weight;
+      const id = idOf ? idOf(i) : i;
+      let acc = per.get(id);
+      if (!acc) per.set(id, (acc = { count: 0, weight: 0 }));
+      acc.count++;
+      acc.weight += p.weight;
+    }
+    return { per, inside, outside, insideWeight };
+  }
+
+  /* Areas that got nothing, which is the question a coverage check is really
+     asking, and the count of areas small enough that naming them would say
+     something about the people in them. */
+  function coverage(per, featureIds, { disclosureBelow = 5 } = {}) {
+    let empty = 0, sparse = 0;
+    for (const id of featureIds) {
+      const a = per.get(id);
+      if (!a || !a.count) { empty++; continue; }
+      if (a.count < disclosureBelow) sparse++;
+    }
+    return { areas: featureIds.length, empty, sparse, disclosureBelow };
+  }
+
+  return { PATTERNS, detectPointLayout, readPoints, buildReference, assignToLayer,
+           coverage, normalizeStreet, addressKey, splitAddress, postalKey,
+           detectPairOrder, NEEDS_REFERENCE };
+})();
+
 </script>
 <script>
 
@@ -6839,6 +7260,9 @@ const state = {
   /* Ballots per federal elector and per resident aged 15 and over, by voting
      area. Neither is turnout; see recomputeProvincialParticipation. */
   provPart: null,
+  /* A loaded file of places -- addresses, an elector roll -- counted onto each
+     layer. `per` is keyed by layer, then by the feature's own index. */
+  points: null,
   socio: { outcome: 'turnout-agg', minElectors: 50, selected: new Set(), extra: new Map(),
            rows: null, byDa: null, table: null, sortKey: 'absR', sortDir: 'desc', picked: null },
 };
@@ -7078,6 +7502,7 @@ function fitAll() {
    2024 results by f.__idx and need no crosswalk at all. */
 function shadeValue(layerKey, f, mode, fedParty, provParty) {
   if (mode === 'none' || mode === 'type' || mode === 'flat') return null;
+  if (POINT_MODES.has(mode)) return pointsValue(layerKey, f, mode);
   if (layerKey === 'prov') {
     if (PART_MODES.has(mode)) {
       const p = state.provPart && state.provPart.get(f.__idx);
@@ -7129,8 +7554,33 @@ const TURNOUT_MODES = new Set(['turnout-fed', 'turnout-prov', 'turnout-agg']);
    They ramp like a turnout because they are the same shape of number, and they
    are kept out of TURNOUT_MODES because they are not one. */
 const PART_MODES = new Set(['prov-per-elector', 'prov-per-resident']);
+/* A loaded point file, counted or weighted, on whichever layer is being
+   shaded. Both ramp on the data like the turnout modes do. */
+const POINT_MODES = new Set(['points-count', 'points-weight']);
+
+/* What a loaded point file put on this feature. Keyed by the feature's own
+   index, which is `idx` federally and `__idx` everywhere else. */
+function pointsValue(layerKey, f, mode) {
+  const per = state.points && state.points.per && state.points.per[layerKey];
+  if (!per) return null;
+  const a = per.get(layerKey === 'fed' ? f.idx : f.__idx);
+  if (!a) return null;
+  return mode === 'points-weight' ? a.weight : a.count;
+}
+
+/* The same figure, for the readout, phrased for whichever file is loaded. */
+function pointsLine(layerKey, f) {
+  const p = state.points;
+  if (!p || !p.per || !p.per[layerKey]) return null;
+  const a = p.per[layerKey].get(layerKey === 'fed' ? f.idx : f.__idx);
+  const noun = p.noun || 'points';
+  if (!a) return `no ${noun} here`;
+  return p.weighted
+    ? `${fmtInt(a.count)} ${noun} · ${fmtInt(a.weight)} ${p.weightNoun || 'weighted'}`
+    : `${fmtInt(a.count)} ${noun}`;
+}
 /* Modes whose ramp follows the data on the map rather than a fixed scale. */
-const DATA_MODES = new Set([...TURNOUT_MODES, ...PART_MODES, 'variable']);
+const DATA_MODES = new Set([...TURNOUT_MODES, ...PART_MODES, ...POINT_MODES, 'variable']);
 
 /* Turnout ramps are data-driven -- 5th to 95th percentile of what is on the
    map -- because a fixed scale would either wash out or saturate depending on
@@ -7165,6 +7615,7 @@ function fillColour(mode, v, fedParty, provParty) {
   if (TURNOUT_MODES.has(mode)) return 'var(--viz-series-1)';
   if (mode === 'prov-per-elector') return 'var(--viz-series-4)';
   if (mode === 'prov-per-resident') return 'var(--viz-series-5)';
+  if (POINT_MODES.has(mode)) return 'var(--viz-series-6)';
   if (mode === 'fed-party') return partyColour(fedParty);
   if (mode === 'prov-party') return partyColour(provParty);
   return 'var(--muted)';
@@ -7462,6 +7913,22 @@ function updateLayerVisibility() {
   root.style.setProperty('--va-weight', $('prov-weight').value);
 }
 
+/* Named by the file that was loaded rather than by the control, so a legend
+   over an elector roll says electors and one over an address file says
+   addresses. */
+function pointsLegend(mode, layerKey) {
+  const p = state.points;
+  if (!p) return [];
+  const dom = state.shadeDomain[layerKey];
+  const noun = mode === 'points-weight' ? (p.weightNoun || 'weighted total') : (p.noun || 'points');
+  const range = dom ? ` — ${fmtInt(dom.lo)} to ${fmtInt(dom.hi)}` : '';
+  const out = [['var(--viz-series-6)', `${noun} per area${range}`]];
+  if (p.joined) {
+    out.push(['note', `Placed by joining ${fmtPct(1 - (p.missRate || 0))} of rows to the reference file.`]);
+  }
+  return out;
+}
+
 function renderLegend() {
   const legend = $('map-legend');
   const mode = $('shade-by').value;
@@ -7498,12 +7965,16 @@ function renderLegend() {
     items.push(['note', 'A poll reached by only one election shows that election alone.']);
   } else if (mode === 'turnout-delta') {
     items.push(['var(--viz-series-1)', 'Federal turnout higher'], ['var(--viz-series-2)', 'Provincial turnout higher']);
+  } else if (POINT_MODES.has(mode)) {
+    items.push(...pointsLegend(mode, 'fed'));
   }
   if (state.prov.active.length) {
     if (provMode === 'prov-party' && provParty) {
       items.push([partyColour(provParty), `${provParty} share, 2024, on voting areas`]);
     } else if (provMode === 'turnout-prov') {
       items.push(['var(--viz-series-1)', `2024 provincial turnout on voting areas${range(state.shadeDomain.prov)}`]);
+    } else if (POINT_MODES.has(provMode)) {
+      items.push(...pointsLegend(provMode, 'prov'));
     } else if (PART_MODES.has(provMode)) {
       /* Named by its denominator every time it is drawn. The whole reason
          these exist is that neither denominator is a provincial electorate,
@@ -7627,6 +8098,8 @@ function renderReadout() {
     } else if (state.fedResults) {
       fedCard.append(el('p', 'text-small text-warning', 'No results row matched this polling division.'));
     }
+    const fpl = pointsLine('fed', fed);
+    if (fpl) fedCard.append(el('p', 'text-small text-muted', fpl));
   } else {
     fedCard.append(el('p', 'text-muted', 'No federal polling division at this point.'));
   }
@@ -7658,6 +8131,8 @@ function renderReadout() {
     if (placeLine) provCard.append(placeLine);
     const partLine = provPartLine(prov);
     if (partLine) provCard.append(partLine);
+    const pl = pointsLine('prov', prov);
+    if (pl) provCard.append(el('p', 'text-small text-muted', pl));
   } else if (state.prov.all.length) {
     provCard.append(el('p', 'text-muted', 'No provincial voting area at this point.'));
   } else {
@@ -10475,6 +10950,226 @@ $('export-results').addEventListener('click', () => {
   downloadCsv(name, rows);
   $('results-note').textContent = `Saved ${name} (${fmtInt(rows.length - 1)} rows).`;
 });
+
+/* --- A file of places, on the Data tab ---------------------------------------
+   Loads a point file, joins it to a reference when its rows carry addresses
+   rather than coordinates, counts it onto every layer that is loaded, and says
+   what it did. The maths is in f6-points.js; this file is wiring and words.
+
+   Written knowing it will be run on a machine this code was never tested on,
+   against a file its author will never see -- an electors list stays on the
+   campaign's own device. So the report says what was detected rather than
+   assuming it was right: which columns, which coordinate order, what fraction
+   of rows joined, and which keys missed. A silent 30% miss rate is
+   indistinguishable from 30% of an electorate not voting. */
+
+/* The reference table, when one has been loaded: address or postal key to a
+   coordinate. Kept apart from state.points so that reloading the roll does not
+   mean reloading the 99,744-row address file behind it. */
+let pointReference = null;
+
+function pointsExtent() {
+  const e = extentOf(activeFederal());
+  return e && isFinite(e[0]) ? e : null;
+}
+
+/* Every loaded polygon layer, so one pass over the points serves all of them. */
+function pointTargets() {
+  const out = [];
+  if (state.fed.active.length) out.push({ key: 'fed', features: state.fed.active, idOf: (f) => f.idx });
+  if (state.prov.active.length) out.push({ key: 'prov', features: state.prov.active, idOf: (f) => f.__idx });
+  if (state.da.active.length) out.push({ key: 'da', features: state.da.active, idOf: (f) => f.__idx });
+  return out;
+}
+
+function assignPoints(points) {
+  const per = {}, coverage = {}, outside = {};
+  for (const t of pointTargets()) {
+    const index = Geo.buildIndex(t.features);
+    const a = Points.assignToLayer(points, index, (i) => t.idOf(t.features[i]));
+    per[t.key] = a.per;
+    outside[t.key] = a.outside;
+    coverage[t.key] = Points.coverage(a.per, t.features.map(t.idOf), { disclosureBelow: 5 });
+  }
+  return { per, coverage, outside };
+}
+
+const LAYER_NAME = { fed: 'federal polling divisions', prov: 'provincial voting areas',
+                     da: 'dissemination areas' };
+
+function renderPointsReport() {
+  const p = state.points;
+  if (!p) { setStatus('status-points', 'idle', []); return; }
+  const r = p.report;
+  const lines = [];
+  const noun = p.noun || 'rows';
+
+  /* What was detected, first and plainly: everything downstream depends on it
+     and nobody else can check it. */
+  const how = { lonlat: 'longitude and latitude columns', geometry: 'a GeoJSON geometry column',
+                pair: 'one column holding both numbers', address: 'a civic number and a street',
+                address1: 'one column holding the whole address', postal: 'a postal code' }[r.kind];
+  lines.push(`${fmtInt(r.read)} of ${fmtInt(r.rows)} rows located, from ${how}.`);
+  if (r.order && r.kind === 'pair') {
+    lines.push(el('p', 'text-small' + (r.order.by === 'assumed' ? ' text-warning' : ' text-muted'),
+      `Read as ${r.order.order} — decided by ${r.order.by}. `
+      + (r.order.by === 'assumed'
+        ? 'Nothing in the file settled it, so check a point on the map before trusting any of this.'
+        : 'Reversing these would put every address in the Indian Ocean without erroring, so it is stated rather than assumed.')));
+  }
+  if (r.joined) {
+    const rate = 1 - (r.missRate || 0);
+    lines.push(el('p', 'text-small' + (rate < 0.9 ? ' text-warning' : ' text-muted'),
+      `${fmtPct(rate)} of rows matched the reference file`
+      + (r.misses.length ? `. Unmatched keys include: ${r.misses.slice(0, 6).join('; ')}` : '.')));
+  }
+  if (r.unreadable) {
+    lines.push(el('p', 'text-small text-muted',
+      `${fmtInt(r.unreadable)} rows could not be located and are left out of every count below.`));
+  }
+
+  for (const t of pointTargets()) {
+    const cov = p.coverage[t.key], out = p.outside[t.key];
+    lines.push(el('p', 'text-small text-muted',
+      `${LAYER_NAME[t.key]}: ${fmtInt(cov.areas - cov.empty)} of ${fmtInt(cov.areas)} carry at least one `
+      + `${noun.replace(/s$/, '')}, ${fmtInt(cov.empty)} carry none`
+      + (out ? `, and ${fmtInt(out)} rows fell outside every one of them` : '') + '.'));
+    if (cov.sparse) {
+      lines.push(el('p', 'text-small text-muted',
+        `${fmtInt(cov.sparse)} of those areas hold fewer than ${cov.disclosureBelow}. A count that small `
+        + 'describes the people in it, so treat the export as disclosive and aggregate further before sharing.'));
+    }
+  }
+  setStatus('status-points', 'ok', lines);
+}
+
+async function loadPointFile(file, { asReference } = {}) {
+  const id = asReference ? 'status-points-ref' : 'status-points';
+  setStatus(id, 'busy', `Reading ${file.name}…`);
+  try {
+    const table = await Ingest.loadTable(file.name, await readFile(file));
+    const weightColumn = $('points-weight-col') ? $('points-weight-col').value : '';
+    const layout = Points.detectPointLayout(table.header, table.rows,
+      { extent: pointsExtent(), weightColumn: asReference ? '' : weightColumn });
+    if (!layout) {
+      throw new Error('No way to locate these rows. Wanted longitude and latitude, a geometry '
+        + 'column, one column holding both numbers, or a civic number and a street. '
+        + `This file has: ${table.header.slice(0, 10).join(', ')}.`);
+    }
+    if (asReference) {
+      if (Points.NEEDS_REFERENCE.has(layout.kind)) {
+        throw new Error('A reference file needs coordinates of its own — this one would itself '
+          + 'need looking up. Load the City of Vancouver property addresses, which carry both.');
+      }
+      const ref = Points.buildReference(table, layout);
+      pointReference = ref;
+      setStatus('status-points-ref', 'ok', [
+        `${fmtInt(ref.keys)} keys from ${fmtInt(table.rows.length)} rows.`,
+        el('p', 'text-small text-muted',
+          `${fmtInt(ref.duplicates)} rows share a key with an earlier one and keep the first `
+          + 'coordinate; two properties at one address sit beside each other, so the area is the '
+          + 'same either way, but the point is one of the two.'),
+      ]);
+      $('clear-points-ref').hidden = false;
+      /* A roll already loaded can be joined now that the reference exists. */
+      if (state.pointsTable) applyPointFile(state.pointsTable);
+      return;
+    }
+    state.pointsTable = table;
+    applyPointFile(table);
+  } catch (err) {
+    setStatus(id, 'error', [String(err.message || err)]);
+    clearInput(asReference ? 'file-points-ref' : 'file-points');
+  }
+}
+
+/* Separated from the reading so that loading a reference, or choosing a weight
+   column, re-runs the join without re-reading the file. */
+function applyPointFile(table) {
+  const weightColumn = $('points-weight-col') ? $('points-weight-col').value : '';
+  const layout = Points.detectPointLayout(table.header, table.rows,
+    { extent: pointsExtent(), weightColumn });
+  if (!layout) return;
+  if (Points.NEEDS_REFERENCE.has(layout.kind) && !pointReference) {
+    setStatus('status-points', 'error', [
+      'These rows carry addresses rather than coordinates, so they need a reference file to be '
+      + 'placed. Load the City of Vancouver property addresses below and this file will join '
+      + 'against it.']);
+    return;
+  }
+  const read = Points.readPoints(table, layout, { reference: pointReference && pointReference.map });
+  const assigned = assignPoints(read.points);
+  state.points = {
+    ...assigned,
+    report: read.report,
+    weighted: layout.weight >= 0,
+    joined: read.report.joined,
+    missRate: read.report.missRate,
+    noun: $('points-noun') ? ($('points-noun').value.trim() || 'rows') : 'rows',
+    weightNoun: weightColumn || 'weighted',
+  };
+  fillSelect($('points-weight-col'),
+    [{ value: '', label: 'Count the rows' }].concat(
+      table.header.map((h) => ({ value: h, label: `Sum ${h}` }))), weightColumn);
+  $('points-controls').hidden = false;
+  $('clear-points').hidden = false;
+  renderPointsReport();
+  updatePointControls();
+  draw(); renderReadout(); refreshTurnout();
+}
+
+/* The shade options appear only once a file is loaded, and the weighted one
+   only once a weight column is chosen. */
+function updatePointControls() {
+  const p = state.points;
+  for (const sel of ['shade-by', 'shade-prov-by', 'shade-da-by']) {
+    const node = $(sel);
+    if (!node) continue;
+    for (const value of ['points-count', 'points-weight']) {
+      const option = node.querySelector(`option[value="${value}"]`);
+      if (!option) continue;
+      const ok = Boolean(p) && (value === 'points-count' || p.weighted);
+      option.hidden = !ok;
+      if (!ok && node.value === value) node.value = 'none';
+    }
+  }
+}
+
+/* --- Wiring ---------------------------------------------------------------- */
+
+if ($('file-points')) {
+  $('file-points').addEventListener('change', (e) => {
+    if (e.target.files.length) loadPointFile(e.target.files[0], {});
+    e.target.value = '';
+  });
+  $('file-points-ref').addEventListener('change', (e) => {
+    if (e.target.files.length) loadPointFile(e.target.files[0], { asReference: true });
+    e.target.value = '';
+  });
+  $('points-weight-col').addEventListener('change', () => {
+    if (state.pointsTable) applyPointFile(state.pointsTable);
+  });
+  $('points-noun').addEventListener('change', () => {
+    if (state.points) {
+      state.points.noun = $('points-noun').value.trim() || 'rows';
+      renderPointsReport(); renderLegend(); renderReadout();
+    }
+  });
+  $('clear-points').addEventListener('click', () => {
+    state.points = null; state.pointsTable = null;
+    $('clear-points').hidden = true;
+    $('points-controls').hidden = true;
+    setStatus('status-points', 'idle', []);
+    updatePointControls();
+    draw(); renderReadout(); refreshTurnout();
+  });
+  $('clear-points-ref').addEventListener('click', () => {
+    pointReference = null;
+    $('clear-points-ref').hidden = true;
+    setStatus('status-points-ref', 'idle', []);
+    if (state.pointsTable) applyPointFile(state.pointsTable);
+  });
+}
 
 /* --- Start ---------------------------------------------------------------
    Boot sequence and the close of the application IIFE opened in

@@ -404,7 +404,7 @@ and so on. `tests/run.js` stops at the first failing suite. GitHub Actions (`.gi
 every pull request, plus a check that the committed
 `vancouver-boundary-atlas.html` matches a fresh build.
 
-749 assertions — 523 in the node suites, 226 in the browser ones — plus 13
+804 assertions — 565 in the node suites, 239 in the browser ones — plus 13
 Python tests over the tools in `tools/`. The browser suites drive the real page
 in Chromium through Playwright: loading each boundary format, loading a BC Data
 Catalogue order as delivered and clipped, joining results, reading results
@@ -441,6 +441,40 @@ full statement.
 - **Street basemap tiles** — © OpenStreetMap contributors (ODbL), © CARTO.
   Fetched from the providers at runtime under their own terms; never
   redistributed here.
+### A file of places
+
+Section 5 of the Data tab takes any list of locations — addresses, facilities,
+an elector roll — and counts it onto every layer that is loaded. Rows can carry
+their own coordinates (longitude and latitude columns, a GeoJSON geometry
+column, or one column holding both numbers) or a civic number and a street, in
+which case a reference file such as the City of Vancouver
+[property addresses](https://opendata.vancouver.ca/explore/dataset/property-addresses/)
+supplies the coordinate.
+
+Two things are easy to get wrong here and both are silent, so both are reported
+rather than assumed. **A coordinate pair has no inherent order** — GeoJSON
+writes longitude first, the city's `geo_point_2d` writes latitude first, and
+reversing them puts every Vancouver address in the Indian Ocean with a
+plausible row count and no error. The order is detected, and the status line
+says which it read and what decided it. **And an address is a string two
+agencies spell differently**: the city's own file is not internally consistent,
+with 386 streets ending `ST` and none `STREET`, 77 ending `DRIVE` and none
+`DR`. Normalisation folds both directions, keeps `ST. CATHERINES ST` (Saint at
+the front, Street at the back) intact, and does not mistake the trailing
+direction in `W KENT AV NORTH` for the street type.
+
+Measured against the real 99,744-row property file: every coordinate read,
+95,639 inside the federal study area across 1,013 of 1,017 polls, 99,740 inside
+the provincial voting areas across 693 of 706, ~130 ms per layer. The 13 areas
+with no address at all are the UBC and UEL end of Vancouver-Point Grey, which
+the city does not address because it is outside the city. A sample of 2,986 of
+its own addresses, respelled the way another agency would write them and given
+unit prefixes, rejoined at **100%**.
+
+An elector roll is personal data. The atlas reads it in the browser tab and
+uploads nothing, writes counts per area and never records, and reports how many
+areas hold so few that the count describes the people in it.
+
 - **`boundaries/fed_polls.geojson`** — derived from Elections Canada, Polling
   Division Boundaries 2025, under the
   [Open Government Licence – Canada](https://open.canada.ca/en/open-government-licence-canada).

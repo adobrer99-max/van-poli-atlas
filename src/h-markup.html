@@ -48,6 +48,8 @@
         <option value="turnout-agg">Aggregate turnout, both elections</option>
         <option value="turnout-delta">Federal minus provincial turnout</option>
         <option value="gap">Federal minus provincial party share</option>
+        <option value="points-count" hidden>Places loaded (count)</option>
+        <option value="points-weight" hidden>Places loaded (weighted)</option>
       </select>
     </label>
     <label class="form-label grow" for="shade-party-fed">Federal (2025) party
@@ -68,6 +70,8 @@
         <option value="catchment" hidden>Voting-place catchment (modelled)</option>
         <option value="prov-per-elector" hidden>Ballots per federal elector (not turnout)</option>
         <option value="prov-per-resident" hidden>Ballots per resident 15+ (not turnout)</option>
+        <option value="points-count" hidden>Places loaded (count)</option>
+        <option value="points-weight" hidden>Places loaded (weighted)</option>
       </select>
     </label>
     <label class="form-label" for="prov-opacity">Overlay fill strength
@@ -84,6 +88,8 @@
         <option value="turnout-fed">Federal (2025) turnout</option>
         <option value="turnout-prov">Provincial (2024) turnout</option>
         <option value="variable">A census variable</option>
+        <option value="points-count" hidden>Places loaded (count)</option>
+        <option value="points-weight" hidden>Places loaded (weighted)</option>
       </select>
     </label>
     <label class="form-label grow" for="shade-da-var">Census variable
@@ -320,6 +326,47 @@
       <button type="button" class="btn" id="clear-census" hidden>Remove</button>
     </div>
     <div id="status-census" class="status"></div>
+  </div>
+
+  <div class="card">
+    <h2>5. A file of places (addresses, an elector roll)</h2>
+    <p class="text-small text-muted">
+      Any list of locations, counted onto every layer that is loaded. Rows can carry
+      their own coordinates &mdash; longitude and latitude columns, a GeoJSON geometry
+      column, or one column holding both numbers &mdash; or they can carry a civic
+      number and a street, in which case load a reference file below and they are
+      joined against it. Nothing is uploaded: like every other file here, it is read
+      in this browser tab and stays on this machine.
+    </p>
+    <p class="text-small text-muted">
+      An elector roll is personal data. The atlas only ever writes counts per area,
+      never records, and the report says how many areas hold so few that the count
+      describes the people in it.
+    </p>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-points">Places to count
+        <input class="form-control" type="file" id="file-points" accept=".csv,.tsv,.txt,.zip,.geojson,.json">
+      </label>
+      <button type="button" class="btn" id="clear-points" hidden>Remove</button>
+    </div>
+    <div id="status-points" class="status"></div>
+    <div class="viz-controls" id="points-controls" hidden>
+      <label class="form-label grow" for="points-weight-col">Count by
+        <select class="form-select" id="points-weight-col">
+          <option value="">Count the rows</option>
+        </select>
+      </label>
+      <label class="form-label grow" for="points-noun">Call them
+        <input class="form-control" type="text" id="points-noun" value="addresses" maxlength="24">
+      </label>
+    </div>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-points-ref">Reference file, if the rows carry addresses rather than coordinates
+        <input class="form-control" type="file" id="file-points-ref" accept=".csv,.tsv,.txt,.zip">
+      </label>
+      <button type="button" class="btn" id="clear-points-ref" hidden>Remove</button>
+    </div>
+    <div id="status-points-ref" class="status"></div>
   </div>
 </section>
 

@@ -54,6 +54,9 @@ const state = {
   /* Ballots per federal elector and per resident aged 15 and over, by voting
      area. Neither is turnout; see recomputeProvincialParticipation. */
   provPart: null,
+  /* A loaded file of places -- addresses, an elector roll -- counted onto each
+     layer. `per` is keyed by layer, then by the feature's own index. */
+  points: null,
   socio: { outcome: 'turnout-agg', minElectors: 50, selected: new Set(), extra: new Map(),
            rows: null, byDa: null, table: null, sortKey: 'absR', sortDir: 'desc', picked: null },
 };
@@ -293,6 +296,7 @@ function fitAll() {
    2024 results by f.__idx and need no crosswalk at all. */
 function shadeValue(layerKey, f, mode, fedParty, provParty) {
   if (mode === 'none' || mode === 'type' || mode === 'flat') return null;
+  if (POINT_MODES.has(mode)) return pointsValue(layerKey, f, mode);
   if (layerKey === 'prov') {
     if (PART_MODES.has(mode)) {
       const p = state.provPart && state.provPart.get(f.__idx);
@@ -344,8 +348,33 @@ const TURNOUT_MODES = new Set(['turnout-fed', 'turnout-prov', 'turnout-agg']);
    They ramp like a turnout because they are the same shape of number, and they
    are kept out of TURNOUT_MODES because they are not one. */
 const PART_MODES = new Set(['prov-per-elector', 'prov-per-resident']);
+/* A loaded point file, counted or weighted, on whichever layer is being
+   shaded. Both ramp on the data like the turnout modes do. */
+const POINT_MODES = new Set(['points-count', 'points-weight']);
+
+/* What a loaded point file put on this feature. Keyed by the feature's own
+   index, which is `idx` federally and `__idx` everywhere else. */
+function pointsValue(layerKey, f, mode) {
+  const per = state.points && state.points.per && state.points.per[layerKey];
+  if (!per) return null;
+  const a = per.get(layerKey === 'fed' ? f.idx : f.__idx);
+  if (!a) return null;
+  return mode === 'points-weight' ? a.weight : a.count;
+}
+
+/* The same figure, for the readout, phrased for whichever file is loaded. */
+function pointsLine(layerKey, f) {
+  const p = state.points;
+  if (!p || !p.per || !p.per[layerKey]) return null;
+  const a = p.per[layerKey].get(layerKey === 'fed' ? f.idx : f.__idx);
+  const noun = p.noun || 'points';
+  if (!a) return `no ${noun} here`;
+  return p.weighted
+    ? `${fmtInt(a.count)} ${noun} · ${fmtInt(a.weight)} ${p.weightNoun || 'weighted'}`
+    : `${fmtInt(a.count)} ${noun}`;
+}
 /* Modes whose ramp follows the data on the map rather than a fixed scale. */
-const DATA_MODES = new Set([...TURNOUT_MODES, ...PART_MODES, 'variable']);
+const DATA_MODES = new Set([...TURNOUT_MODES, ...PART_MODES, ...POINT_MODES, 'variable']);
 
 /* Turnout ramps are data-driven -- 5th to 95th percentile of what is on the
    map -- because a fixed scale would either wash out or saturate depending on
@@ -380,6 +409,7 @@ function fillColour(mode, v, fedParty, provParty) {
   if (TURNOUT_MODES.has(mode)) return 'var(--viz-series-1)';
   if (mode === 'prov-per-elector') return 'var(--viz-series-4)';
   if (mode === 'prov-per-resident') return 'var(--viz-series-5)';
+  if (POINT_MODES.has(mode)) return 'var(--viz-series-6)';
   if (mode === 'fed-party') return partyColour(fedParty);
   if (mode === 'prov-party') return partyColour(provParty);
   return 'var(--muted)';
@@ -677,6 +707,22 @@ function updateLayerVisibility() {
   root.style.setProperty('--va-weight', $('prov-weight').value);
 }
 
+/* Named by the file that was loaded rather than by the control, so a legend
+   over an elector roll says electors and one over an address file says
+   addresses. */
+function pointsLegend(mode, layerKey) {
+  const p = state.points;
+  if (!p) return [];
+  const dom = state.shadeDomain[layerKey];
+  const noun = mode === 'points-weight' ? (p.weightNoun || 'weighted total') : (p.noun || 'points');
+  const range = dom ? ` — ${fmtInt(dom.lo)} to ${fmtInt(dom.hi)}` : '';
+  const out = [['var(--viz-series-6)', `${noun} per area${range}`]];
+  if (p.joined) {
+    out.push(['note', `Placed by joining ${fmtPct(1 - (p.missRate || 0))} of rows to the reference file.`]);
+  }
+  return out;
+}
+
 function renderLegend() {
   const legend = $('map-legend');
   const mode = $('shade-by').value;
@@ -713,12 +759,16 @@ function renderLegend() {
     items.push(['note', 'A poll reached by only one election shows that election alone.']);
   } else if (mode === 'turnout-delta') {
     items.push(['var(--viz-series-1)', 'Federal turnout higher'], ['var(--viz-series-2)', 'Provincial turnout higher']);
+  } else if (POINT_MODES.has(mode)) {
+    items.push(...pointsLegend(mode, 'fed'));
   }
   if (state.prov.active.length) {
     if (provMode === 'prov-party' && provParty) {
       items.push([partyColour(provParty), `${provParty} share, 2024, on voting areas`]);
     } else if (provMode === 'turnout-prov') {
       items.push(['var(--viz-series-1)', `2024 provincial turnout on voting areas${range(state.shadeDomain.prov)}`]);
+    } else if (POINT_MODES.has(provMode)) {
+      items.push(...pointsLegend(provMode, 'prov'));
     } else if (PART_MODES.has(provMode)) {
       /* Named by its denominator every time it is drawn. The whole reason
          these exist is that neither denominator is a provincial electorate,
@@ -842,6 +892,8 @@ function renderReadout() {
     } else if (state.fedResults) {
       fedCard.append(el('p', 'text-small text-warning', 'No results row matched this polling division.'));
     }
+    const fpl = pointsLine('fed', fed);
+    if (fpl) fedCard.append(el('p', 'text-small text-muted', fpl));
   } else {
     fedCard.append(el('p', 'text-muted', 'No federal polling division at this point.'));
   }
@@ -873,6 +925,8 @@ function renderReadout() {
     if (placeLine) provCard.append(placeLine);
     const partLine = provPartLine(prov);
     if (partLine) provCard.append(partLine);
+    const pl = pointsLine('prov', prov);
+    if (pl) provCard.append(el('p', 'text-small text-muted', pl));
   } else if (state.prov.all.length) {
     provCard.append(el('p', 'text-muted', 'No provincial voting area at this point.'));
   } else {
