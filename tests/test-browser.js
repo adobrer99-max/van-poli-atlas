@@ -1295,6 +1295,50 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.locator('#apportion-prov').selectOption('none');
   await page.waitForTimeout(1200);
 
+  /* Party shares move with apportionment too: apportionUnmatched redistributes
+     per-party votes, not only ballot totals, so advance voters are spread at
+     their district's advance mix rather than each poll's election-day mix.
+     Every surface that prints a share is therefore in the same class. */
+  await page.locator('#tab-map').click();
+  await page.waitForTimeout(400);
+  await page.locator('#shade-by').selectOption('fed-party');
+  await page.waitForTimeout(600);
+  ok('a party-share legend says the advance ballots are out too',
+     /Advance and special ballots are left out/.test(await legend()),
+     (await legend()).replace(/\s+/g, ' ').slice(0, 180));
+  await page.mouse.click(at.x, at.y);
+  await page.waitForTimeout(400);
+  /* The readout takes a side explicitly. It read unit.side while writing this,
+     which units do not carry -- undefined, silently, exactly the shape of the
+     bug that made the both-elections filter empty the tab. This is the
+     assertion that catches it. */
+  ok('and the readout card carries it under the party list',
+     /election-day ballots only/.test(await page.locator('#readout').innerText()),
+     (await page.locator('#readout').innerText()).replace(/\s+/g, ' ').slice(-220));
+  await page.locator('#tab-corr').click();
+  await page.waitForTimeout(600);
+  ok('and the Compare caption says which basis its r was computed on',
+     /Computed on election-day ballots only/.test(
+       await page.locator('#scatter-caption').innerText()),
+     (await page.locator('#scatter-caption').innerText()).replace(/\s+/g, ' ').slice(-200));
+  await page.locator('#tab-turnout').click();
+  await page.locator('#apportion-fed').selectOption('votes');
+  await page.locator('#apportion-prov').selectOption('votes');
+  await page.waitForTimeout(1200);
+  await page.locator('#tab-corr').click();
+  await page.waitForTimeout(600);
+  ok('and drops it once they are in',
+     !/Computed on election-day/.test(await page.locator('#scatter-caption').innerText()),
+     (await page.locator('#scatter-caption').innerText()).replace(/\s+/g, ' ').slice(-200));
+  await page.locator('#tab-turnout').click();
+  await page.locator('#apportion-fed').selectOption('none');
+  await page.locator('#apportion-prov').selectOption('none');
+  await page.waitForTimeout(1200);
+  await page.locator('#tab-map').click();
+  await page.waitForTimeout(300);
+  await page.locator('#shade-by').selectOption('none');
+  await page.waitForTimeout(300);
+
   console.log('\n== Tabs and method ==');
   await page.locator('#tab-method').click();
   await page.waitForTimeout(200);

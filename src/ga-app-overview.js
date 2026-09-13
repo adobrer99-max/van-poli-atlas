@@ -180,7 +180,11 @@ function headlineFindings() {
     push(`${c.fedParty} and ${c.provParty} `
       + (c.result.r < 0 ? 'move against each other' : 'track each other'), fmtNum(c.result.r, 2),
       `Pearson r across ${fmtInt(c.result.nEffective ?? c.result.n ?? (c.rows || []).length)} `
-      + 'independent sources',
+      + 'independent sources'
+      /* Party shares move with apportionment too, so an r between two of them
+         does. It is a weaker effect than on turnout and it is still a different
+         number, and this is a headline. */
+      + (turnoutBasis().short ? `, on ${turnoutBasis().short}` : ''),
       'modelled');
   }
 
@@ -190,7 +194,8 @@ function headlineFindings() {
     const outcome = socioOutcome(state.socio.outcome).label.toLowerCase();
     push(`Strongest census association with ${outcome}`, fmtNum(best.r, 2),
       `${best.label} — ${outcome} ${best.r < 0 ? 'falls' : 'rises'} as it rises, `
-      + `across ${fmtInt(best.nEffective ?? best.n)} independent sources`,
+      + `across ${fmtInt(best.nEffective ?? best.n)} independent sources`
+      + (turnoutBasis().short ? `, on ${turnoutBasis().short}` : ''),
       'modelled');
   }
 
