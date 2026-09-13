@@ -1112,7 +1112,10 @@ function renderReadout() {
         const list = el('ul', 'result-list');
         for (const v of shown) {
           const li = el('li');
-          li.append(el('span', 'party', v.label), el('span', 'votes tabular-nums', fmtNum(v.byFeature.get(da.__idx), 1)));
+          /* The readout is where somebody checks one area's numbers, so it
+             carries the statistical definition rather than the plain alias. */
+          li.append(el('span', 'party', v.precise || v.label),
+                    el('span', 'votes tabular-nums', fmtNum(v.byFeature.get(da.__idx), 1)));
           list.append(li);
         }
         daCard.append(list);

@@ -283,7 +283,8 @@ function refreshSocio() {
                  group: outcome.usesProvincial ? groupOf(r.feature.__idx) : null });
     }
     const c = Analysis.correlateXY(pts);
-    table.push({ key: v.key, label: v.label, movedAs: v.movedAs || null,
+    table.push({ key: v.key, label: v.label, short: v.short || v.label,
+                 precise: v.precise || v.label, movedAs: v.movedAs || null,
                  n: pts.length, nEffective: c.nEffective,
                  grouped: c.grouped, r: c.r, rWeighted: c.rWeighted, rho: c.rho,
                  ci: c.ci, absR: c.r == null ? null : Math.abs(c.r), points: pts, fit: c.fit });
@@ -401,7 +402,11 @@ function renderSocioTable() {
     if (t.key === st.picked) tr.classList.add('picked');
     for (const c of SOCIO_COLUMNS) {
       const v = c.get(t);
-      tr.append(el('td', c.left ? 'text-start' : null, v == null ? '--' : c.fmt(v)));
+      const td = el('td', c.left ? 'text-start' : null, v == null ? '--' : c.fmt(v));
+      /* Plain words in the cell, the statistical definition on hover: the
+         table is read at a glance and checked one row at a time. */
+      if (c.key === 'label' && t.precise) td.title = t.precise;
+      tr.append(td);
     }
     tr.addEventListener('click', () => { st.picked = t.key; renderSocioTable(); drawSocioScatter(); });
     tbody.append(tr);
@@ -418,9 +423,9 @@ function drawSocioScatter() {
   const outcome = socioOutcome(st.outcome);
   const xFormat = d3.format(Math.max(...t.points.map((p) => Math.abs(p.x))) >= 1000 ? ',.3~s' : ',.3~r');
   drawScatterXY(node, t.points, {
-    xLabel: t.label, yLabel: outcome.label, xFormat, yFormat: d3.format('.0%'),
+    xLabel: t.short || t.label, yLabel: outcome.label, xFormat, yFormat: d3.format('.0%'),
     colour: 'var(--viz-series-3)', fit: t.fit,
-    title: (p) => `${p.label}\n${t.label}: ${xFormat(p.x)}\n${outcome.label}: ${fmtPct(p.y)}\n${fmtInt(p.weight)} electors`,
+    title: (p) => `${p.label}\n${t.precise || t.label}: ${xFormat(p.x)}\n${outcome.label}: ${fmtPct(p.y)}\n${fmtInt(p.weight)} electors`,
   });
   const dropped = (st.rows || []).length - t.n;
   /* The unit is whatever the tab is running on; saying "dissemination areas"
@@ -450,6 +455,7 @@ function renderSocioPicker() {
     const cb = el('input'); cb.type = 'checkbox'; cb.checked = st.selected.has(v.key);
     cb.addEventListener('change', () => { if (cb.checked) st.selected.add(v.key); else st.selected.delete(v.key); refreshSocio(); });
     lab.append(cb, el('span', null, v.label));
+    lab.title = v.precise || v.label;
     /* Carried variables say how they were carried: a count shared out and a
        rate averaged are different numbers, and the difference is not
        recoverable from the value alone. */

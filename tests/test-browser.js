@@ -565,6 +565,25 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   // planted relationship must survive the move, sign and all.
   await page.locator('#socio-outcome').selectOption('turnout-agg');
   await page.waitForTimeout(600);
+  /* Three names per variable, each where it belongs: plain words in the table,
+     the statistical definition on hover, and something a few characters wide on
+     a chart axis. */
+  const renterNames = await page.evaluate(() => {
+    const row = [...document.querySelectorAll('#socio-table tbody tr')]
+      .find((tr) => /Renter/.test(tr.cells[0].textContent));
+    const axis = document.querySelector('#socio-scatter').textContent;
+    return { cell: row && row.cells[0].textContent.trim(), title: row && row.cells[0].title, axis };
+  });
+  ok('the table shows the plain name', renterNames.cell === 'Renter households', renterNames.cell);
+  ok('and carries the statistical definition on hover',
+     renterNames.title === 'Renter households (%)', renterNames.title);
+  await page.locator('#socio-table tbody tr', { hasText: 'Renter households' }).first().click();
+  await page.waitForTimeout(400);
+  /* #socio-scatter is an <svg>, which has no innerText. */
+  const axisText = await page.evaluate(() => document.querySelector('#socio-scatter').textContent);
+  ok('and the chart axis uses the short form', /Renters/.test(axisText),
+     axisText.replace(/\s+/g, ' ').slice(0, 160));
+
   const daRenter = rOf(rowFor(/Renter/));
   const units = await page.locator('#socio-unit option').allTextContents();
   ok('the voting areas are offered as a second geography',

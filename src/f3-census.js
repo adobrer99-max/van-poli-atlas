@@ -106,29 +106,51 @@ const Census = (() => {
      disambiguates repeated names ("Movers" appears under both the 1-year and
      5-year mobility totals) and supplies the denominator for a share. Every
      match is reported so the user can see which row fired. */
+  /* Three names per variable, because three places need different ones.
+     `label` is what a reader is shown -- plain words, no bracketed qualifier.
+     `short` is for a chart axis, where the space is a few characters wide.
+     `precise` is the full statistical definition, which is what belongs in a
+     tooltip and in an exported column heading, where somebody is checking
+     exactly what they have rather than reading a map. */
   const STARTER = [
-    { key: 'pop_2021', label: 'Population, 2021', name: /^Population, 2021$/i, use: 'count' },
-    { key: 'pop_density', label: 'Population density per km²', name: /^Population density per square kilometre$/i, use: 'count' },
-    { key: 'median_age', label: 'Median age', name: /^Median age of the population$/i, use: 'count' },
-    { key: 'pct_65_plus', label: 'Aged 65 and over (%)', name: /^65 years and over$/i, use: 'ratio',
+    { key: 'pop_2021', label: 'Population', short: 'Population',
+      precise: 'Population, 2021', name: /^Population, 2021$/i, use: 'count' },
+    { key: 'pop_density', label: 'Population density', short: 'Density',
+      precise: 'Population density per km\u00b2', name: /^Population density per square kilometre$/i, use: 'count' },
+    { key: 'median_age', label: 'Median age', short: 'Median age',
+      precise: 'Median age of the population', name: /^Median age of the population$/i, use: 'count' },
+    { key: 'pct_65_plus', label: 'Seniors (65+)', short: 'Seniors',
+      precise: 'Aged 65 and over (%)', name: /^65 years and over$/i, use: 'ratio',
       over: /^Total - Age groups of the population/i },
-    { key: 'pop_15_plus', label: 'Population aged 15 and over', name: /^0 to 14 years$/i,
+    { key: 'pop_15_plus', label: 'Adults 15+', short: 'Adults 15+',
+      precise: 'Population aged 15 and over', name: /^0 to 14 years$/i,
       use: 'complement', over: /^Total - Age groups of the population/i },
-    { key: 'avg_household_size', label: 'Average household size', name: /^Average household size$/i, use: 'count' },
-    { key: 'pct_one_person_hh', label: 'One-person households (%)', name: /^1 person$/i, use: 'ratio',
+    { key: 'avg_household_size', label: 'Average household size', short: 'Household size',
+      precise: 'Average household size', name: /^Average household size$/i, use: 'count' },
+    { key: 'pct_one_person_hh', label: 'One-person households', short: 'Living alone',
+      precise: 'One-person households (%)', name: /^1 person$/i, use: 'ratio',
       over: /^Total - Private households by household size/i },
-    { key: 'median_hh_income', label: 'Median household income, 2020 ($)', name: /^Median total income of household in 2020/i, use: 'count' },
-    { key: 'pct_lim_at', label: 'Low income, LIM-AT (%)', name: /^Prevalence of low income based on the Low-income measure, after tax/i, use: 'count' },
-    { key: 'unemployment_rate', label: 'Unemployment rate (%)', name: /^Unemployment rate$/i, use: 'count' },
-    { key: 'pct_renter', label: 'Renter households (%)', name: /^Renter$/i, use: 'ratio',
+    { key: 'median_hh_income', label: 'Median household income', short: 'Income',
+      precise: 'Median total household income, 2020 ($)', name: /^Median total income of household in 2020/i, use: 'count' },
+    { key: 'pct_lim_at', label: 'Low-income households', short: 'Low income',
+      precise: 'Prevalence of low income, LIM-AT (%)',
+      name: /^Prevalence of low income based on the Low-income measure, after tax/i, use: 'count' },
+    { key: 'unemployment_rate', label: 'Unemployment rate', short: 'Unemployment',
+      precise: 'Unemployment rate (%)', name: /^Unemployment rate$/i, use: 'count' },
+    { key: 'pct_renter', label: 'Renter households', short: 'Renters',
+      precise: 'Renter households (%)', name: /^Renter$/i, use: 'ratio',
       over: /^Total - Private households by tenure/i },
-    { key: 'pct_movers_5yr', label: 'Moved in the last 5 years (%)', name: /^Movers$/i, use: 'ratio',
+    { key: 'pct_movers_5yr', label: 'Moved in past 5 years', short: 'Recent movers',
+      precise: 'Moved in the last 5 years (%)', name: /^Movers$/i, use: 'ratio',
       over: /^Total - Mobility status 5 years ago/i },
-    { key: 'pct_immigrant', label: 'Immigrants (%)', name: /^Immigrants$/i, use: 'ratio',
+    { key: 'pct_immigrant', label: 'Immigrant residents', short: 'Immigrants',
+      precise: 'Immigrants (%)', name: /^Immigrants$/i, use: 'ratio',
       over: /^Total - Immigrant status and period of immigration/i },
-    { key: 'pct_recent_immigrant', label: 'Immigrated 2016 to 2021 (%)', name: /^2016 to 2021$/i, use: 'ratio',
+    { key: 'pct_recent_immigrant', label: 'Recent immigrants', short: 'Recent immigrants',
+      precise: 'Immigrated 2016 to 2021 (%)', name: /^2016 to 2021$/i, use: 'ratio',
       over: /^Total - Immigrant status and period of immigration/i },
-    { key: 'pct_bachelor_plus', label: "Bachelor's degree or higher, ages 25 to 64 (%)", name: /^Bachelor.s degree or higher$/i, use: 'ratio',
+    { key: 'pct_bachelor_plus', label: "Bachelor's degree or higher", short: 'University educated',
+      precise: "Bachelor's degree or higher, ages 25 to 64 (%)", name: /^Bachelor.s degree or higher$/i, use: 'ratio',
       over: /^Total - Highest certificate, diploma or degree for the population aged 25 to 64/i },
   ];
 
@@ -180,8 +202,9 @@ const Census = (() => {
       const r = resolveSpec(profile, s);
       if (!r) { unmatched.push(s.key); continue; }
       const values = valuesOf(profile, r.pick.index, s.use, r.over ? r.over.index : null);
-      variables.push({ key: s.key, label: s.label, id: r.pick.id, name: r.pick.name, use: s.use,
-                       over: r.over ? r.over.name : null, values });
+      variables.push({ key: s.key, label: s.label, short: s.short || s.label,
+                       precise: s.precise || s.label, id: r.pick.id, name: r.pick.name,
+                       use: s.use, over: r.over ? r.over.name : null, values });
       matched.push({ key: s.key, id: r.pick.id, name: r.pick.name, over: r.over ? r.over.name : null });
     }
     return { variables, matched, unmatched };
