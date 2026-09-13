@@ -8,7 +8,8 @@
 </header>
 
 <nav class="nav nav-pills" role="tablist" aria-label="Atlas sections">
-  <button class="nav-link active" role="tab" id="tab-map" aria-controls="panel-map" aria-selected="true" type="button">Map</button>
+  <button class="nav-link active" role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true" type="button">Overview</button>
+  <button class="nav-link" role="tab" id="tab-map" aria-controls="panel-map" aria-selected="false" type="button">Map</button>
   <button class="nav-link" role="tab" id="tab-data" aria-controls="panel-data" aria-selected="false" type="button">Data</button>
   <button class="nav-link" role="tab" id="tab-results" aria-controls="panel-results" aria-selected="false" type="button">Results</button>
   <button class="nav-link" role="tab" id="tab-corr" aria-controls="panel-corr" aria-selected="false" type="button">Compare</button>
@@ -17,8 +18,51 @@
   <button class="nav-link" role="tab" id="tab-method" aria-controls="panel-method" aria-selected="false" type="button">How to read this</button>
 </nav>
 
+<!-- ------------------------------------------------------------- OVERVIEW -->
+<!-- The tab the atlas opens on. Not a summary of the other tabs: the three
+     questions a senior reader has on opening a file somebody else prepared --
+     what is in it, what it says, and what governs quoting any of it. -->
+<section id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
+  <div class="card">
+    <h2>What this file contains</h2>
+    <p class="text-small text-muted" id="overview-scope"></p>
+    <ul class="readiness" id="overview-readiness"></ul>
+    <p class="text-small text-muted">
+      Everything is read from inside this file. Nothing is uploaded, and apart from the optional
+      street basemap nothing is fetched &mdash; the analysis runs in this tab, on this machine.
+      The <b>Data</b> tab says where each dataset came from and lets you replace it.
+    </p>
+    <p class="text-small text-muted stamp" id="overview-stamp" hidden></p>
+  </div>
+
+  <div class="card">
+    <h2>Headline findings</h2>
+    <p class="text-small text-muted">
+      Computed from the data loaded here, by the tabs named beside each one, and recomputed when
+      you change a setting. Each carries how it was arrived at: a counted figure is one an agency
+      reported for these areas, a modelled one was moved onto a geography its source does not use.
+    </p>
+    <div id="overview-findings"></div>
+  </div>
+
+  <div class="card">
+    <h2>Before you quote a number</h2>
+    <ul class="caveats" id="overview-caveats"></ul>
+    <p class="text-small text-muted">
+      Each of these is worked through on the <b>How to read this</b> tab, with the measurements
+      behind it rather than the assertion alone.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Sources and licences</h2>
+    <ul class="sources" id="overview-sources"></ul>
+    <p class="text-small text-muted" id="overview-sources-note"></p>
+  </div>
+</section>
+
 <!-- ------------------------------------------------------------------ MAP -->
-<section id="panel-map" role="tabpanel" aria-labelledby="tab-map">
+<section id="panel-map" role="tabpanel" aria-labelledby="tab-map" hidden>
   <div id="prov-missing" class="card callout">
     <strong>The provincial layer is empty.</strong>
     <p class="text-small">

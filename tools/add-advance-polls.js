@@ -26,7 +26,11 @@
    The source is Elections Canada, Polling Division Boundaries 2025, under the
    Open Government Licence -- Canada, the same file and the same terms the
    payload's geometry already comes under. The .dbf is a file you download
-   yourself; nothing here is redistributed, so this does not run in CI.
+   yourself and is not in this repository, so this does not run in CI. What the
+   repository does carry is this tool's OUTPUT, boundaries/fed_polls.geojson,
+   which is a derived work of that Elections Canada file and is redistributed
+   under the same licence, with the attribution the README and the atlas both
+   carry.
 
    Matching is on FED_NUM plus PD_NUM_SFX, which is already the payload's exact
    poll spelling ("83-0"). Every payload poll that finds no row is reported

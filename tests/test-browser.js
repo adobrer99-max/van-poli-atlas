@@ -38,6 +38,7 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
      asserted below: the reader's first sight of it decides whether this reads
      as a map or as a control panel. */
   await page.locator('#tab-map').click();
+  await page.waitForTimeout(300);   /* the map is fitted once, asynchronously, on first reveal */
   const firstLook = await page.evaluate(() => {
     const shown = (id) => {
       const r = document.getElementById(id)?.getBoundingClientRect();
@@ -988,6 +989,20 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.locator('#tab-data').click();
   await page.waitForTimeout(200);
 
+  /* The briefing is checked at the end of the run, by which point the next
+     line has unloaded this election -- so the municipal finding, and the only
+     "smoothed" badge in the file, would never be exercised. Check it here,
+     while the data is still loaded. */
+  await page.locator('#tab-overview').click();
+  await page.waitForTimeout(400);
+  const withMuni = await page.locator('#overview-findings').innerText();
+  ok('the briefing carries a municipal finding while the election is loaded',
+     /municipal/i.test(withMuni), withMuni.replace(/\s+/g, ' ').slice(0, 200));
+  ok('and marks it smoothed rather than counted',
+     /Smoothed, not assigned/.test(withMuni), withMuni.replace(/\s+/g, ' ').slice(-200));
+  await page.locator('#tab-data').click();
+  await page.waitForTimeout(200);
+
   await page.locator('#clear-muni').click();
   await page.waitForTimeout(400);
   ok('removing it hides the municipal shade options again',
@@ -1064,6 +1079,35 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.locator('#tab-corr').click();
   await page.waitForTimeout(600);
   ok('and switching back restores the original figures', (await corrStats()) === corrOff);
+
+  console.log('\n== The briefing ==');
+  await page.locator('#tab-overview').click();
+  await page.waitForTimeout(500);
+  if (process.env.ATLAS_SHOT) await page.screenshot({ path: process.env.ATLAS_SHOT, fullPage: true });
+  const brief = await page.locator('#panel-overview').innerText();
+  const figures = await page.locator('#overview-findings .finding-figure').allTextContents();
+  ok(`the briefing carries headline findings (${figures.length})`, figures.length >= 3, figures.join(' | '));
+  ok('every one of them has a figure rather than a dash',
+     figures.length > 0 && figures.every((f) => f.trim() && f.trim() !== '--'), figures.join(' | '));
+  /* A headline is exactly where a modelled number gets quoted as a counted one,
+     so each figure has to say which it is. */
+  const badges = await page.locator('#overview-findings .badge').allTextContents();
+  ok('each finding says how it was arrived at', badges.length === figures.length, badges.join(' | '));
+  ok('and the modelled ones are named as modelled',
+     badges.some((b) => /modelled/i.test(b)), badges.join(' | '));
+  ok('the briefing states the scope and what is left out',
+     /polling divisions/.test(brief) && /Electoral Area A/.test(brief), brief.slice(0, 200));
+  ok('it ticks the datasets that are loaded',
+     (await page.locator('#overview-readiness li.is-ready').count()) >= 4,
+     String(await page.locator('#overview-readiness li.is-ready').count()));
+  ok('it carries the caveats that govern quoting a number',
+     /neighbourhoods, not people/i.test(brief) && /no municipal turnout/i.test(brief));
+  ok('it attributes every agency whose data it can carry',
+     ['Elections Canada', 'Elections BC', 'City of Vancouver', 'Statistics Canada']
+       .every((who) => brief.includes(who)), brief.slice(-400));
+  /* Which copy is this. A build from a dirty tree matches no commit and has to
+     say so rather than show an id that does not describe it. */
+  ok('and stamps which build it is', /Built \d{4}-\d{2}-\d{2}/.test(brief), brief.slice(0, 400));
 
   console.log('\n== Tabs and method ==');
   await page.locator('#tab-method').click();

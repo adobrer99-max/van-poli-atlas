@@ -303,3 +303,51 @@
   .readiness li { grid-template-columns: 1.1rem minmax(0, 1fr); }
   .readiness-detail { grid-column: 2; text-align: left; }
 }
+
+/* Headline findings. The figure leads, because that is what a reader is here
+   for; the provenance badge sits under it rather than beside the heading, so
+   "modelled" is read as part of the number and not as decoration. */
+.findings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: .75rem;
+  margin-top: .5rem;
+}
+.finding {
+  display: grid;
+  gap: .2rem;
+  align-content: start;
+  padding: .75rem .85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--border-radius-lg, .5rem);
+}
+.finding-figure {
+  font-size: 1.6rem;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+}
+.finding-headline { font-weight: var(--font-weight-medium, 500); }
+.finding-detail { text-wrap: pretty; }
+.badge {
+  justify-self: start;
+  margin-top: .35rem;
+  padding: .1rem .45rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: var(--font-size-small, .8rem);
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  cursor: help;
+}
+.badge-counted { color: var(--green, #2f855a); border-color: currentColor; }
+
+/* The caveats. Each is a claim followed by why, so the claim carries the
+   weight and the reader can stop after it. */
+.caveats { margin: .5rem 0 0; padding-left: 1.1rem; display: grid; gap: .5rem; }
+.caveats li { text-wrap: pretty; }
+
+.stamp { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-top: .75rem; }
+.badge-dirty { color: var(--color-text-warning, #b45309); border-color: currentColor; cursor: default; }
+.sources { margin: .5rem 0 0; padding-left: 1.1rem; display: grid; gap: .35rem; }
+.sources li { text-wrap: pretty; }

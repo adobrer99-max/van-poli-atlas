@@ -8,13 +8,19 @@ const { spawnSync } = require('child_process');
 // record which host was asked, so basemap switching can be asserted.
 const ONE_PX_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
 const tileHosts = [];
-/* Map options and the Data tab's replace-data section are drawers now. A reader
-   opens one when they want a setting; a test that is checking what a setting
-   DOES opens them up front, so the interaction under test is the setting rather
-   than the drawer. The drawers themselves are checked on their own, once. */
-const openDrawers = (page) => page.evaluate(() => {
-  for (const d of document.querySelectorAll('details.disclosure')) d.open = true;
-});
+/* The atlas opens on the briefing, and map settings live in a drawer. A test
+   that is checking what a map setting DOES starts where that setting is: on the
+   Map tab, with the drawers open, so the interaction under test is the setting
+   and not the route to it. Which tab the atlas opens on, that the drawers start
+   shut, and that a baked-in build shuts the data drawer are each asserted on
+   their own -- in test-browser, and below for the payload build. */
+const openDrawers = async (page) => {
+  await page.locator('#tab-map').click();
+  await page.evaluate(() => {
+    for (const d of document.querySelectorAll('details.disclosure')) d.open = true;
+  });
+  await page.waitForTimeout(250);
+};
 
 async function stubTiles(page) {
   await page.route(/basemaps\.cartocdn\.com|tile\.openstreetmap\.org/, (route) => {

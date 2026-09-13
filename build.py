@@ -12,7 +12,7 @@ subdirectory per dataset. Without it nothing is baked in and every dataset is
 loaded from the Data tab as before. Together the two flags build a copy for
 people who should not have to prepare data before they can read a map, without
 disturbing the committed build."""
-import json, os, io, sys
+import json, os, io, sys, subprocess, datetime
 
 SRC = "src"
 def read(p):
@@ -68,6 +68,26 @@ def esc(text, where):
 # what makes a copy handed to somebody else show streets without them having to
 # get a key of their own; leave it out and the atlas opens on boundaries only,
 # which is complete and correct, just plainer.
+# A release stamp, so "which copy is this?" has an answer on the page rather
+# than in somebody's memory of when they ran the build. The dirty flag is the
+# point of it: a build made from a working tree with uncommitted changes cannot
+# be reproduced from any commit, and the file should say so rather than carry a
+# commit id that does not describe it.
+def _git(*args):
+    try:
+        out = subprocess.run(("git",) + args, capture_output=True, text=True, timeout=5)
+        return out.stdout.strip() if out.returncode == 0 else ""
+    except Exception:
+        return ""
+
+stamp = {
+    "built": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+    "commit": _git("rev-parse", "--short", "HEAD"),
+    "dirty": bool(_git("status", "--porcelain")),
+}
+stamp_block = ('\n<script id="build-stamp" type="application/json">'
+               + json.dumps(stamp) + '</script>')
+
 carto_key = arg("--carto-key", "")
 carto_block = (f'\n<script id="carto-key-payload" type="text/plain">{esc(carto_key, "--carto-key")}</script>'
                if carto_key else "")
@@ -113,7 +133,7 @@ html = f"""<!doctype html>
 <body>
 {markup}
 
-<script id="federal-polls" type="application/json">{geo}</script>{carto_block}{payload_blocks}
+<script id="federal-polls" type="application/json">{geo}</script>{stamp_block}{carto_block}{payload_blocks}
 
 <script>{leaflet_js}</script>
 <script>{d3_js}</script>

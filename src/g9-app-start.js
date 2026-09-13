@@ -122,12 +122,14 @@ adoptPayloads().then((payload) => {
     ]);
   }
   refreshReadiness();
+  refreshOverview();
 });
 
 /* The checklist is rendered when a tab that shows it is opened, not when the
    data changes. There is then no call site to forget -- the failure mode these
    suites keep finding -- because it reads live state each time it is shown. */
 $('tab-data').addEventListener('click', refreshReadiness);
+$('tab-overview').addEventListener('click', refreshOverview);
 $('readiness-build').addEventListener('click', () => {
   $('readiness-build-note').hidden = false;
   buildCrosswalk();
@@ -137,6 +139,10 @@ $('readiness-build').addEventListener('click', () => {
    a build that already carries everything. */
 $('advanced-data').open = !bakedIn();
 refreshReadiness();
+renderCaveats();
+renderSources();
+renderStamp();
+refreshOverview();
 
 /* Watch the map's own box, not #atlas: the atlas changes height on every tab
    switch, and a Leaflet map only needs telling when its container resized. */
@@ -154,7 +160,20 @@ new ResizeObserver(() => {
     if (state.socio.table && !$('panel-socio').hidden) drawSocioScatter();
   }, 120);
 }).observe(root);
-$('tab-map').addEventListener('click', () => setTimeout(() => map.invalidateSize({ animate: false }), 0));
+/* The atlas opens on the briefing, so Leaflet is built inside a hidden panel
+   and sizes itself to nothing: the fitAll() at boot picks a zoom for a 0x0 box,
+   and draw() only re-fits when the EXTENT changes, which becoming visible is
+   not. Telling Leaflet its new size is therefore not enough -- the view it
+   chose was computed against the old one -- so the first time the Map tab is
+   shown with a real width, it is fitted once more. */
+let mapEverSized = false;
+$('tab-map').addEventListener('click', () => setTimeout(() => {
+  map.invalidateSize({ animate: false });
+  if (!mapEverSized && root.querySelector('.map-wrap').getBoundingClientRect().width > 0) {
+    mapEverSized = true;
+    fitAll();
+  }
+}, 0));
 
 /* The tab row scrolls sideways when it is wider than the screen. Fade whichever
    edge it can still scroll towards, so a phone shows that there are more tabs

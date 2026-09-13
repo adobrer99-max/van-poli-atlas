@@ -687,6 +687,11 @@ areas hold so few that the count describes the people in it.
   Division Boundaries 2025, under the
   [Open Government Licence – Canada](https://open.canada.ca/en/open-government-licence-canada).
   Not a GPL work.
-- **Provincial boundaries and election results** are never redistributed here.
+- **Provincial boundaries and election results** are not in this repository.
   They are loaded at runtime from files you download yourself, under whatever
-  terms Elections BC and Elections Canada attach to them.
+  terms Elections BC and Elections Canada attach to them. A build made with
+  `--payload` is the exception and the one to be careful about: it carries those
+  datasets inside the HTML, so handing the file to somebody redistributes them.
+  Every licence involved permits that with attribution — which the atlas carries
+  on its Overview tab, naming each agency and linking its licence — but read the
+  Elections BC one before a copy leaves the organisation that prepared it.
