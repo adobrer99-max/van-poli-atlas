@@ -232,6 +232,57 @@ class Tool(unittest.TestCase):
         self.assertEqual(fc.detect_encoding(blob[:1 << 20]), "utf-8-sig")
         self.assertEqual(fc.detect_encoding("Montr\u00e9al".encode("cp1252")), "cp1252")
 
+    def _tiered_profile(self, tmp):
+        """A profile shaped like the real provincial one: Canada first, then
+        the province, then the dissemination areas underneath."""
+        path = os.path.join(tmp, "tiered.csv")
+        with open(path, "w", newline="", encoding="utf-8-sig") as fh:
+            w = csv.writer(fh)
+            w.writerow(HEADER)
+            def row(dguid, alt, level, name, cid, cname, value):
+                return ["2021", dguid, alt, level, name, "3", "7", "0", cid, cname, "",
+                        value, "", "", "", "", "", "", "", "", "", "", ""]
+            for cid, cname in CHARS:
+                w.writerow(row("2021A000011124", "01", "Country", "Canada", cid, cname, 100))
+            for cid, cname in CHARS:
+                w.writerow(row("2021A000259", "59", "Province", "British Columbia", cid, cname, 90))
+            for code, values in DAS.items():
+                for cid, cname in CHARS:
+                    w.writerow(row("2021S0512" + code, code, "Dissemination area", code,
+                                   cid, cname, values[cid]))
+        return path
+
+    def test_the_level_reported_is_the_level_of_the_rows_that_matched(self):
+        """A provincial profile opens with Canada-level rows, so reading the
+        level off the first row of the file reports "Country" for a file whose
+        dissemination areas all matched -- which is worse than saying nothing,
+        because the same value goes into the wrong-product error and sends
+        someone chasing a problem they do not have."""
+        with tempfile.TemporaryDirectory() as tmp:
+            _, gaf = write_inputs(tmp)
+            tiered = self._tiered_profile(tmp)
+            r = subprocess.run([sys.executable, "tools/filter_census.py", "--geo-attr", gaf,
+                                "--csd", "5915022", "--profile", tiered,
+                                "--out-dir", os.path.join(tmp, "o")], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("geographic level: Dissemination area", r.stdout)
+            self.assertNotIn("geographic level: Country", r.stdout)
+
+    def test_the_wrong_product_error_lists_every_level_in_the_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tiered = self._tiered_profile(tmp)
+            gaf = os.path.join(tmp, "nomatch.csv")
+            with open(gaf, "w", newline="", encoding="utf-8") as fh:
+                w = csv.writer(fh)
+                w.writerow(["DBUID", "DBPOP2021", "DBTDWELL2021", "DBURDWELL2021",
+                            "DAUID", "CSDUID", "CSDNAME", "PRUID"])
+                w.writerow(["9999999901", "10", "5", "5", "99999999", "5915022", "Vancouver", "59"])
+            r = subprocess.run([sys.executable, "tools/filter_census.py", "--geo-attr", gaf,
+                                "--csd", "5915022", "--profile", tiered,
+                                "--out-dir", os.path.join(tmp, "o")], capture_output=True, text=True)
+            self.assertNotEqual(r.returncode, 0, r.stdout)
+            self.assertIn("Country, Province, Dissemination area", r.stderr)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)

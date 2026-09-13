@@ -258,7 +258,11 @@ class Profile:
         self.by_id = {}
         self.by_geo = {}               # geo key -> {"dguid", "name", "count": [], "rate": []}
         self._stack = []
-        self.geo_level = ""            # GEO_LEVEL as the file spells it, for the check below
+        # The level of the geographies actually KEPT, which is the one worth
+        # reporting, and the levels seen anywhere, which is what diagnoses a
+        # file that kept nothing.
+        self.geo_level = ""
+        self.levels_seen = []
 
     def characteristic(self, raw_id, raw_name):
         key = raw_id if raw_id is not None else raw_name
@@ -292,9 +296,9 @@ def pivot(reader, layout, keep_codes=None, stop_after_first_geo=False):
     None for all). stop_after_first_geo only collects the characteristic list."""
     profile = Profile()
     first_geo = None
+    level_of = ((lambda rec: rec[layout["level"]].strip())
+                if layout["level"] >= 0 else (lambda rec: ""))
     for rec in reader:
-        if not profile.geo_level and layout["level"] >= 0 and layout["level"] < len(rec):
-            profile.geo_level = rec[layout["level"]].strip()
         if len(rec) <= layout["name"]:
             continue
         raw_name = rec[layout["name"]]
@@ -302,6 +306,10 @@ def pivot(reader, layout, keep_codes=None, stop_after_first_geo=False):
         geo = geo_key(alt if alt else (rec[layout["dguid"]] if layout["dguid"] >= 0 else ""))
         if not geo:
             continue
+        if len(profile.levels_seen) < 12:
+            lvl = level_of(rec)
+            if lvl and lvl not in profile.levels_seen:
+                profile.levels_seen.append(lvl)
         if first_geo is None:
             first_geo = geo
         elif stop_after_first_geo and geo != first_geo:
@@ -317,6 +325,8 @@ def pivot(reader, layout, keep_codes=None, stop_after_first_geo=False):
             continue
         g = profile.by_geo.get(geo)
         if g is None:
+            if not profile.geo_level:
+                profile.geo_level = level_of(rec)
             g = profile.by_geo[geo] = {
                 "dguid": rec[layout["dguid"]].strip() if layout["dguid"] >= 0 else "",
                 "name": rec[layout["geoname"]].strip() if layout["geoname"] >= 0 else "",
@@ -465,10 +475,11 @@ def main(argv=None):
         missing = dauids - set(profile.by_geo)
         level = profile.geo_level or "(not stated)"
         if not profile.by_geo:
+            seen = ", ".join(profile.levels_seen) or "(none stated)"
             raise SystemExit(
                 f"NONE of the {len(dauids):,} dissemination areas appear in this profile, so it "
                 "would have written empty files.\n"
-                f"The profile says its geographic level is: {level}.\n"
+                f"The geographic levels in this file are: {seen}.\n"
                 "The product that reaches dissemination areas is 98-401-X2021006. Two look-alikes:\n"
                 "  98-401-X2021025  Census Subdivisions in British Columbia -- Vancouver as ONE row\n"
                 "  ...any number ending CI   the confidence-interval variant, which omits\n"
