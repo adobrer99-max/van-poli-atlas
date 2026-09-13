@@ -231,3 +231,4 @@ node_modules/
 # redistribute, so it is generated locally, exactly like fixtures/.
 boundaries/census_da.geojson
 boundaries/census_starter.csv
+payload/

@@ -8,43 +8,71 @@ const payload = document.getElementById('federal-polls');
 if (!payload) throw new Error('The embedded federal boundary layer is missing.');
 state.fed.all = prepareFederal(JSON.parse(payload.textContent).features);
 
-/* The census layer, when the build has one baked in. It is optional: a clone
-   without the Statistics Canada downloads builds an atlas that works exactly
-   as before and loads census data from the Data tab. When it is present, a
-   reader opens the file and the layer is simply there -- which is the whole
-   point, because preparing census data is a command line and reading the map
-   should not be.
+/* --- Datasets baked into the build ----------------------------------------
 
-   It takes the same route into state as a file loaded by hand, so there is
-   only ever one way for a census layer to exist. */
-function adoptBundledCensus() {
-  const geoNode = document.getElementById('census-da');
-  const starterNode = document.getElementById('census-starter');
-  if (!geoNode || !starterNode) return null;
-  try {
-    const fc = JSON.parse(geoNode.textContent);
-    const features = fc.features.map((f) => Ingest.normalizeFeature(f));
-    adoptCensusLayer('da', {
-      features, kept: features.length, records: features.length, filtered: false,
-      crs: 'EPSG:4326', crsLabel: 'WGS 84 (EPSG:4326)', label: 'built into this file', warnings: [],
-    });
-    const table = TextFormats.parseDelimited(starterNode.textContent);
-    state.da.census = censusSourceFromWide(table, 'built into this file');
-    state.censusBundled = true;
-    onCensusChanged();
-    return { areas: features.length, variables: state.da.census.variables.length };
-  } catch (err) {
-    /* A payload that will not parse must not take the rest of the atlas down
-       with it: the federal layer, the results and every file loader still
-       work, and the Data tab says what happened. */
-    setStatus('status-da-geo', 'error', [
-      'The census layer built into this file could not be read, so it has been left out. '
-      + 'Everything else works; load the boundaries and a profile below to replace it.',
-      String(err.message || err)]);
-    return null;
-  }
+   Preparing this atlas's data means downloads from four agencies, a
+   multi-gigabyte census profile and a command line. Reading the finished map
+   should mean opening a file. So a build can carry its data with it, and a
+   reader opens one HTML file with everything already loaded.
+
+   The rule that makes this safe: a baked-in dataset goes in through the SAME
+   function the file input calls, with a real File built from the inlined
+   bytes. There is no second parsing path to drift out of step with the one
+   people actually exercise -- the payload is, quite literally, the file being
+   chosen for you.
+
+   Order matters and is not alphabetical. Boundaries must exist before the
+   results that land on them, and before a census profile that is filtered to
+   the study area as it is read. Each step is awaited for that reason.
+
+   What is never baked in: anything from section 5. An elector roll is names
+   and home addresses; it is read in the tab on the campaign's own device and
+   the atlas has no business carrying it anywhere. */
+
+function payloadFile(node) {
+  const name = node.dataset.filename || 'payload';
+  /* A genuine File, so every loader downstream behaves exactly as it does for
+     a file a person picked. */
+  return new File([new TextEncoder().encode(node.textContent)], name);
 }
-const bundledCensus = adoptBundledCensus();
+
+async function adoptPayloads() {
+  const nodes = [...document.querySelectorAll('script[data-payload]')];
+  if (!nodes.length) return null;
+  const by = {};
+  for (const n of nodes) (by[n.dataset.payload] ||= []).push(n);
+  const done = [], failed = [];
+  /* Each step names the loader the Data tab uses for that input. Anything
+     absent from the payload is simply skipped, so a build can carry one
+     dataset or all of them. */
+  const steps = [
+    ['prov-geo', (f) => loadProvincialBoundaries(f[0])],
+    ['da-geo', (f) => loadCensusLayer('da', f[0])],
+    ['db-geo', (f) => loadCensusLayer('db', f[0])],
+    ['geo-attr', (f) => loadGeoAttributes(f[0])],
+    ['census', (f) => loadCensusProfile(f[0])],
+    ['fed-results', (f) => loadResultFiles(f, 'fed')],
+    ['prov-results', (f) => loadResultFiles(f, 'prov')],
+    ['prov-electors', (f) => loadProvincialElectors(f[0])],
+    ['muni-places', (f) => loadMuniFile(f[0], 'places')],
+    ['muni-results', (f) => loadMuniFile(f, 'results')],
+  ];
+  for (const [key, run] of steps) {
+    if (!by[key]) continue;
+    try {
+      await run(by[key].map(payloadFile));
+      done.push(key);
+    } catch (err) {
+      /* One unreadable payload must not take the rest of the atlas with it.
+         The others still load, every file input still works, and the reader is
+         told which one failed rather than left with a quietly emptier map. */
+      failed.push(`${key}: ${err.message || err}`);
+    }
+  }
+  return { done, failed };
+}
+
+
 
 draw();
 setBasemap($('basemap').value);
@@ -56,20 +84,41 @@ refreshDaShadeVars();
 refreshSocio();
 refreshResults(true);
 
-if (bundledCensus) {
-  const note = (id, what) => setStatus(id, 'ok', [
-    `${fmtInt(bundledCensus.areas)} dissemination areas and ${fmtInt(bundledCensus.variables)} `
-    + `starter variables are built into this file — ${what} to use them.`,
-    el('p', 'text-small text-muted',
-      'Loading your own below replaces them. The full characteristic list is not built in: '
-      + 'it is 20–30 MB, so it stays an optional load for whoever wants to go deeper.'),
-    el('p', 'text-small text-muted',
-      'Adapted from Statistics Canada, Census Profile, 2021 Census of Population, and the 2021 '
-      + 'Geographic Attribute File. This does not constitute an endorsement by Statistics Canada.'),
-  ]);
-  note('status-da-geo', 'nothing to load');
-  note('status-census', 'nothing to load');
-}
+/* The payloads load after the first draw, so the map is on screen while they
+   arrive rather than after. Each one updates the page as it lands, exactly as
+   it would if somebody were choosing the files by hand. */
+adoptPayloads().then((payload) => {
+  if (!payload) return;
+  const LABEL = {
+    'prov-geo': 'provincial voting areas', 'da-geo': 'dissemination areas',
+    'db-geo': 'dissemination blocks', 'geo-attr': 'block populations',
+    census: 'census variables', 'fed-results': 'federal 2025 results',
+    'prov-results': 'provincial 2024 results', 'prov-electors': 'provincial electors',
+    'muni-places': 'municipal voting places', 'muni-results': 'municipal 2022 results',
+  };
+  const names = payload.done.map((k) => LABEL[k] || k);
+  if (names.length) {
+    setStatus('status-payload', 'ok', [
+      `Built into this file, with nothing to load: ${names.join(', ')}.`,
+      el('p', 'text-small text-muted',
+        'Each was read by the same code that reads a file you choose, so loading your own '
+        + 'below simply replaces it. Nothing here was uploaded and nothing is fetched: the '
+        + 'data is inside this file.'),
+      el('p', 'text-small text-muted',
+        'Contains information from Elections Canada, Elections BC, the City of Vancouver and '
+        + 'Statistics Canada, used under their respective open licences. None of those agencies '
+        + 'has endorsed this work or is responsible for it.'),
+    ]);
+  }
+  if (payload.failed.length) {
+    setStatus('status-payload', 'error', [
+      'Some data built into this file could not be read. Everything else still works, and you '
+      + 'can load these yourself below.',
+      ...payload.failed.map((f) => el('p', 'text-small', f)),
+    ]);
+  }
+  $('payload-note').hidden = !names.length && !payload.failed.length;
+});
 
 /* Watch the map's own box, not #atlas: the atlas changes height on every tab
    switch, and a Leaflet map only needs telling when its container resized. */
