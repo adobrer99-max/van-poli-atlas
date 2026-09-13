@@ -18,10 +18,10 @@ markup     = read(SRC + "/h-markup.html")
 
 modules = ["a-geo.js", "b-text.js", "c-binary.js", "d-ingest.js",
            "e-analysis.js", "f-results.js", "f2-turnout.js", "f3-census.js",
-           "f4-places.js", "f5-summary.js", "f6-points.js"]
+           "f4-places.js", "f5-summary.js", "f6-points.js", "f7-municipal.js"]
 app     = ["g1-app-core.js", "g2-app-data.js", "g3-app-corr.js",
            "g4-app-turnout.js", "g5-app-census.js", "g6-app-results.js",
-           "g7-app-points.js", "g9-app-start.js"]
+           "g7-app-points.js", "g8-app-municipal.js", "g9-app-start.js"]
 
 # The federal boundaries, exactly as they came out of the original file.
 geo = read("boundaries/fed_polls.geojson").strip()

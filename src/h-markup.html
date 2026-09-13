@@ -48,6 +48,8 @@
         <option value="turnout-agg">Aggregate turnout, both elections</option>
         <option value="turnout-delta">Federal minus provincial turnout</option>
         <option value="gap">Federal minus provincial party share</option>
+        <option value="muni-party" hidden>Municipal (2022) party share</option>
+        <option value="muni-ballots" hidden>Municipal (2022) ballots cast (smoothed)</option>
         <option value="points-count" hidden>Places loaded (count)</option>
         <option value="points-weight" hidden>Places loaded (weighted)</option>
       </select>
@@ -57,6 +59,9 @@
     </label>
     <label class="form-label grow" for="shade-party-prov">Provincial (2024) party
       <select class="form-select" id="shade-party-prov" disabled><option>Load 2024 provincial results</option></select>
+    </label>
+    <label class="form-label grow" for="muni-party" id="muni-party-label" hidden>Municipal (2022) party
+      <select class="form-select" id="muni-party"><option value="">Load the municipal results</option></select>
     </label>
   </div>
 
@@ -70,6 +75,8 @@
         <option value="catchment" hidden>Voting-place catchment (modelled)</option>
         <option value="prov-per-elector" hidden>Ballots per federal elector (not turnout)</option>
         <option value="prov-per-resident" hidden>Ballots per resident 15+ (not turnout)</option>
+        <option value="muni-party" hidden>Municipal (2022) party share</option>
+        <option value="muni-ballots" hidden>Municipal (2022) ballots cast (smoothed)</option>
         <option value="points-count" hidden>Places loaded (count)</option>
         <option value="points-weight" hidden>Places loaded (weighted)</option>
       </select>
@@ -367,6 +374,49 @@
       <button type="button" class="btn" id="clear-points-ref" hidden>Remove</button>
     </div>
     <div id="status-points-ref" class="status"></div>
+  </div>
+
+  <div class="card">
+    <h2>6. Vancouver&rsquo;s municipal election (2022)</h2>
+    <p class="text-small text-muted">
+      Two files from the City of Vancouver open data portal: the results archive
+      and the voting places, joined on the numeric voting place id. Load either
+      first &mdash; the results appear once both are in.
+    </p>
+    <p class="text-small text-muted">
+      This election is not like the other two. You may vote at any voting place in
+      Vancouver, and in 2022 most people did: 68 of the 104 places were
+      vote-anywhere centres and 22 more were advance places drawing from across the
+      city. So the ballots are <em>smoothed</em> onto areas by distance rather than
+      assigned to the nearest place, and <strong>there is no municipal turnout by
+      area anywhere in this atlas</strong> &mdash; measured against the federal
+      turnout surface, any such map agrees at about r&nbsp;0.2 however it is built.
+      The party share survives that and is offered; the city&rsquo;s own published
+      city-wide rate is on the Results tab. The Method tab has the numbers.
+    </p>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-muni-results">Results archive (2022MunicipalElectionResults.zip)
+        <input class="form-control" type="file" id="file-muni-results" accept=".zip,.csv">
+      </label>
+      <button type="button" class="btn" id="clear-muni" hidden>Remove</button>
+    </div>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-muni-places">Voting places (voting-places-2022.csv)
+        <input class="form-control" type="file" id="file-muni-places" accept=".csv,.tsv,.txt,.zip,.geojson,.json">
+      </label>
+    </div>
+    <div class="viz-controls" id="muni-controls" hidden>
+      <label class="form-label grow" for="muni-race">Race
+        <select class="form-select" id="muni-race"></select>
+      </label>
+      <label class="form-label grow" for="muni-band-final">Final-day spread (m)
+        <input class="form-control" type="number" id="muni-band-final" value="600" min="100" max="5000" step="50">
+      </label>
+      <label class="form-label grow" for="muni-band-advance">Advance spread (m)
+        <input class="form-control" type="number" id="muni-band-advance" value="2000" min="100" max="10000" step="100">
+      </label>
+    </div>
+    <div id="status-muni" class="status"></div>
   </div>
 </section>
 
@@ -864,6 +914,69 @@
       shares and ballot counts are unaffected. An elector count <i>by voting area</i>
       would turn it on for real; so would Elections BC's own voting-area-to-place
       assignment, which would replace the catchment model entirely.
+    </p>
+
+    <h3>The municipal election, and why it has no turnout map</h3>
+    <p>
+      Vancouver's municipal election is measured differently from the other two in this
+      atlas, and the difference is not a detail. Federally and provincially you are assigned
+      a voting place near your home, so the ballots counted there were mostly cast by the
+      people who live around it &mdash; which is what makes a catchment a reasonable guess.
+      Municipally you may vote at any voting place in the city. In 2022, 68 of the 104 places
+      were vote-anywhere centres carrying 54.8% of the ballots, and 22 more were advance
+      places carrying another 40.1%. Only 12 ordinary neighbourhood places remained, and they
+      took 5.1% of the vote.
+    </p>
+    <p>
+      So a nearest-place catchment is the wrong instrument here, and it fails visibly. Applied
+      to the 2022 results it put more ballots into 32 polling divisions than those divisions
+      have electors &mdash; one advance place at Dunbar dropped 4,166 ballots onto four
+      divisions of about 450 electors each. What this atlas does instead is spread each
+      place's ballots over every area by distance, <code>exp(&minus;distance / bandwidth)</code>,
+      with a different bandwidth for each channel: about 600&nbsp;m for a final-day place and
+      about 2&nbsp;km for an advance one, because the advance network is sparse and drew from
+      further away. That removes all 32 impossible areas and conserves every ballot exactly.
+      Both bandwidths are on the Data tab, so the sensitivity is yours to check rather than
+      ours to assert.
+    </p>
+    <p>
+      Two things were tried and rejected, and both are worth stating because they are the
+      obvious things to try. Constraining each area's total to its electors times the
+      city-wide rate &mdash; the natural way to stop any area exceeding its own electorate
+      &mdash; returns that rate in every area: standard deviation 0.0 points, zero correlation
+      with anything. It does not estimate turnout, it asserts it. The atlas therefore uses a
+      <em>ceiling</em> at an area's own electorate, which binds only where the model is
+      impossible and is never a target. And a single bandwidth for every place, rather than
+      one per channel, is worse than doing nothing at all.
+    </p>
+    <p>
+      That leaves the question of whether the smoothed surface is worth anything. Measured
+      against the federal 2025 turnout surface &mdash; ordinary ballots on their own division,
+      advance ballots on the divisions their advance poll actually served, which the municipal
+      model never sees &mdash; every version tried agrees at about r&nbsp;0.2, and aggregating
+      to 1&nbsp;km and 2&nbsp;km cells does not rescue it (0.23 and 0.21). That is about 4% of
+      the variation. Two real elections at one geography would normally agree far more closely
+      than that. <strong>So this atlas offers no municipal turnout by area, at all.</strong>
+      A map of where municipal ballots were cast is largely a map of where the voting places
+      were.
+    </p>
+    <p>
+      Party share is a different matter, and it is why the municipal layer exists. A share is
+      a ratio of two numbers measured at the same place, so it needs no denominator tied to
+      the area it is drawn on: travel blurs it, but does not bias it the way it biases a rate.
+      Measured on the 2022 mayoral results, a voting place's share agrees with its neighbours
+      within a kilometre at r&nbsp;0.76. The surface that survives is offered; the one that
+      does not is absent.
+    </p>
+    <p>
+      The one turnout figure this election does contribute is the city's own: 170,274 ballots
+      on 464,126 registered voters in the City of Vancouver. That has no geographic modelling
+      in it whatever, and the city publishes it. The two places on the UBC Lands and the
+      University Endowment Lands are excluded throughout &mdash; their electors vote for
+      School Trustee and nothing else, and the city counts them separately too. And in a
+      ten-seat council race a ballot carries up to ten votes, so the party columns are votes
+      and the ballots column is ballots; the atlas keeps them apart rather than reporting
+      nine times the turnout.
     </p>
 
     <h3>Two denominators that are not an electorate</h3>

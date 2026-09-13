@@ -68,11 +68,17 @@ const Places = (() => {
   /* A party column is one named "<party>_votes" that is not one of the
      bookkeeping totals. Its readable name is the header without the suffix. */
   const NOT_A_PARTY = /^(valid|total|rejected|spoiled|cast|advance|final)$/i;
-  const ACRONYMS = new Set(['bc', 'ndp', 'cpc', 'ppc', 'lpc', 'cpbc', 'usa', 'uk']);
+  /* Municipal Vancouver runs on initials as much as the other two do, and a
+     party the atlas title-cases into "Abc Vancouver" reads as a typo on a map
+     legend. "OneCity" is not an acronym and is spelled as its own word. */
+  const ACRONYMS = new Set(['bc', 'ndp', 'cpc', 'ppc', 'lpc', 'cpbc', 'usa', 'uk',
+    'abc', 'npa', 'team', 'cope', 'vote', 'ovc']);
+  const SPELLINGS = new Map([['onecity', 'OneCity']]);
 
   function partyLabel(stem) {
     return stem.split(/[_\s]+/).filter(Boolean).map((word, i) => {
       const low = word.toLowerCase();
+      if (SPELLINGS.has(low)) return SPELLINGS.get(low);
       if (ACRONYMS.has(low)) return low.toUpperCase();
       if (i > 0 && (low === 'of' || low === 'the' || low === 'and')) return low;
       return low.charAt(0).toUpperCase() + low.slice(1);
@@ -261,10 +267,189 @@ const Places = (() => {
     };
   }
 
+  /* --- Smoothing, for an election where you may vote anywhere --------------
+
+     A catchment says: the ballots cast at this place were cast by the people
+     who live nearest it. Provincially that is close to true, because your
+     voting place is assigned to you. Municipally in Vancouver it is not: most
+     places are open to any elector of the city, so a nearest-place rule hands
+     one building's whole day to the handful of areas around it.
+
+     Measured on the 2022 city file against the federal 2025 turnout surface,
+     a nearest-place rule put more ballots into 32 areas than those areas have
+     electors. Replacing the hard assignment with a distance decay -- each
+     place spreading over every area, weighted by exp(-distance/bandwidth) --
+     removes all 32 and agrees slightly better with the federal surface
+     (r 0.20 against 0.18). One bandwidth for every place is worse than doing
+     nothing (r 0.15); the bandwidth has to differ by channel, because the
+     22 advance places drew from the whole city while the 68 final-day ones
+     did not.
+
+     Two warnings, both earned the hard way and both worth repeating wherever
+     this output is shown:
+
+     Constraining an area's total to its electors times a city-wide rate --
+     the obvious way to stop any area exceeding its own electorate -- produces
+     a map where every area has identical turnout. It does not estimate the
+     answer, it assumes it. The cap below is a ceiling that binds only where
+     the model is impossible, never a target.
+
+     And the whole exercise tops out at r about 0.2 against a real turnout
+     surface, at every resolution tried. Smoothing makes a municipal ballots
+     map defensible; it does not make it informative. Party share is the part
+     that survives -- a place agrees with its neighbours within a kilometre at
+     r 0.76 -- because a share is measured at one place and needs no
+     denominator tied to the area it is drawn on. */
+
+  const BANDWIDTH = { finalM: 600, advanceM: 2000 };
+
+  /* exp(-d/lambda), with lambda chosen per place. Normalising down the column
+     conserves each place's ballots exactly however wide the kernel is. */
+  function kernelWeights(features, places, options = {}) {
+    const pointOf = options.pointOf
+      || ((f) => (typeof Geo !== 'undefined' ? Geo.representativePoint(f.geometry) : null));
+    const weightOf = options.weightOf || (() => 1);
+    const band = { ...BANDWIDTH, ...(options.bandwidth || {}) };
+    const bandwidthOf = options.bandwidthOf
+      || ((p) => (p.final ? band.finalM : band.advanceM));
+
+    const pts = features.map(pointOf);
+    const w = features.map(() => new Float64Array(places.length));
+    for (let p = 0; p < places.length; p++) {
+      const lam = Math.max(1, bandwidthOf(places[p]));
+      const at = [places[p].lon, places[p].lat];
+      let col = 0;
+      for (let i = 0; i < features.length; i++) {
+        if (!pts[i]) continue;
+        const base = weightOf(i);
+        if (!(base > 0)) continue;
+        const v = base * Math.exp(-metresBetween(pts[i], at) / lam);
+        w[i][p] = v; col += v;
+      }
+      /* A place every area is impossibly far from would otherwise vanish; it
+         is spread by plain weight instead, which is the no-information answer
+         rather than a lost thousand ballots. */
+      if (!(col > 0)) for (let i = 0; i < features.length; i++) w[i][p] = weightOf(i) || 1;
+    }
+    return { w, bandwidth: band };
+  }
+
+  /* Scales each place's column to its ballots, then pulls back any area that
+     ends up above its cap, and repeats. The final pass is always a column
+     scaling, so ballots are conserved exactly even if a cap is still binding.
+     capOf(i) returning null or 0 means the area has no ceiling. */
+  function fitKernel(w, places, options = {}) {
+    const capOf = options.capOf || (() => 0);
+    const rounds = options.rounds == null ? 12 : options.rounds;
+    const F = w.length, P = places.length;
+    const ballots = places.map((p) => p.total + p.rejected);
+    const scaleColumns = () => {
+      for (let p = 0; p < P; p++) {
+        let s = 0;
+        for (let i = 0; i < F; i++) s += w[i][p];
+        if (!(s > 0)) continue;
+        const f = ballots[p] / s;
+        for (let i = 0; i < F; i++) w[i][p] *= f;
+      }
+    };
+    let bound = 0;
+    for (let r = 0; r < rounds; r++) {
+      scaleColumns();
+      bound = 0;
+      for (let i = 0; i < F; i++) {
+        const cap = capOf(i);
+        if (!(cap > 0)) continue;
+        let s = 0;
+        for (let p = 0; p < P; p++) s += w[i][p];
+        if (s <= cap) continue;
+        bound++;
+        const f = cap / s;
+        for (let p = 0; p < P; p++) w[i][p] *= f;
+      }
+      if (!bound) break;
+    }
+    scaleColumns();
+    let over = 0;
+    for (let i = 0; i < F; i++) {
+      const cap = capOf(i);
+      if (!(cap > 0)) continue;
+      let s = 0;
+      for (let p = 0; p < P; p++) s += w[i][p];
+      if (s > cap * 1.000001) over++;
+    }
+    return { capsBinding: bound, stillOverCap: over };
+  }
+
+  /* features + places -> one unit per feature, same shape spreadToAreas
+     returns, so the map, the Results tab and the exports do not know which of
+     the two produced what they are drawing. */
+  function smoothToAreas(features, read, options = {}) {
+    const pollOf = options.pollOf || ((f) => norm((f.properties || {}).VA_CODE));
+    const districtOf = options.districtOf
+      || ((f) => upper((f.properties || {}).ED_ABBREVIATION));
+    const places = read.places;
+    const { w, bandwidth } = kernelWeights(features, places, options);
+    const fit = fitKernel(w, places, options);
+
+    const values = new Map();
+    const effective = new Float64Array(features.length);
+    for (let i = 0; i < features.length; i++) {
+      let sum = 0, sq = 0;
+      for (let p = 0; p < places.length; p++) { const v = w[i][p]; sum += v; sq += v * v; }
+      if (!(sum > 0)) continue;
+      /* How many places an area's figure really rests on: one place at full
+         weight counts once, ten places at a tenth each count ten. Spreading
+         one place over five areas never made five measurements, and spreading
+         five places onto one area does not make it five times as certain
+         either -- this is what the correlation tab needs to know. */
+      effective[i] = (sum * sum) / sq;
+      const u = emptyUnit(districtOf(features[i]) || '', pollOf(features[i]));
+      for (let p = 0; p < places.length; p++) {
+        const share = w[i][p] / (places[p].total + places[p].rejected || 1);
+        if (w[i][p] > 0) addShare(u, places[p], share);
+      }
+      u.fromPlaces = sum;
+      values.set(i, u);
+    }
+
+    const eff = [...effective].filter((v) => v > 0).sort((a, b) => a - b);
+    const placed = [...values.values()].reduce((a, u) => a + u.fromPlaces, 0);
+    return {
+      values,
+      effective,
+      report: {
+        rowsRead: read.rowsRead,
+        places: places.length,
+        unlocatedRows: read.unlocated.length,
+        areasTotal: features.length,
+        areasAssigned: values.size,
+        ballotsTotal: read.ballots,
+        ballotsFromPlaces: placed,
+        ballotsSpread: 0,
+        ballotsUnplaced: read.unlocated.reduce((a, p) => a + p.total + p.rejected, 0),
+        bandwidth,
+        placesPerArea: {
+          min: eff[0] || 0,
+          median: eff.length ? eff[Math.floor(eff.length / 2)] : 0,
+          max: eff[eff.length - 1] || 0,
+        },
+        capsBinding: fit.capsBinding,
+        stillOverCap: fit.stillOverCap,
+        basis: 'kernel',
+        districtsMissing: [],
+        districtsWithoutPlace: [],
+        districtsWithoutPlaceBallots: [],
+        districtsWithAreasButNoResults: [],
+        electorsColumn: places.concat(read.unlocated).some((p) => p.electors > 0),
+        warnings: read.warnings,
+      },
+    };
+  }
+
   /* --- Spreading ballots onto the areas ------------------------------------ */
 
   const emptyUnit = (district, poll) => ({
-    total: 0, parties: new Map(), electors: 0, rejected: 0, rows: 0,
+    total: 0, parties: new Map(), electors: 0, rejected: 0, rows: 0, ballots: 0,
     district, poll, mergeWith: '', flags: { void: false, noPoll: false },
     mergedGroup: null, fromPlaces: 0, fromDistrict: 0, place: null, placeDistanceM: null,
   });
@@ -273,6 +458,13 @@ const Places = (() => {
     if (!(share > 0)) return;
     unit.total += place.total * share;
     unit.rejected += place.rejected * share;
+    /* Ballots, kept apart from votes. They are the same thing in a one-seat
+       race and they are not in a ten-seat one, where a ballot carries up to
+       ten votes and adding the candidate columns gives about ten times the
+       turnout. The file's own declared total is the ballot count when it has
+       one. */
+    unit.ballots += (place.declaredTotal == null ? place.total + place.rejected
+                                                 : place.declaredTotal) * share;
     unit.electors += place.electors * share;
     for (const [name, v] of place.byParty) {
       unit.parties.set(name, (unit.parties.get(name) || 0) + v * share);
@@ -434,5 +626,6 @@ const Places = (() => {
   return {
     detectPlaceLayout, detectColumn, partyColumns, partyLabel, readPlaces,
     assignAreas, spreadToAreas, sourceUnits, metresBetween, isFinalVoting,
+    smoothToAreas, kernelWeights, fitKernel, BANDWIDTH,
   };
 })();

@@ -301,6 +301,82 @@ Adapted from Statistics Canada, Census Profile, 2021 Census of Population, and
 the 2021 Geographic Attribute File. This does not constitute an endorsement by
 Statistics Canada.
 
+## The municipal election (2022)
+
+Vancouver's own election is the third that can be loaded, from two files the
+city publishes: `2022MunicipalElectionResults.zip` and `voting-places-2022.csv`,
+joined on the numeric voting place id. Pick a race (Mayor, Councillor, Park
+Board, School Trustee, or a referendum question) and its ballots are spread onto
+whichever polygon layers are loaded.
+
+It is measured differently from the other two, and the difference is the reason
+this section exists. Federally and provincially your voting place is assigned to
+you, so a catchment — these ballots belong to the people living nearest this
+building — is a defensible guess. **Municipally you may vote at any voting place
+in the city**, and in 2022 almost everyone did: of the 104 places, 68 were
+vote-anywhere centres carrying 54.8% of the ballots and 22 were advance places
+carrying another 40.1%. Twelve ordinary neighbourhood places took the remaining
+5.1%.
+
+So the catchment is the wrong instrument here, and it fails loudly. Applied to
+the 2022 results it puts more ballots into 32 federal polling divisions than
+those divisions have electors — one advance place at Dunbar drops 4,166 ballots
+onto four divisions of roughly 450 electors each. Instead each place's ballots
+are spread over every area by distance, `exp(−distance / bandwidth)`, with a
+bandwidth per channel: ~600 m for a final-day place, ~2 km for an advance one,
+both adjustable on the Data tab. That removes all 32 impossible areas and
+conserves every ballot exactly.
+
+### There is no municipal turnout by area, deliberately
+
+Two corrections that a reader would otherwise have to rediscover:
+
+- **Constraining each area to its electors times the city-wide rate does not
+  work.** It is the obvious fix for areas exceeding their own electorate, and it
+  returns that rate in every area — standard deviation 0.0 points, zero
+  correlation with anything. It asserts the answer instead of estimating it.
+  What the atlas uses is a *ceiling* at an area's own electorate, which binds
+  only where the model is impossible and is never a target. On the real file,
+  with a sane bandwidth, it never binds at all.
+- **A single bandwidth for every place is worse than doing nothing.**
+
+And then the finding that decides the design. Measured against the federal 2025
+turnout surface — ordinary ballots on their own division, advance ballots on the
+divisions their advance poll actually served, which the municipal model never
+sees — every version tried agrees at about **r 0.2**, and aggregating to 1 km and
+2 km cells does not rescue it (0.23 and 0.21). That is roughly 4% of the
+variation, where two real elections at one geography would normally agree far
+more closely. A map of where municipal ballots were cast is largely a map of
+where the voting places were, so **this atlas offers no municipal turnout by
+area at all**.
+
+Party share is a different matter, and it is why the layer exists. A share is a
+ratio of two numbers measured at the same place, so it needs no denominator tied
+to the area it is drawn on: travel blurs it without biasing it the way it biases
+a rate. On the 2022 mayoral results a place's ABC-versus-Forward share agrees
+with its neighbours within a kilometre at **r 0.76**. The surface that survives
+is offered; the one that does not is absent.
+
+The one turnout figure the election contributes is the city's own, read from the
+Overview sheet: 170,274 ballots on 464,126 registered voters in the City of
+Vancouver. It has no geographic modelling in it whatever.
+
+Three details the files make you handle, each covered by a test:
+
+- The race sheets carry a **title row above the header** and a **Total row at
+  the bottom**; adding the Total as a place counts the election twice. Summary
+  rows are named in the report rather than dropped silently.
+- In a **ten-seat council race a ballot carries up to ten votes**, so the party
+  columns are votes and the ballots column is ballots. They are kept apart; the
+  share is a share of votes and the surface is ballots.
+- **UBC and the University Endowment Lands** are a different jurisdiction whose
+  electors vote for School Trustee and nothing else. Their two places are
+  excluded from City of Vancouver figures, as the city's own Overview does.
+  A facility name is not a key either: 21 of the 104 names are shared by two
+  places, so everything joins on the id.
+
+Contains information licensed under the Open Government Licence – Vancouver.
+
 ## Basemap
 
 The map is drawn with [Leaflet](https://leafletjs.com). Street tiles come from

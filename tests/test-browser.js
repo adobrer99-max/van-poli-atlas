@@ -725,12 +725,127 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   ok(`joined table exported (${jcsv.length - 1} rows)`, jcsv.length > 100);
   ok('joined header has both sides', /fed_share_/.test(jcsv[0]) && /prov_share_/.test(jcsv[0]));
 
+  console.log('\n== The municipal election, as a third election ==');
+  await page.locator('#tab-data').click();
+  await page.waitForTimeout(200);
+  /* Loading the results first, which is the order a reader is likely to try:
+     the archive alone cannot be placed and should say so rather than fail. */
+  await page.locator('#file-muni-results').setInputFiles('fixtures/e2e_muni_results.zip');
+  await page.waitForTimeout(600);
+  const muniHalf = (await page.locator('#status-muni').innerText()).replace(/\s+/g, ' ');
+  ok('the archive alone asks for the voting places rather than erroring',
+     /voting places/i.test(muniHalf), muniHalf.slice(0, 160));
+  await page.locator('#file-muni-places').setInputFiles('fixtures/e2e_muni_places.csv');
+  await page.waitForTimeout(1200);
+  const muni = (await page.locator('#status-muni').innerText()).replace(/\s+/g, ' ');
+  ok('both files join into a municipal election', /ballots on 8 voting places/.test(muni), muni.slice(0, 200));
+  ok('the Total row is named as a summary and held out',
+     /Total \([\d,]+\) is a summary row/.test(muni), muni.slice(0, 300));
+  ok('mail is reported as having no place rather than dropped',
+     /Mail Results \(250\)/.test(muni), muni.slice(0, 400));
+  ok('the city-wide rate is shown, from the Overview sheet',
+     /City-wide turnout was 34\.7%/.test(muni), muni.slice(0, 600));
+  ok('and it says there is no municipal turnout by area',
+     /no municipal turnout by area/i.test(muni), muni.slice(-300));
+  ok('the spread reports how many places each area rests on',
+     /resting on about [\d.]+ voting places/.test(muni), muni.slice(-400));
+
+  const muniState = await page.evaluate(() => {
+    const m = window.vanPoliAtlas.state.muni;
+    const units = [...m.on.fed.values()];
+    return { ballots: m.ballots, areas: units.length, parties: m.parties.map((p) => p[0]),
+             spread: units.reduce((a, u) => a + u.ballots, 0),
+             races: window.vanPoliAtlas.state.muniFiles.races.map((r) => r.name) };
+  });
+  ok('the Mac resource fork is not read as a race',
+     muniState.races.join(',') === 'Mayor,Councillor,SchoolTrustee', muniState.races.join(','));
+  ok('every municipal ballot lands on a federal polling division',
+     Math.abs(muniState.spread - muniState.ballots) < 0.5,
+     `${muniState.spread} vs ${muniState.ballots}`);
+  ok('ABC is not title-cased into a typo', muniState.parties.includes('ABC Vancouver'),
+     muniState.parties.join(', '));
+
+
+  const muniOptions = () => page.evaluate(() => ['shade-by', 'shade-prov-by'].map((sel) =>
+    ['muni-party', 'muni-ballots'].map((v) => {
+      const o = document.querySelector(`#${sel} option[value="${v}"]`);
+      return o ? !o.hidden : null;
+    })).flat());
+  ok('the municipal shade options appear once the results are in',
+     (await muniOptions()).filter((v) => v === true).length === 4,
+     JSON.stringify(await muniOptions()));
+  ok('there is no municipal turnout option anywhere on the map controls',
+     await page.locator('#shade-by option[value="turnout-muni"]').count() === 0
+     && await page.locator('#shade-prov-by option[value="turnout-muni"]').count() === 0);
+  await page.locator('#tab-map').click();
+  await page.waitForTimeout(200);
+  await page.locator('#muni-party').selectOption('ABC Vancouver');
+  await page.locator('#shade-by').selectOption('muni-party');
+  await page.waitForTimeout(700);
+  const muniShaded = await page.evaluate(() => [...document.querySelectorAll('.layer-fed path')]
+    .filter((p) => p.style.fill && p.style.fill !== 'none').length);
+  ok(`a municipal party share shades the polls (${muniShaded})`, muniShaded > 500, String(muniShaded));
+
+  /* Widening the advance bandwidth must flatten the map, not move ballots into
+     or out of existence. Both halves are asserted. */
+  await page.locator('#tab-data').click();
+  await page.waitForTimeout(150);
+  const spreadAt = async (metres) => {
+    await page.locator('#muni-band-final').fill(String(metres));
+    await page.locator('#muni-band-final').dispatchEvent('change');
+    await page.waitForTimeout(900);
+    return page.evaluate(() => {
+      const u = [...window.vanPoliAtlas.state.muni.on.fed.values()].map((x) => x.ballots);
+      const m = u.reduce((a, b) => a + b, 0) / u.length;
+      return { total: u.reduce((a, b) => a + b, 0),
+               sd: Math.sqrt(u.reduce((a, b) => a + (b - m) ** 2, 0) / u.length) };
+    });
+  };
+  const tight = await spreadAt(400);
+  const wide = await spreadAt(6000);
+  ok('a wider spread flattens the surface', wide.sd < tight.sd * 0.5,
+     `${tight.sd.toFixed(2)} -> ${wide.sd.toFixed(2)}`);
+  ok('and conserves every ballot either way',
+     Math.abs(tight.total - wide.total) < 0.5 && Math.abs(tight.total - muniState.ballots) < 0.5,
+     `${tight.total} ${wide.total} ${muniState.ballots}`);
+
+  /* A ten-seat race: nine votes per ballot must not become nine times the
+     ballots, which is the mistake that makes a council map unreadable. */
+  await page.locator('#muni-race').selectOption('Councillor');
+  await page.waitForTimeout(900);
+  const council = await page.evaluate(() => {
+    const m = window.vanPoliAtlas.state.muni;
+    const units = [...m.on.fed.values()];
+    return { ballots: units.reduce((a, u) => a + u.ballots, 0),
+             votes: units.reduce((a, u) => a + u.total, 0), seats: m.built.report.seats };
+  });
+  ok('the seat count is read from the sheet', council.seats === 10, String(council.seats));
+  ok('ballots stay ballots in a ten-seat race',
+     Math.abs(council.ballots - muniState.ballots) < 1,
+     `${council.ballots} vs ${muniState.ballots}`);
+  ok('while the votes are several times that', council.votes > council.ballots * 3,
+     `${council.votes} vs ${council.ballots}`);
+  ok('and OneCity keeps its own spelling rather than being title-cased',
+     (await page.evaluate(() => window.vanPoliAtlas.state.muni.parties.map((p) => p[0])))
+       .includes('OneCity'));
+
+  await page.locator('#muni-race').selectOption('Mayor');
+  await page.waitForTimeout(800);
+  await page.locator('#clear-muni').click();
+  await page.waitForTimeout(400);
+  ok('removing it hides the municipal shade options again',
+     (await muniOptions()).every((v) => v === false), JSON.stringify(await muniOptions()));
+
   console.log('\n== Tabs and method ==');
   await page.locator('#tab-method').click();
   await page.waitForTimeout(200);
   const method = await page.locator('#panel-method').innerText();
   ok('method tab documents the assumption', /areal-interpolation assumption/i.test(method));
   ok('method tab warns about advance polls', /Advance polls/.test(method));
+  ok('method tab explains why there is no municipal turnout map',
+     /no municipal turnout by area/i.test(method), method.slice(0, 120));
+  ok('and gives the measurement rather than asserting it',
+     /r\s*0\.2/.test(method) && /r\s*0\.76/.test(method), 'numbers missing from the municipal section');
 
   console.log('\n== Errors over the whole run ==');
   ok('no console errors at any point', errors.length === 0, errors.slice(0, 4).join(' | '));

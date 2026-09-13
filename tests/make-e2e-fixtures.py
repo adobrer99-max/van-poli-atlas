@@ -496,6 +496,131 @@ print(f"voting places: {len(place_rows)} rows, {place_count} located, "
       f"({os.path.getsize('fixtures/e2e_voting_places.csv'):,} bytes)")
 
 
+# --- Vancouver's municipal election, in the two files the city publishes ------
+# One archive of race sheets and one voting-places CSV, joined on a numeric id.
+# Everything awkward about the real files is reproduced, because every one of
+# them broke something: a title row above the header, blank columns between
+# candidates from the spreadsheet's merged cells, thousands separators, a Total
+# row at the bottom, two places sharing a facility name, a mail row with no
+# place at all, and a place outside the city whose electors vote in one race.
+
+muni_centres = []
+for ed in sorted(by_district):
+    for a, _ in by_district[ed]:
+        i, j = int(a["VA_CODE"][:2]), int(a["VA_CODE"][2:])
+        muni_centres.append((x0 + i * w + w * 0.5, y0 + j * h + h * 0.5))
+muni_centres.sort()
+random.seed(29)
+picks = [muni_centres[k * len(muni_centres) // 9] for k in range(1, 9)]
+
+muni_places = []
+for k, (lon, lat) in enumerate(picks):
+    pid = k + 1
+    # Places 3 and 4 share a name: one advance, one final day, same building.
+    name = "Shared Community Centre" if pid in (3, 4) else f"Place {pid} Centre"
+    advance = "Yes" if pid in (4, 7) else "No"
+    supercentre = "No" if advance == "Yes" or pid in (1, 8) else "Yes"
+    muni_places.append([pid, name, f"{100 * pid} Test Street", advance, supercentre,
+                        f"Area {pid}", f"{lat:.6f}, {lon:.6f}"])
+# Outside the city: its electors vote in one race only, like UBC and the UEL.
+muni_places.append([401, "University Hill Secondary School", "3228 Ross Drive",
+                    "No", "No", "UBC Lands & UEL", f"{picks[0][1]:.6f}, {picks[0][0]:.6f}"])
+write_csv("fixtures/e2e_muni_places.csv",
+          ["Voting Place ID", "Facility Name", "Facility Address", "Advance Only",
+           "Supercentre", "Local Area", "geo_point_2d"], muni_places)
+
+def muni_sheet(title, seats, parties, base):
+    """A race sheet: title row, header, one row per place, then a Total."""
+    header = ["Voting Place ID # - Voting Place", "Times Cast", "Undervotes", "Overvotes"]
+    for n, (label, _) in enumerate(parties):
+        header.append(label)
+        if n < len(parties) - 1:
+            header.append("")            # the merged-cell gap
+    rows, totals = [], [0] * (len(parties) + 1)
+    for k, place in enumerate(muni_places):
+        pid = place[0]
+        if pid == 401 and seats != 9:     # UBC votes for School Trustee only
+            continue
+        cast = base + 137 * k
+        # A west-to-east gradient, so a party share has something to find.
+        g = (picks[min(k, len(picks) - 1)][0] - x0) / (x1 - x0)
+        splits, left = [], cast * seats
+        for n, (_, share) in enumerate(parties):
+            v = int(cast * seats * share * (1.4 - 0.8 * g) / len(parties) * 2)
+            splits.append(min(v, left)); left -= splits[-1]
+        row = [f"{pid} - {place[1]}", f"{cast:,}", 0, 0]
+        for n, v in enumerate(splits):
+            row.append(f"{v:,}")
+            if n < len(splits) - 1:
+                row.append("")
+        rows.append(row)
+        totals[0] += cast
+        for n, v in enumerate(splits):
+            totals[n + 1] += v
+    # Mail: an id, a name, ballots, and no voting place to put them on.
+    rows.append(["307 - Mail Results", "250", 0, 0]
+                + sum(([f"{250 * seats // len(parties):,}", ""] for _ in parties), [])[:-1])
+    totals[0] += 250
+    for n in range(len(parties)):
+        totals[n + 1] += 250 * seats // len(parties)
+    total_row = [" Total", f"{totals[0]:,}", 0, 0]
+    for n in range(len(parties)):
+        total_row.append(f"{totals[n + 1]:,}")
+        if n < len(parties) - 1:
+            total_row.append("")
+    rows.append(total_row)
+    return [[f"2022 Election {title} Results by Location (Vote for  {seats})"] + [""] * 6,
+            header] + rows
+
+MUNI_RACES = [
+    ("MAYOR", 1, [('7 SIM, Ken (ABC Vancouver)', 0.46),
+                  ('51 STEWART, Kennedy (Forward with Kennedy Stewart)', 0.33),
+                  ('50 SHOTTHA, Satwant', 0.06)], 900),
+    ("COUNCILLOR", 10, [('1 A, Ann (ABC Vancouver)', 0.42),
+                        ('2 B, Bo (TEAM)', 0.20),
+                        ('3 C, Cy (OneCity)', 0.16)], 900),
+    ("SCHOOL TRUSTEE", 9, [('4 D, Di (ABC Vancouver)', 0.44),
+                           ('5 E, Ed (OneCity)', 0.26)], 700),
+]
+overview_rows = [
+    ["City of Vancouver: 2022 Municipal Election Official Results Overview", "", ""],
+    [" Registered Voters (CoV) ", "24,000", " Registered voters on the voters' list "],
+    [" Registered Voters (UBC Lands and UEL) ", "500", " School Trustee only "],
+    [" Registered Voters - Total ", "24,500", ""],
+    [" Ballots Cast (CoV) ", "8,323", ""],
+    [" Ballots Cast Total ", "8,540", ""],
+    [" Voter Turnout ", "34.86%", " Ballots Cast Total / Registered Voters Total "],
+]
+
+def as_csv(rows):
+    out = _io.StringIO()
+    _csv.writer(out, lineterminator="\n").writerows(rows)
+    return out.getvalue()
+
+with zipfile.ZipFile("fixtures/e2e_muni_results.zip", "w", zipfile.ZIP_DEFLATED) as z:
+    for title, seats, parties, base in MUNI_RACES:
+        name = title.title().replace(" ", "")
+        z.writestr(f"2022MunicipalElectionResults - {name}.csv",
+                   as_csv(muni_sheet(title, seats, parties, base)))
+    z.writestr("2022MunicipalElectionResults - Overview.csv", as_csv(overview_rows))
+    z.writestr("2022MunicipalElectionResults - Totals.csv",
+               as_csv([["", ""], ["2022 Election Votes by Location ", ""],
+                       ["Voting Place ID - Voting Place", "Ballots Cast"]]))
+    # A Mac resource fork, which parses as an empty table if it is not skipped.
+    z.writestr("__MACOSX/._2022MunicipalElectionResults - Mayor.csv", "\x00\x05")
+
+expected["municipal"] = {
+    "places": len(muni_places),
+    "races": len(MUNI_RACES),
+    "sharedNames": 1,
+    "mayorBallots": sum(int(r[1].replace(",", ""))
+                        for r in muni_sheet(*MUNI_RACES[0])[2:-1]),
+}
+json.dump(expected, open("fixtures/e2e_expected.json", "w"), indent=1)
+print(f"municipal: {len(muni_places)} places, {len(MUNI_RACES)} races, "
+      f"{expected['municipal']['mayorBallots']:,} mayoral ballots")
+
+
 # --- Registered voters by electoral district ---------------------------------
 # Elections BC publishes the denominator in the Statement of Votes, not in the
 # results file: one row per district, with the voters who voted beside the
