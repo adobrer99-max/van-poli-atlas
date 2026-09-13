@@ -623,6 +623,16 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     await page.locator('#tab-data').click();
     await page.waitForTimeout(200);
     const note = (await page.locator('#status-payload').innerText()).replace(/\s+/g, ' ');
+    /* A payload build is a copy handed to somebody, so it is the one that has
+       to answer "which copy is this?" -- and say when it was made from a tree
+       with uncommitted changes, which matches no commit. */
+    await page.locator('#tab-overview').click();
+    await page.waitForTimeout(300);
+    const stamp = await page.locator('#overview-stamp').innerText();
+    ok('a build made for handing out stamps itself', /Built \d{4}-\d{2}-\d{2}/.test(stamp), stamp);
+    ok('and says it carries data', /data baked in/.test(stamp), stamp);
+    await page.locator('#tab-data').click();
+    await page.waitForTimeout(200);
     ok('a baked-in build starts with the replace-data drawer shut',
        advancedShut === false, String(advancedShut));
     ok('the checklist ticks what was baked in',

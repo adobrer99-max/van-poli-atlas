@@ -1124,9 +1124,16 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   ok('it attributes every agency whose data it can carry',
      ['Elections Canada', 'Elections BC', 'City of Vancouver', 'Statistics Canada']
        .every((who) => brief.includes(who)), brief.slice(-400));
-  /* Which copy is this. A build from a dirty tree matches no commit and has to
-     say so rather than show an id that does not describe it. */
-  ok('and stamps which build it is', /Built \d{4}-\d{2}-\d{2}/.test(brief), brief.slice(0, 400));
+  /* The committed build carries NO stamp, and that is the point of it: a stamp
+     carries the clock, so a file with one is never byte-identical to the next
+     build, and CI checks the committed artifact still matches a fresh one. The
+     stamp belongs on a copy handed to somebody -- asserted on the payload build
+     in test-variants, which is what such a copy is. */
+  ok('the committed build carries no stamp, so it stays reproducible',
+     !/Built \d{4}-\d{2}-\d{2}/.test(brief)
+     && (await page.locator('#overview-stamp').count()) === 1
+     && await page.locator('#overview-stamp').isHidden(),
+     brief.slice(0, 300));
 
   console.log('\n== Tabs and method ==');
   await page.locator('#tab-method').click();

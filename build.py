@@ -6,6 +6,7 @@ thing it ever fetches is street-basemap tiles, and it works without them.
     python3 build.py --payload payload/       with data baked in
     python3 build.py --out share/atlas.html   written somewhere else
     python3 build.py --carto-key KEY          opens on a street basemap
+    python3 build.py --stamp                  with a build date and commit id
 
 --payload names a directory written by tools/make-payload.js, holding one
 subdirectory per dataset. Without it nothing is baked in and every dataset is
@@ -73,6 +74,16 @@ def esc(text, where):
 # point of it: a build made from a working tree with uncommitted changes cannot
 # be reproduced from any commit, and the file should say so rather than carry a
 # commit id that does not describe it.
+#
+# It is deliberately NOT in the committed build. A stamp carries the clock, so
+# a build that has one can never be byte-identical to the next one, and CI
+# checks that the committed vancouver-boundary-atlas.html still matches a fresh
+# build -- a check that exists to catch a stale artifact and would be destroyed
+# by a file that differs from itself every minute. A committed artifact needs
+# no stamp in any case: it IS the commit, and whoever has it has the repository.
+#
+# What needs one is a copy handed to somebody, which is what --payload builds,
+# so that implies it; --stamp asks for one on a build without a payload.
 def _git(*args):
     try:
         out = subprocess.run(("git",) + args, capture_output=True, text=True, timeout=5)
@@ -80,13 +91,14 @@ def _git(*args):
     except Exception:
         return ""
 
+want_stamp = "--stamp" in sys.argv or "--payload" in sys.argv
 stamp = {
     "built": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
     "commit": _git("rev-parse", "--short", "HEAD"),
     "dirty": bool(_git("status", "--porcelain")),
 }
 stamp_block = ('\n<script id="build-stamp" type="application/json">'
-               + json.dumps(stamp) + '</script>')
+               + json.dumps(stamp) + '</script>') if want_stamp else ""
 
 carto_key = arg("--carto-key", "")
 carto_block = (f'\n<script id="carto-key-payload" type="text/plain">{esc(carto_key, "--carto-key")}</script>'

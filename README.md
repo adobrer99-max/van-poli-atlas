@@ -576,6 +576,15 @@ python3 build.py                     # writes vancouver-boundary-atlas.html
 built file is committed, and CI fails when it is out of date, so rebuild before
 committing a change under `src/` or `boundaries/`.
 
+That check is also why **the committed build carries no release stamp**. A
+stamp carries the clock, so a file with one is never byte-identical to the next
+build and the check could never pass. `--stamp` adds one, and `--payload`
+implies it, because a build with data baked in is a copy handed to somebody and
+that is the copy which has to answer "which version is this?". The stamp gives
+the build date, the commit, whether data is baked in, and whether it was built
+from a working tree with uncommitted changes — which matches no commit, and
+says so rather than showing an id that does not describe it.
+
 `src/` holds the parts: `a-geo.js` (projections, point-in-polygon, spatial
 index), `b-text.js` (delimited text, XML, KML), `c-binary.js` (ZIP, DBF, SHP),
 `d-ingest.js` (format dispatch, reprojection, clipping big files to the study
