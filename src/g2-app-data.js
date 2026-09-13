@@ -385,6 +385,7 @@ $('file-prov-results').addEventListener('change', (e) => {
 });
 $('clear-fed-results').addEventListener('click', () => {
   state.fedResults = null;
+  refreshResults(true);
   $('clear-fed-results').hidden = true;
   $('map-fed-results').hidden = true;
   setStatus('status-fed-results', 'idle', []);
@@ -393,6 +394,7 @@ $('clear-fed-results').addEventListener('click', () => {
 });
 $('clear-prov-results').addEventListener('click', () => {
   state.provResults = null; state.provOnFed = null;
+  refreshResults(true);
   clearPlaceGroups();
   $('clear-prov-results').hidden = true;
   $('map-prov-results').hidden = true;
@@ -564,6 +566,7 @@ function rejoinFederalResults() {
   store.report = joined.report;
   store.keyOpts = joined.keyOpts;
   store.apportioned = buildApportioned(store);
+  refreshResults(true);
   $('clear-fed-results').hidden = false;
   setStatus('status-fed-results', joined.report.matchedFeatures ? 'ok' : 'error',
     [joinReportNode(joined.report, 'Polling divisions')]);
@@ -593,6 +596,7 @@ function rejoinProvincialResults() {
   store.report = joined.report;
   store.keyOpts = joined.keyOpts;
   store.apportioned = buildApportioned(store);
+  refreshResults(true);
   $('clear-prov-results').hidden = false;
   setStatus('status-prov-results', joined.report.matchedFeatures ? 'ok' : 'error',
     [joinReportNode(joined.report, 'Voting areas')]);
@@ -600,6 +604,40 @@ function rejoinProvincialResults() {
   recomputeProvincialOnFederal();
   draw(); renderReadout(); refreshCorrelation(); refreshTurnout();
 }
+
+/* --- Registered voters, the denominator turnout needs ------------------------ */
+
+$('file-prov-electors').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  setStatus('status-prov-electors', 'busy', `Reading ${file.name}…`);
+  try {
+    const table = await Ingest.loadTable(file.name, await readFile(file));
+    const electors = Summary.readElectors(table);
+    state.provElectors = electors;
+    const lines = [
+      `${fmtInt(electors.total)} registered voters across ${fmtInt(electors.byDistrict.size)} `
+      + `electoral districts, from ${electors.districtColumn} and ${electors.electorColumn}.`,
+      el('p', 'text-small text-muted',
+        'Turnout per district now appears on the Results tab, as the share of registered '
+        + 'voters who voted. It is not spread onto voting areas: this file has one number '
+        + 'per district, and splitting it would be a model, not a measurement.'),
+    ];
+    setStatus('status-prov-electors', 'ok', lines);
+    $('clear-prov-electors').hidden = false;
+    refreshResults(true);
+  } catch (err) {
+    setStatus('status-prov-electors', 'error', [`Could not read ${file.name}.`, err.message]);
+    clearInput('file-prov-electors');
+  }
+});
+$('clear-prov-electors').addEventListener('click', () => {
+  state.provElectors = null;
+  clearInput('file-prov-electors');
+  $('clear-prov-electors').hidden = true;
+  setStatus('status-prov-electors', 'idle', []);
+  refreshResults(true);
+});
 
 /* --- Results reported by voting place ----------------------------------------
 
@@ -694,6 +732,7 @@ function rejoinProvincialPlaces() {
   const nothingLeft = { values: new Map(), apportioned: 0, districts: 0 };
   store.apportioned = { votes: nothingLeft, electors: nothingLeft };
   clearPlaceGroups();
+  refreshResults(true);
   $('clear-prov-results').hidden = false;
   $('prov-place-controls').hidden = false;
   setStatus('status-prov-results', spread.report.ballotsFromPlaces || spread.report.ballotsSpread

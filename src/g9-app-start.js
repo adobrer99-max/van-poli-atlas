@@ -15,6 +15,7 @@ refreshPartySelectors();
 refreshTurnout();
 refreshDaShadeVars();
 refreshSocio();
+refreshResults(true);
 
 /* Watch the map's own box, not #atlas: the atlas changes height on every tab
    switch, and a Leaflet map only needs telling when its container resized. */

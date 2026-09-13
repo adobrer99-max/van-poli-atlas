@@ -1765,6 +1765,29 @@ html>body{padding:0}
 .place:hover { stroke-width: 3; }
 .swatch-place { background: var(--viz-series-4); border-radius: 50%; }
 
+/* Bar lists: one row per party or per voting channel, the bar carrying the
+   comparison and the number carrying the value. */
+#atlas .bar-list { display: flex; flex-direction: column; gap: .35rem; margin-top: .5rem; }
+#atlas .party-row { display: grid; grid-template-columns: minmax(7rem, 12rem) 1fr auto;
+  gap: .6rem; align-items: center; }
+#atlas .party-name { font-size: .92rem; }
+#atlas .party-track { background: var(--surface-2, rgba(127,127,127,.14)); border-radius: 999px;
+  height: .85rem; overflow: hidden; }
+#atlas .party-fill { display: block; height: 100%; border-radius: 999px; }
+#atlas .party-value { font-variant-numeric: tabular-nums; font-size: .9rem; white-space: nowrap; }
+
+#atlas .ranked-list { margin: .4rem 0 0; padding-left: 1.4rem; }
+#atlas .ranked-list li { display: grid; grid-template-columns: 1fr auto auto; gap: .6rem;
+  align-items: baseline; padding: .18rem 0; }
+#atlas .ranked-name { font-size: .95rem; }
+#atlas .ranked-value { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+@media (max-width: 560px) {
+  #atlas .party-row { grid-template-columns: 1fr auto; }
+  #atlas .party-track { grid-column: 1 / -1; }
+  #atlas .ranked-list li { grid-template-columns: 1fr auto; }
+}
+
 .map-legend { position: absolute; left: .6rem; bottom: 1.6rem; z-index: 1001; display: flex;
   flex-direction: column; gap: .25rem; padding: .5rem .6rem; border-radius: var(--radius-md);
   background: color-mix(in oklab, var(--background) 88%, transparent);
@@ -1888,6 +1911,7 @@ html>body{padding:0}
 <nav class="nav nav-pills" role="tablist" aria-label="Atlas sections">
   <button class="nav-link active" role="tab" id="tab-map" aria-controls="panel-map" aria-selected="true" type="button">Map</button>
   <button class="nav-link" role="tab" id="tab-data" aria-controls="panel-data" aria-selected="false" type="button">Data</button>
+  <button class="nav-link" role="tab" id="tab-results" aria-controls="panel-results" aria-selected="false" type="button">Results</button>
   <button class="nav-link" role="tab" id="tab-corr" aria-controls="panel-corr" aria-selected="false" type="button">Correlation</button>
   <button class="nav-link" role="tab" id="tab-turnout" aria-controls="panel-turnout" aria-selected="false" type="button">Turnout</button>
   <button class="nav-link" role="tab" id="tab-socio" aria-controls="panel-socio" aria-selected="false" type="button">Socioeconomic</button>
@@ -2112,6 +2136,21 @@ html>body{padding:0}
       The status line below says how much of the count took which route, and the
       <b>Method</b> tab says what that costs a correlation.
     </p>
+    <p class="text-small text-muted">
+      Elections BC reports turnout as the share of <b>registered voters who voted</b>, and
+      publishes that denominator per electoral district in the
+      <i>Statement of Votes</i> rather than in the results file. Load a two-column table
+      &mdash; district, registered voters &mdash; and the <b>Results</b> tab reports turnout
+      per district and city-wide. Any column named for the voters who <i>voted</i> is
+      ignored: that is the numerator, and the atlas already has it.
+    </p>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-prov-electors">Registered voters by electoral district (optional)
+        <input class="form-control" type="file" id="file-prov-electors" accept=".csv,.tsv,.txt">
+      </label>
+      <button type="button" class="btn" id="clear-prov-electors" hidden>Remove</button>
+    </div>
+    <div id="status-prov-electors" class="status"></div>
     <div class="viz-controls" id="prov-place-controls" hidden>
       <label class="form-label grow" for="prov-place-basis">Ballots with no voting place
         <select class="form-select" id="prov-place-basis">
@@ -2182,6 +2221,58 @@ html>body{padding:0}
 </section>
 
 <!-- ---------------------------------------------------------- CORRELATION -->
+<!-- -------------------------------------------------------------- RESULTS -->
+<section id="panel-results" role="tabpanel" aria-labelledby="tab-results" hidden>
+  <div class="card">
+    <h2>What the results files say</h2>
+    <p class="text-small text-muted">
+      Counts as reported, before anything is joined to a boundary, moved across the
+      crosswalk or spread from a voting place. Every other tab models something; this
+      one is the place to check a headline figure against the file it came from.
+    </p>
+    <div class="viz-controls" id="results-side-wrap" hidden>
+      <label class="form-label grow" for="results-side">Election
+        <select class="form-select" id="results-side"></select>
+      </label>
+      <button type="button" class="btn" id="export-results">Export summary CSV</button>
+    </div>
+    <div id="results-status" class="status"></div>
+    <p class="text-small text-muted" id="results-note"></p>
+    <div class="viz-grid" id="results-stats"></div>
+  </div>
+
+  <div id="results-body" hidden>
+    <div class="card">
+      <h2>Parties</h2>
+      <p class="text-small text-muted">Votes and share of the valid vote, across every district in the file.</p>
+      <div class="bar-list" id="results-parties"></div>
+    </div>
+
+    <div class="card" id="results-channels-card" hidden>
+      <h2>How people voted</h2>
+      <p class="text-small text-muted">
+        Ballots by voting opportunity. Only the final-day places have a catchment on the
+        map; everything else is spread across a whole district, so this is the share of
+        the count that carries real location.
+      </p>
+      <div class="bar-list" id="results-channels"></div>
+    </div>
+
+    <div class="card">
+      <h2>Districts</h2>
+      <p class="text-small text-muted">Click a heading to sort. Margin is the gap between first and second, in points of the valid vote.</p>
+      <div class="table-responsive">
+        <table class="table table-sm sortable" id="results-districts"></table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 id="results-largest-title">Largest units</h2>
+      <div id="results-largest"></div>
+    </div>
+  </div>
+</section>
+
 <section id="panel-corr" role="tabpanel" aria-labelledby="tab-corr" hidden>
   <div class="card">
     <h2>Build the crosswalk</h2>
@@ -2526,13 +2617,22 @@ html>body{padding:0}
       of polygons.
     </p>
     <p>
-      Provincial <b>turnout</b> is a separate matter. The voting-place file carries no
-      registered-voter count, so there is no denominator: provincial turnout is left
-      blank rather than guessed, the combined ranking falls back to the federal side
-      alone and says it is partial, and party shares and ballot counts are unaffected.
-      Loading a file with registered voters by voting area turns it back on.
-      If Elections BC's own voting-area-to-place assignment is loaded one day, it
-      replaces the model entirely and none of these caveats apply.
+      Provincial <b>turnout</b> is a separate matter, and a question of which denominator
+      exists at which geography. Elections BC defines turnout as the share of
+      <b>registered voters who voted</b>, and publishes that count per <i>electoral
+      district</i> in the Statement of Votes; the results file itself carries none. Given
+      that table, the <b>Results</b> tab reports turnout per district and city-wide, and
+      those are measurements, not estimates.
+    </p>
+    <p>
+      It stops there deliberately. One registered-voter count per district, split across
+      the district's voting areas, would be a model dressed as a measurement &mdash; and
+      since the only sensible split is by population, the variation between neighbouring
+      areas would be the census rather than the electorate. So per-area provincial
+      turnout stays blank, the combined ranking falls back to the federal side alone and
+      says it is partial, and party shares and ballot counts are unaffected. An elector
+      count <i>by voting area</i> would turn it on for real; so would Elections BC's own
+      voting-area-to-place assignment, which would replace the catchment model entirely.
     </p>
 
     <h3>Census geography and socioeconomic variables</h3>
@@ -5922,6 +6022,254 @@ const Places = (() => {
   };
 })();
 
+/* --- What the results files actually say -------------------------------------
+
+   Every other tab models something: results are moved across a crosswalk,
+   spread from voting places, correlated against a census. This one models
+   nothing. It reads the loaded files back and says what is in them -- the
+   party totals, the districts, how people voted -- so there is somewhere to
+   check a headline figure before any of the modelling is trusted.
+
+   Two shapes arrive. Results by voting area (or polling division) come as a
+   table plus a column mapping, and are aggregated the same way the join does
+   it, so the totals here and the totals there cannot drift. Results by voting
+   place come already parsed by f4-places.js. Both reduce to one summary. */
+
+const Summary = (() => {
+  const share = (part, whole) => (whole > 0 ? part / whole : null);
+
+  /* Party totals, ordered, with the winner and the margin over second. A
+     margin is meaningless without at least two parties, and is expressed
+     against valid votes so it reads as a percentage-point gap. */
+  function rank(parties, valid) {
+    const list = [...parties.entries()]
+      .map(([name, votes]) => ({ name, votes, share: share(votes, valid) }))
+      .sort((a, b) => b.votes - a.votes);
+    const winner = list.length ? list[0] : null;
+    const margin = list.length > 1 && valid > 0
+      ? (list[0].votes - list[1].votes) / valid : null;
+    return { list, winner, margin, runnerUp: list.length > 1 ? list[1] : null };
+  }
+
+  const blank = () => ({ ballots: 0, valid: 0, rejected: 0, electors: 0, parties: new Map(), units: 0 });
+
+  /* --- Registered voters, when they arrive in their own file ---------------
+
+     Elections BC reports turnout as the share of registered voters who voted,
+     and publishes the denominator per electoral district in the Statement of
+     Votes rather than in the results file. A two-column table is enough: a
+     district and a count. Read by name, like everything else here. */
+  const DISTRICT_COL = [/^ed[_ ]?abbrev/i, /district.*abbrev/i, /electoral.?district/i,
+                        /^district$/i, /\bdistrict\b/i, /^ed$/i, /\briding\b/i];
+  const ELECTOR_COL = [/registered.?voters?$/i, /^registered$/i, /registered.?voters/i,
+                       /^electors$/i, /\belectors\b/i, /eligible/i];
+  /* Anything naming the voters who actually voted is a numerator, not the
+     denominator, and picking it would report a turnout of exactly 100%. */
+  const NOT_ELECTORS = /who ?voted|voted|ballots|turnout|valid|rejected/i;
+
+  function readElectors(table) {
+    const header = (table.header || []).map((h) => String(h == null ? '' : h).trim());
+    const find = (pats, reject) => {
+      for (const re of pats) {
+        const i = header.findIndex((h) => re.test(h) && !(reject && reject.test(h)));
+        if (i >= 0) return i;
+      }
+      return -1;
+    };
+    const dCol = find(DISTRICT_COL);
+    const eCol = find(ELECTOR_COL, NOT_ELECTORS);
+    if (dCol < 0 || eCol < 0) {
+      throw new Error('This table needs a district column and a registered-voters column. '
+        + `It has: ${header.slice(0, 8).join(', ') || '(no header)'}.`);
+    }
+    const byDistrict = new Map();
+    let total = 0;
+    for (const row of table.rows || []) {
+      const code = String(row[dCol] == null ? '' : row[dCol]).trim();
+      const n = parseFloat(String(row[eCol] == null ? '' : row[eCol]).replace(/[,\s]/g, ''));
+      if (!code || !isFinite(n) || n <= 0) continue;
+      byDistrict.set(code.toUpperCase(), (byDistrict.get(code.toUpperCase()) || 0) + n);
+      total += n;
+    }
+    if (!byDistrict.size) throw new Error('No district in this table carried a registered-voter count.');
+    return { byDistrict, total, districtColumn: header[dCol], electorColumn: header[eCol] };
+  }
+
+  /* Districts keyed however the results file keys them: an abbreviation, a
+     name, or a number. Matching is case-insensitive on either. */
+  function electorsFor(code, name, supplied) {
+    if (!supplied) return 0;
+    const tryKey = (k) => (k ? supplied.byDistrict.get(String(k).trim().toUpperCase()) : undefined);
+    return tryKey(code) ?? tryKey(name) ?? 0;
+  }
+
+  function addInto(acc, { valid = 0, rejected = 0, electors = 0, parties = null }) {
+    acc.valid += valid;
+    acc.rejected += rejected;
+    acc.ballots += valid + rejected;
+    acc.electors += electors;
+    acc.units += 1;
+    if (parties) for (const [name, v] of parties) acc.parties.set(name, (acc.parties.get(name) || 0) + v);
+  }
+
+  /* A turnout is only reported where the file carried an elector count. It is
+     never inferred, and a file without one says null rather than zero. */
+  const rateOf = (acc) => (acc.electors > 0 ? (acc.valid + acc.rejected) / acc.electors : null);
+
+  function finishDistrict(code, name, acc, supplied) {
+    const r = rank(acc.parties, acc.valid);
+    /* A file that carries its own elector counts keeps them; one that does not
+       borrows the district totals from the supplied table. Which of the two it
+       was travels with the district, so the tab can say so. */
+    const own = acc.electors > 0;
+    if (!own) acc.electors = electorsFor(code, name, supplied);
+    return {
+      code, name: name || code,
+      ballots: acc.ballots, valid: acc.valid, rejected: acc.rejected,
+      electors: acc.electors || null, turnout: rateOf(acc), units: acc.units,
+      electorsSupplied: !own && acc.electors > 0,
+      parties: acc.parties, shares: r.list, winner: r.winner, runnerUp: r.runnerUp, margin: r.margin,
+    };
+  }
+
+  function finish(total, districts, extra) {
+    const r = rank(total.parties, total.valid);
+    /* Every district's electors, however each one got them. A city total is
+       only meaningful when every district has a count, so a partial set is
+       reported as partial rather than quietly summed into a wrong rate. */
+    const withElectors = districts.filter((d) => d.electors > 0);
+    if (!total.electors && withElectors.length) {
+      total.electors = withElectors.reduce((a, d) => a + d.electors, 0);
+    }
+    const electorsComplete = districts.length > 0 && withElectors.length === districts.length;
+    return Object.assign({
+      electorsComplete,
+      electorsFrom: districts.some((d) => d.electorsSupplied) ? 'supplied' : 'file',
+      districtsWithElectors: withElectors.length,
+      ballots: total.ballots, valid: total.valid, rejected: total.rejected,
+      rejectedShare: share(total.rejected, total.ballots),
+      electors: total.electors || null, turnout: rateOf(total),
+      parties: r.list, winner: r.winner, margin: r.margin,
+      districts: districts.sort((a, b) => b.ballots - a.ballots),
+      districtsWon: districts.reduce((m, d) => {
+        if (d.winner) m.set(d.winner.name, (m.get(d.winner.name) || 0) + 1);
+        return m;
+      }, new Map()),
+    }, extra);
+  }
+
+  /* --- Results by voting area or polling division ------------------------- */
+
+  /* units: the Map that Results.aggregate returns. Void polls and polls where
+     no vote was held are already zeroed there, and merged polls already carry
+     their share, so this is a plain sum. */
+  function fromUnits(units, options = {}) {
+    const total = blank();
+    const byDistrict = new Map();
+    const largest = [];
+    for (const [key, u] of units) {
+      const row = { valid: u.total, rejected: u.rejected, electors: u.electors, parties: u.parties };
+      addInto(total, row);
+      const code = u.district || '';
+      let acc = byDistrict.get(code);
+      if (!acc) byDistrict.set(code, (acc = blank()));
+      addInto(acc, row);
+      largest.push({ key, label: u.district ? `${u.district} · ${u.poll}` : String(u.poll),
+                     district: code, ballots: u.total + u.rejected, electors: u.electors || null,
+                     turnout: u.electors > 0 ? (u.total + u.rejected) / u.electors : null });
+    }
+    largest.sort((a, b) => b.ballots - a.ballots);
+    const districts = [...byDistrict].map(([code, acc]) =>
+      finishDistrict(code, options.districtName?.(code), acc, options.electors));
+    return finish(total, districts, {
+      kind: 'areas',
+      unitName: options.unitName || 'polls',
+      channels: null,
+      largest: largest.slice(0, options.top || 10),
+      located: null,
+    });
+  }
+
+  /* --- Results by voting place -------------------------------------------- */
+
+  /* read: what Places.readPlaces returned. Every row counts towards the totals,
+     located or not; the located share is reported separately because it is the
+     part that can be put on a map at all. */
+  function fromPlaces(read, options = {}) {
+    const total = blank();
+    const byDistrict = new Map();
+    const byChannel = new Map();
+    const located = [];
+    let locatedBallots = 0;
+    const all = read.places.concat(read.unlocated);
+    for (const p of all) {
+      const row = { valid: p.total, rejected: p.rejected, electors: p.electors, parties: p.byParty };
+      addInto(total, row);
+      let acc = byDistrict.get(p.ed);
+      if (!acc) byDistrict.set(p.ed, (acc = blank()));
+      addInto(acc, row);
+      const channel = p.opportunity || 'Not stated';
+      byChannel.set(channel, (byChannel.get(channel) || 0) + p.total + p.rejected);
+    }
+    for (const p of read.places) {
+      locatedBallots += p.total + p.rejected;
+      located.push({ name: p.name || 'Voting place', district: p.ed, opportunity: p.opportunity,
+                     ballots: p.total + p.rejected, lon: p.lon, lat: p.lat });
+    }
+    located.sort((a, b) => b.ballots - a.ballots);
+    const names = new Map(all.map((p) => [p.ed, p.districtName]));
+    const districts = [...byDistrict].map(([code, acc]) =>
+      finishDistrict(code, names.get(code), acc, options.electors));
+    return finish(total, districts, {
+      kind: 'places',
+      unitName: 'voting places',
+      channels: [...byChannel.entries()]
+        .map(([name, ballots]) => ({ name, ballots, share: share(ballots, total.ballots) }))
+        .sort((a, b) => b.ballots - a.ballots),
+      largest: located.slice(0, options.top || 10),
+      located: { places: read.places.length, unlocated: read.unlocated.length,
+                 ballots: locatedBallots, share: share(locatedBallots, total.ballots) },
+    });
+  }
+
+  /* --- One flat table, for the export ------------------------------------- */
+
+  /* District first, then the channels and the largest units, each block
+     labelled, so one file carries everything the tab shows without pretending
+     three different shapes are one rectangle. */
+  function toCsv(summary, label) {
+    const partyNames = summary.parties.map((p) => p.name);
+    const pct = (v) => (v == null || !isFinite(v) ? '' : (v * 100).toFixed(2));
+    const rows = [['section', 'name', 'detail', 'ballots', 'valid', 'rejected', 'electors', 'turnout_pct',
+                   'winner', 'margin_pts', ...partyNames.map((p) => `${p}_votes`),
+                   ...partyNames.map((p) => `${p}_pct`)]];
+    const partyCells = (parties, valid) => [
+      ...partyNames.map((p) => (parties.get(p) ?? '')),
+      ...partyNames.map((p) => pct(share(parties.get(p) || 0, valid))),
+    ];
+    rows.push(['total', label, '', summary.ballots, summary.valid, summary.rejected,
+      summary.electors ?? '', pct(summary.turnout), summary.winner?.name ?? '', pct(summary.margin),
+      ...partyCells(new Map(summary.parties.map((p) => [p.name, p.votes])), summary.valid)]);
+    for (const d of summary.districts) {
+      rows.push(['district', d.code, d.name === d.code ? '' : d.name, d.ballots, d.valid, d.rejected,
+        d.electors ?? '', pct(d.turnout), d.winner?.name ?? '', pct(d.margin),
+        ...partyCells(d.parties, d.valid)]);
+    }
+    for (const c of summary.channels || []) {
+      rows.push(['channel', c.name, '', c.ballots, '', '', '', '', '', '',
+        ...partyNames.map(() => ''), ...partyNames.map(() => '')]);
+    }
+    for (const u of summary.largest) {
+      rows.push([summary.kind === 'places' ? 'place' : 'unit', u.name || u.label, u.opportunity || u.district || '',
+        u.ballots, '', '', u.electors ?? '', pct(u.turnout), '', '',
+        ...partyNames.map(() => ''), ...partyNames.map(() => '')]);
+    }
+    return rows;
+  }
+
+  return { fromUnits, fromPlaces, toCsv, rank, readElectors };
+})();
+
 </script>
 <script>
 
@@ -6044,6 +6392,8 @@ const state = {
   sample: null,
   cross: new Map(),
   weightingInEffect: null,
+  results: { sortKey: 'ballots', sortDir: 'desc' },
+  provElectors: null,
   socio: { outcome: 'turnout-agg', minElectors: 50, selected: new Set(), extra: new Map(),
            rows: null, byDa: null, table: null, sortKey: 'absR', sortDir: 'desc', picked: null },
 };
@@ -7345,6 +7695,7 @@ $('file-prov-results').addEventListener('change', (e) => {
 });
 $('clear-fed-results').addEventListener('click', () => {
   state.fedResults = null;
+  refreshResults(true);
   $('clear-fed-results').hidden = true;
   $('map-fed-results').hidden = true;
   setStatus('status-fed-results', 'idle', []);
@@ -7353,6 +7704,7 @@ $('clear-fed-results').addEventListener('click', () => {
 });
 $('clear-prov-results').addEventListener('click', () => {
   state.provResults = null; state.provOnFed = null;
+  refreshResults(true);
   clearPlaceGroups();
   $('clear-prov-results').hidden = true;
   $('map-prov-results').hidden = true;
@@ -7524,6 +7876,7 @@ function rejoinFederalResults() {
   store.report = joined.report;
   store.keyOpts = joined.keyOpts;
   store.apportioned = buildApportioned(store);
+  refreshResults(true);
   $('clear-fed-results').hidden = false;
   setStatus('status-fed-results', joined.report.matchedFeatures ? 'ok' : 'error',
     [joinReportNode(joined.report, 'Polling divisions')]);
@@ -7553,6 +7906,7 @@ function rejoinProvincialResults() {
   store.report = joined.report;
   store.keyOpts = joined.keyOpts;
   store.apportioned = buildApportioned(store);
+  refreshResults(true);
   $('clear-prov-results').hidden = false;
   setStatus('status-prov-results', joined.report.matchedFeatures ? 'ok' : 'error',
     [joinReportNode(joined.report, 'Voting areas')]);
@@ -7560,6 +7914,40 @@ function rejoinProvincialResults() {
   recomputeProvincialOnFederal();
   draw(); renderReadout(); refreshCorrelation(); refreshTurnout();
 }
+
+/* --- Registered voters, the denominator turnout needs ------------------------ */
+
+$('file-prov-electors').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  setStatus('status-prov-electors', 'busy', `Reading ${file.name}…`);
+  try {
+    const table = await Ingest.loadTable(file.name, await readFile(file));
+    const electors = Summary.readElectors(table);
+    state.provElectors = electors;
+    const lines = [
+      `${fmtInt(electors.total)} registered voters across ${fmtInt(electors.byDistrict.size)} `
+      + `electoral districts, from ${electors.districtColumn} and ${electors.electorColumn}.`,
+      el('p', 'text-small text-muted',
+        'Turnout per district now appears on the Results tab, as the share of registered '
+        + 'voters who voted. It is not spread onto voting areas: this file has one number '
+        + 'per district, and splitting it would be a model, not a measurement.'),
+    ];
+    setStatus('status-prov-electors', 'ok', lines);
+    $('clear-prov-electors').hidden = false;
+    refreshResults(true);
+  } catch (err) {
+    setStatus('status-prov-electors', 'error', [`Could not read ${file.name}.`, err.message]);
+    clearInput('file-prov-electors');
+  }
+});
+$('clear-prov-electors').addEventListener('click', () => {
+  state.provElectors = null;
+  clearInput('file-prov-electors');
+  $('clear-prov-electors').hidden = true;
+  setStatus('status-prov-electors', 'idle', []);
+  refreshResults(true);
+});
 
 /* --- Results reported by voting place ----------------------------------------
 
@@ -7654,6 +8042,7 @@ function rejoinProvincialPlaces() {
   const nothingLeft = { values: new Map(), apportioned: 0, districts: 0 };
   store.apportioned = { votes: nothingLeft, electors: nothingLeft };
   clearPlaceGroups();
+  refreshResults(true);
   $('clear-prov-results').hidden = false;
   $('prov-place-controls').hidden = false;
   setStatus('status-prov-results', spread.report.ballotsFromPlaces || spread.report.ballotsSpread
@@ -9044,6 +9433,263 @@ $('find-da').addEventListener('change', (e) => {
   if (f) { selectAt(null, null, null, f); zoomToFeature(f); }
 });
 
+/* --- Results tab -------------------------------------------------------------
+   What the loaded files say, before anything is moved, spread or modelled.
+   The maths is in f5-summary.js; this file picks the side, draws the tiles,
+   the party bars, the district table, the channel breakdown and the busiest
+   units, and exports the lot. */
+
+/* Cached per side, because a summary is a full pass over the table and the
+   tab is re-rendered on every results change. Cleared by refreshResults. */
+let summaryCache = { fed: null, prov: null };
+
+function summaryFor(side) {
+  if (summaryCache[side]) return summaryCache[side];
+  const store = side === 'fed' ? state.fedResults : state.provResults;
+  if (!store) return null;
+  let summary = null;
+  /* The supplied denominator is a provincial file; the federal results carry
+     their own elector counts per poll. */
+  const electors = side === 'prov' ? state.provElectors : null;
+  if (store.kind === 'places' && store.read) {
+    summary = Summary.fromPlaces(store.read, { electors });
+  } else if (store.table && store.mapping) {
+    const keyOpts = store.keyOpts || { ignoreLeadingZeros: true, ignoreCase: true };
+    const agg = Results.aggregate(store.table, store.mapping, keyOpts);
+    summary = Summary.fromUnits(agg.units, {
+      unitName: side === 'fed' ? 'polling divisions' : 'voting areas',
+      districtName: side === 'fed' ? (code) => federalDistrictName(code) : null,
+      electors,
+    });
+  }
+  summaryCache[side] = summary;
+  return summary;
+}
+
+/* Elections Canada numbers its districts; the boundary layer knows the names,
+   so a summary of a results file can borrow them. */
+function federalDistrictName(code) {
+  const f = state.fed.all.find((x) => String(x.fedNum) === String(code));
+  return f ? f.fedName : null;
+}
+
+const SIDE_LABEL = { fed: 'Federal (2025)', prov: 'Provincial (2024)' };
+
+function resultsSidesAvailable() {
+  return ['fed', 'prov'].filter((s) => (s === 'fed' ? state.fedResults : state.provResults));
+}
+
+function resultsSide() {
+  const available = resultsSidesAvailable();
+  const wanted = $('results-side') ? $('results-side').value : '';
+  return available.includes(wanted) ? wanted : available[0] || null;
+}
+
+function refreshResults(invalidate) {
+  if (!$('results-status')) return;
+  if (invalidate) summaryCache = { fed: null, prov: null };
+  const available = resultsSidesAvailable();
+  const sel = $('results-side');
+  const previous = sel.value;
+  fillSelect(sel, available.map((s) => ({ value: s, label: SIDE_LABEL[s] })),
+    available.includes(previous) ? previous : (available[0] || ''));
+  sel.disabled = available.length < 2;
+  $('results-side-wrap').hidden = available.length === 0;
+
+  const side = resultsSide();
+  const summary = side ? summaryFor(side) : null;
+  const body = $('results-body');
+  if (!summary || !summary.ballots) {
+    setStatus('results-status', 'idle', [
+      'Load federal or provincial results on the Data tab; this tab reports what is in them, '
+      + 'before any of it is moved onto another geography.']);
+    body.hidden = true;
+    return;
+  }
+  body.hidden = false;
+  renderResultsStats(side, summary);
+  renderResultsParties(summary);
+  renderResultsDistricts(summary);
+  renderResultsChannels(summary);
+  renderResultsLargest(side, summary);
+
+  const units = summary.districts.reduce((a, d) => a + d.units, 0);
+  const where = summary.kind === 'places'
+    ? `${fmtInt(units)} reported rows across ${fmtInt(summary.located.places)} voting places`
+    : `${fmtInt(units)} ${summary.unitName}`;
+  const lines = [`${fmtInt(summary.ballots)} ballots across ${fmtInt(summary.districts.length)} `
+    + `electoral districts, from ${where}. Counts as reported, with nothing moved or estimated.`];
+  if (summary.turnout == null) {
+    lines.push(el('p', 'text-small text-muted',
+      'This file carries no registered-voter count, so there is no turnout to report here. '
+      + 'Elections BC publishes one per district in the Statement of Votes; load it in '
+      + 'section 3 of the Data tab.'));
+  } else if (summary.electorsFrom === 'supplied') {
+    lines.push(el('p', 'text-small text-muted',
+      `Turnout is ballots over registered voters, the denominator taken from the file you `
+      + `loaded${summary.electorsComplete ? '' : ` — only ${fmtInt(summary.districtsWithElectors)} `
+        + `of ${fmtInt(summary.districts.length)} districts have one, so the city figure covers `
+        + 'those alone'}.`));
+  }
+  if (summary.located) {
+    lines.push(el('p', 'text-small text-muted',
+      `${fmtPct(summary.located.share)} of ballots were cast somewhere with a location `
+      + `(${fmtInt(summary.located.places)} voting places); the rest have none and can only be `
+      + 'spread across a district. See the Method tab.'));
+  }
+  setStatus('results-status', 'ok', lines);
+}
+
+function renderResultsStats(side, s) {
+  const host = $('results-stats');
+  host.textContent = '';
+  const stat = (label, value, note) => {
+    const box = el('div', 'viz-stat');
+    box.append(el('div', 'viz-stat-value', value), el('div', 'text-small text-muted', label));
+    if (note) box.append(el('div', 'text-small text-muted', note));
+    return box;
+  };
+  host.append(
+    stat('ballots', fmtInt(s.ballots), `${fmtInt(s.valid)} valid`),
+    stat('rejected', fmtInt(s.rejected), s.rejectedShare != null ? fmtPct(s.rejectedShare, 2) + ' of ballots' : null),
+    stat('leading party', s.winner ? s.winner.name : '--',
+      s.winner ? `${fmtPct(s.winner.share)} of the valid vote` : null),
+    s.turnout != null
+      ? stat('turnout', fmtPct(s.turnout), `${fmtInt(s.electors)} registered`)
+      : stat('districts', fmtInt(s.districts.length),
+        [...s.districtsWon].map(([p, n]) => `${p} ${n}`).join(' · ') || null),
+  );
+}
+
+/* A bar per party, width by share, coloured the way the map colours it. */
+function renderResultsParties(s) {
+  const host = $('results-parties');
+  host.textContent = '';
+  const top = s.parties[0]?.share || 1;
+  for (const p of s.parties) {
+    const row = el('div', 'party-row');
+    row.append(el('span', 'party-name', p.name));
+    const track = el('span', 'party-track');
+    const fill = el('span', 'party-fill');
+    fill.style.width = `${Math.max(0.5, (p.share / top) * 100)}%`;
+    fill.style.background = partyColour(p.name);
+    track.append(fill);
+    row.append(track, el('span', 'party-value', `${fmtInt(p.votes)}  ${fmtPct(p.share)}`));
+    host.append(row);
+  }
+}
+
+const DISTRICT_COLUMNS = [
+  { key: 'name', label: 'District', get: (d) => d.name, fmt: (v) => v, left: true },
+  { key: 'ballots', label: 'Ballots', get: (d) => d.ballots, fmt: fmtInt },
+  { key: 'turnout', label: 'Turnout', get: (d) => d.turnout, fmt: (v) => fmtPct(v) },
+  { key: 'winner', label: 'Leading', get: (d) => d.winner?.name ?? null, fmt: (v) => v, left: true },
+  { key: 'margin', label: 'Margin', get: (d) => d.margin, fmt: (v) => fmtPct(v, 1) },
+  { key: 'units', label: 'Units', get: (d) => d.units, fmt: fmtInt },
+];
+
+function sortedDistricts(s) {
+  const { sortKey, sortDir } = state.results;
+  const col = DISTRICT_COLUMNS.find((c) => c.key === sortKey) || DISTRICT_COLUMNS[1];
+  const dir = sortDir === 'asc' ? 1 : -1;
+  return [...s.districts].sort((a, b) => {
+    const x = col.get(a), y = col.get(b);
+    if (x == null && y == null) return 0;
+    if (x == null) return 1;
+    if (y == null) return -1;
+    return (typeof x === 'string' ? x.localeCompare(y) : x - y) * dir;
+  });
+}
+
+function renderResultsDistricts(s) {
+  const table = $('results-districts');
+  table.textContent = '';
+  /* A file with no elector count would otherwise show a column of dashes. */
+  const columns = DISTRICT_COLUMNS.filter((c) =>
+    c.key !== 'turnout' || s.districts.some((d) => d.turnout != null));
+  const thead = el('thead'), hr = el('tr');
+  for (const c of columns) {
+    const th = el('th', c.left ? 'text-start' : null, c.label);
+    if (c.key === state.results.sortKey) th.classList.add('sorted', state.results.sortDir);
+    th.dataset.key = c.key;
+    th.addEventListener('click', () => {
+      const r = state.results;
+      if (r.sortKey === c.key) r.sortDir = r.sortDir === 'desc' ? 'asc' : 'desc';
+      else { r.sortKey = c.key; r.sortDir = c.key === 'name' || c.key === 'winner' ? 'asc' : 'desc'; }
+      refreshResults();
+    });
+    hr.append(th);
+  }
+  thead.append(hr);
+  const tbody = el('tbody');
+  for (const d of sortedDistricts(s)) {
+    const tr = el('tr');
+    for (const c of columns) {
+      const v = c.get(d);
+      const td = el('td', c.left ? 'text-start' : null, v == null ? '--' : c.fmt(v));
+      if (c.key === 'winner' && d.winner) td.style.color = partyColour(d.winner.name);
+      tr.append(td);
+    }
+    tbody.append(tr);
+  }
+  table.append(thead, tbody);
+}
+
+/* Only a voting-place file knows how a ballot was cast. Where the breakdown
+   exists it is the most useful thing on the tab, because it says how much of
+   the count can be placed on a map at all. */
+function renderResultsChannels(s) {
+  const card = $('results-channels-card');
+  if (!s.channels) { card.hidden = true; return; }
+  card.hidden = false;
+  const host = $('results-channels');
+  host.textContent = '';
+  const top = s.channels[0]?.ballots || 1;
+  for (const c of s.channels) {
+    const row = el('div', 'party-row');
+    row.append(el('span', 'party-name', c.name));
+    const track = el('span', 'party-track');
+    const fill = el('span', 'party-fill');
+    fill.style.width = `${Math.max(0.5, (c.ballots / top) * 100)}%`;
+    fill.style.background = 'var(--viz-series-1)';
+    track.append(fill);
+    row.append(track, el('span', 'party-value', `${fmtInt(c.ballots)}  ${fmtPct(c.share)}`));
+    host.append(row);
+  }
+}
+
+function renderResultsLargest(side, s) {
+  const host = $('results-largest');
+  host.textContent = '';
+  $('results-largest-title').textContent = s.kind === 'places'
+    ? 'Busiest voting places' : `Largest ${s.unitName}`;
+  const list = el('ol', 'ranked-list');
+  for (const u of s.largest) {
+    const li = el('li');
+    li.append(el('span', 'ranked-name', u.name || u.label));
+    const detail = s.kind === 'places'
+      ? `${u.district} · ${u.opportunity}`
+      : (u.turnout != null ? `turnout ${fmtPct(u.turnout)}` : u.district || '');
+    li.append(el('span', 'text-small text-muted', detail),
+      el('span', 'ranked-value', `${fmtInt(u.ballots)} ballots`));
+    list.append(li);
+  }
+  host.append(list);
+}
+
+/* --- Wiring ---------------------------------------------------------------- */
+
+$('results-side').addEventListener('change', () => refreshResults());
+$('export-results').addEventListener('click', () => {
+  const side = resultsSide();
+  const summary = side ? summaryFor(side) : null;
+  if (!summary) { $('results-note').textContent = 'Nothing to export yet.'; return; }
+  const name = `vancouver-${side === 'fed' ? 'federal-2025' : 'provincial-2024'}-summary.csv`;
+  const rows = Summary.toCsv(summary, SIDE_LABEL[side]);
+  downloadCsv(name, rows);
+  $('results-note').textContent = `Saved ${name} (${fmtInt(rows.length - 1)} rows).`;
+});
+
 /* --- Start ---------------------------------------------------------------
    Boot sequence and the close of the application IIFE opened in
    g1-app-core.js. New application files are inserted before this one in
@@ -9061,6 +9707,7 @@ refreshPartySelectors();
 refreshTurnout();
 refreshDaShadeVars();
 refreshSocio();
+refreshResults(true);
 
 /* Watch the map's own box, not #atlas: the atlas changes height on every tab
    switch, and a Leaflet map only needs telling when its container resized. */

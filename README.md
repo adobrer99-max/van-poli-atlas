@@ -41,7 +41,11 @@ the federal polling division, the provincial voting area and the dissemination
 area at whatever point you click. Each layer
 is shaded by its own election's results — party share or turnout — and the
 federal layer can also carry provincial results redistributed through the
-crosswalk. The **Correlation** tab builds the crosswalk and plots one vote share
+crosswalk. The **Results** tab says what the loaded files themselves contain,
+before anything is joined or moved: party totals and shares, a district table
+with the leading party and its margin, how people voted by opportunity where
+the file records it, the busiest places, and a summary CSV. The **Correlation**
+tab builds the crosswalk and plots one vote share
 against the other. The **Turnout** tab ranks every area by turnout combined
 across both elections, draws the "top X % of areas hold Y % of electors" curve,
 pools any set of areas into a basket, and exports the ranking. The
@@ -123,11 +127,25 @@ does not make five observations, so the Correlation and Socioeconomic tabs
 report the number of independent sources beside the number of units and compute
 the confidence interval on the sources. Quote a coefficient with that figure.
 
-The file carries no registered-voter count, so **provincial turnout is left
-blank** rather than guessed; the combined ranking falls back to the federal side
-and says it is partial. Party shares and ballot counts are unaffected. A file
-with registered voters by voting area turns turnout back on, and Elections BC's
-own voting-area-to-place assignment would replace the model entirely.
+The results file carries no registered-voter count, so turnout is not computed
+from it. Elections BC defines turnout as the share of **registered voters who
+voted**, and publishes that denominator per electoral district in the
+[Statement of Votes](https://elections.bc.ca/docs/rpt/statement-of-votes-2024-provincial-election.pdf),
+not in the results file. Load a two-column table — district, registered voters —
+in section 3 of the Data tab and the Results tab reports turnout per district
+and city-wide. Either the abbreviation (`VFV`) or the full name
+(`Vancouver-Fraserview`) matches, and a column naming the voters who *voted* is
+ignored, since that is the numerator the atlas already has. Checked against the
+Statement of Votes: Vancouver-Fraserview, 20,865 ballots over 39,801 registered,
+reads 52.4%.
+
+That denominator is per district, so it is **not** spread onto voting areas:
+one number per district split across its areas would be a model, not a
+measurement. Until an elector count by voting area exists, per-area provincial
+turnout stays blank and the combined ranking falls back to the federal side and
+says it is partial. Party shares and ballot counts are unaffected throughout.
+Elections BC's own voting-area-to-place assignment would replace the catchment
+model entirely.
 
 ## Census data
 
@@ -280,7 +298,7 @@ and so on. `tests/run.js` stops at the first failing suite. GitHub Actions (`.gi
 every pull request, plus a check that the committed
 `vancouver-boundary-atlas.html` matches a fresh build.
 
-585 assertions — 409 in the node suites, 176 in the browser ones — plus 13
+662 assertions — 462 in the node suites, 200 in the browser ones — plus 13
 Python tests over the tools in `tools/`. The browser suites drive the real page
 in Chromium through Playwright: loading each boundary format, loading a BC Data
 Catalogue order as delivered and clipped, joining results, reading results

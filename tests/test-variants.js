@@ -243,6 +243,48 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
        new RegExp(`${want.catchments} catchments`).test(legend) && /repeating/.test(legend), legend.slice(0, 200));
     await page.locator('#shade-prov-by').selectOption('none'); await page.waitForTimeout(300);
 
+    // The Results tab is the one place that reports a place file as it arrived:
+    // by channel, with the located share stated rather than implied.
+    await page.locator('#tab-results').click(); await page.waitForTimeout(600);
+    const rs = (await page.locator('#results-status').innerText()).replace(/\s+/g, ' ');
+    ok('the summary counts every ballot in the file',
+       rs.includes(want.ballots.toLocaleString()), rs.slice(0, 180));
+    ok('and names rows and places separately, since they differ',
+       new RegExp(`${want.rows} reported rows across ${want.located} voting places`).test(rs), rs.slice(0, 200));
+    ok('a file with no elector column says there is no turnout to report',
+       /no registered-voter count/.test(rs), rs.slice(0, 260));
+    const channels = (await page.locator('#results-channels').innerText()).replace(/\s+/g, ' ');
+    ok('how people voted is broken out by opportunity',
+       /Final voting/.test(channels) && /Advance voting/.test(channels) && /Vote by mail/.test(channels),
+       channels.slice(0, 200));
+    ok('the busiest voting places are listed',
+       /Busiest voting places/.test(await page.locator('#results-largest-title').innerText()));
+    const turnoutCols = await page.$$eval('#results-districts thead th', (ths) => ths.map((t) => t.innerText));
+    ok('and the turnout column is dropped rather than shown as dashes',
+       !turnoutCols.includes('Turnout'), turnoutCols.join(','));
+
+    // Elections BC keeps the denominator in the Statement of Votes. Given it,
+    // turnout is a measurement: ballots over registered voters.
+    await page.locator('#tab-data').click();
+    await page.locator('#file-prov-electors').setInputFiles('fixtures/e2e_prov_electors.csv');
+    await page.waitForFunction(() => /registered voters|Could not/.test(document.querySelector('#status-prov-electors').innerText),
+      null, { timeout: 20000 });
+    const est = (await page.locator('#status-prov-electors').innerText()).replace(/\s+/g, ' ');
+    ok('the denominator column is read, not the "who voted" column beside it',
+       /from Electoral District and Registered voters\./.test(est), est.slice(0, 200));
+    await page.locator('#tab-results').click(); await page.waitForTimeout(700);
+    const withT = await page.$$eval('#results-districts thead th', (ths) => ths.map((t) => t.innerText));
+    ok('the turnout column comes back once there is a denominator',
+       withT.includes('Turnout'), withT.join(','));
+    const firstRow = await page.$$eval('#results-districts tbody tr td', (tds) => tds.slice(0, 3).map((t) => t.innerText));
+    ok(`and it is a real rate, not a dash or 100% (${firstRow[2]})`,
+       /^\d/.test(firstRow[2]) && parseFloat(firstRow[2]) > 20 && parseFloat(firstRow[2]) < 99, firstRow.join(' | '));
+    const rstat = (await page.locator('#results-status').innerText()).replace(/\s+/g, ' ');
+    ok('and the tab says where the denominator came from',
+       /denominator taken from the file you loaded/.test(rstat), rstat.slice(0, 220));
+    await page.locator('#tab-map').click(); await page.waitForTimeout(200);
+    await page.locator('#tab-map').click(); await page.waitForTimeout(300);
+
     // Reading a voting area must say which place its numbers came from.
     await page.evaluate(() => {
       const { state, selectAt } = window.vanPoliAtlas;

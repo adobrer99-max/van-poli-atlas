@@ -49,6 +49,8 @@ const state = {
   sample: null,
   cross: new Map(),
   weightingInEffect: null,
+  results: { sortKey: 'ballots', sortDir: 'desc' },
+  provElectors: null,
   socio: { outcome: 'turnout-agg', minElectors: 50, selected: new Set(), extra: new Map(),
            rows: null, byDa: null, table: null, sortKey: 'absR', sortDir: 'desc', picked: null },
 };

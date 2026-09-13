@@ -483,3 +483,21 @@ json.dump(expected, open("fixtures/e2e_expected.json", "w"), indent=1)
 print(f"voting places: {len(place_rows)} rows, {place_count} located, "
       f"{expected['places']['ballots']:,} ballots "
       f"({os.path.getsize('fixtures/e2e_voting_places.csv'):,} bytes)")
+
+
+# --- Registered voters by electoral district ---------------------------------
+# Elections BC publishes the denominator in the Statement of Votes, not in the
+# results file: one row per district, with the voters who voted beside the
+# voters registered. The first column is a decoy -- a reader that picks it
+# reports a turnout of exactly 100%.
+elector_rows = []
+for ed in sorted(by_district):
+    cells = by_district[ed]
+    voted = sum(1100 + 200 * k for k in range(3)) + 1400 + 150 + 500 + 120   # as written above
+    elector_rows.append([ed, voted, int(voted / 0.55)])
+write_csv("fixtures/e2e_prov_electors.csv",
+          ["Electoral District", "Registered voters who voted", "Registered voters"], elector_rows)
+expected["electors"] = {"districts": len(elector_rows),
+                        "total": sum(r[2] for r in elector_rows)}
+json.dump(expected, open("fixtures/e2e_expected.json", "w"), indent=1)
+print(f"registered voters: {len(elector_rows)} districts, {expected['electors']['total']:,} voters")

@@ -10,6 +10,7 @@
 <nav class="nav nav-pills" role="tablist" aria-label="Atlas sections">
   <button class="nav-link active" role="tab" id="tab-map" aria-controls="panel-map" aria-selected="true" type="button">Map</button>
   <button class="nav-link" role="tab" id="tab-data" aria-controls="panel-data" aria-selected="false" type="button">Data</button>
+  <button class="nav-link" role="tab" id="tab-results" aria-controls="panel-results" aria-selected="false" type="button">Results</button>
   <button class="nav-link" role="tab" id="tab-corr" aria-controls="panel-corr" aria-selected="false" type="button">Correlation</button>
   <button class="nav-link" role="tab" id="tab-turnout" aria-controls="panel-turnout" aria-selected="false" type="button">Turnout</button>
   <button class="nav-link" role="tab" id="tab-socio" aria-controls="panel-socio" aria-selected="false" type="button">Socioeconomic</button>
@@ -234,6 +235,21 @@
       The status line below says how much of the count took which route, and the
       <b>Method</b> tab says what that costs a correlation.
     </p>
+    <p class="text-small text-muted">
+      Elections BC reports turnout as the share of <b>registered voters who voted</b>, and
+      publishes that denominator per electoral district in the
+      <i>Statement of Votes</i> rather than in the results file. Load a two-column table
+      &mdash; district, registered voters &mdash; and the <b>Results</b> tab reports turnout
+      per district and city-wide. Any column named for the voters who <i>voted</i> is
+      ignored: that is the numerator, and the atlas already has it.
+    </p>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-prov-electors">Registered voters by electoral district (optional)
+        <input class="form-control" type="file" id="file-prov-electors" accept=".csv,.tsv,.txt">
+      </label>
+      <button type="button" class="btn" id="clear-prov-electors" hidden>Remove</button>
+    </div>
+    <div id="status-prov-electors" class="status"></div>
     <div class="viz-controls" id="prov-place-controls" hidden>
       <label class="form-label grow" for="prov-place-basis">Ballots with no voting place
         <select class="form-select" id="prov-place-basis">
@@ -304,6 +320,58 @@
 </section>
 
 <!-- ---------------------------------------------------------- CORRELATION -->
+<!-- -------------------------------------------------------------- RESULTS -->
+<section id="panel-results" role="tabpanel" aria-labelledby="tab-results" hidden>
+  <div class="card">
+    <h2>What the results files say</h2>
+    <p class="text-small text-muted">
+      Counts as reported, before anything is joined to a boundary, moved across the
+      crosswalk or spread from a voting place. Every other tab models something; this
+      one is the place to check a headline figure against the file it came from.
+    </p>
+    <div class="viz-controls" id="results-side-wrap" hidden>
+      <label class="form-label grow" for="results-side">Election
+        <select class="form-select" id="results-side"></select>
+      </label>
+      <button type="button" class="btn" id="export-results">Export summary CSV</button>
+    </div>
+    <div id="results-status" class="status"></div>
+    <p class="text-small text-muted" id="results-note"></p>
+    <div class="viz-grid" id="results-stats"></div>
+  </div>
+
+  <div id="results-body" hidden>
+    <div class="card">
+      <h2>Parties</h2>
+      <p class="text-small text-muted">Votes and share of the valid vote, across every district in the file.</p>
+      <div class="bar-list" id="results-parties"></div>
+    </div>
+
+    <div class="card" id="results-channels-card" hidden>
+      <h2>How people voted</h2>
+      <p class="text-small text-muted">
+        Ballots by voting opportunity. Only the final-day places have a catchment on the
+        map; everything else is spread across a whole district, so this is the share of
+        the count that carries real location.
+      </p>
+      <div class="bar-list" id="results-channels"></div>
+    </div>
+
+    <div class="card">
+      <h2>Districts</h2>
+      <p class="text-small text-muted">Click a heading to sort. Margin is the gap between first and second, in points of the valid vote.</p>
+      <div class="table-responsive">
+        <table class="table table-sm sortable" id="results-districts"></table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 id="results-largest-title">Largest units</h2>
+      <div id="results-largest"></div>
+    </div>
+  </div>
+</section>
+
 <section id="panel-corr" role="tabpanel" aria-labelledby="tab-corr" hidden>
   <div class="card">
     <h2>Build the crosswalk</h2>
@@ -648,13 +716,22 @@
       of polygons.
     </p>
     <p>
-      Provincial <b>turnout</b> is a separate matter. The voting-place file carries no
-      registered-voter count, so there is no denominator: provincial turnout is left
-      blank rather than guessed, the combined ranking falls back to the federal side
-      alone and says it is partial, and party shares and ballot counts are unaffected.
-      Loading a file with registered voters by voting area turns it back on.
-      If Elections BC's own voting-area-to-place assignment is loaded one day, it
-      replaces the model entirely and none of these caveats apply.
+      Provincial <b>turnout</b> is a separate matter, and a question of which denominator
+      exists at which geography. Elections BC defines turnout as the share of
+      <b>registered voters who voted</b>, and publishes that count per <i>electoral
+      district</i> in the Statement of Votes; the results file itself carries none. Given
+      that table, the <b>Results</b> tab reports turnout per district and city-wide, and
+      those are measurements, not estimates.
+    </p>
+    <p>
+      It stops there deliberately. One registered-voter count per district, split across
+      the district's voting areas, would be a model dressed as a measurement &mdash; and
+      since the only sensible split is by population, the variation between neighbouring
+      areas would be the census rather than the electorate. So per-area provincial
+      turnout stays blank, the combined ranking falls back to the federal side alone and
+      says it is partial, and party shares and ballot counts are unaffected. An elector
+      count <i>by voting area</i> would turn it on for real; so would Elections BC's own
+      voting-area-to-place assignment, which would replace the catchment model entirely.
     </p>
 
     <h3>Census geography and socioeconomic variables</h3>

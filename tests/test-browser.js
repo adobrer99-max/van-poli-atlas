@@ -153,6 +153,68 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.waitForTimeout(300);
   ok('legend shown', await page.locator('#map-legend').isVisible());
 
+  console.log('\n== Results tab ==');
+  // What the files say, before any of it is moved. The figures here must agree
+  // with the file itself, so they are checked against sums taken from the CSV.
+  {
+    const fs = require('fs');
+    const lines = fs.readFileSync('fixtures/e2e_provincial_results.csv', 'utf8').split(/\r?\n/).filter(Boolean);
+    const head = lines[0].split(',');
+    const iRej = head.indexOf('Rejected Ballots');
+    const parties = head.slice(3, iRej);
+    let valid = 0, rejected = 0;
+    const byParty = new Map(parties.map((p) => [p, 0]));
+    for (const line of lines.slice(1)) {
+      const c = line.split(',');
+      rejected += Number(c[iRej]);
+      parties.forEach((p, k) => { const v = Number(c[3 + k]); valid += v; byParty.set(p, byParty.get(p) + v); });
+    }
+    const top = [...byParty.entries()].sort((a, b) => b[1] - a[1])[0];
+
+    await page.locator('#tab-results').click();
+    await page.waitForTimeout(500);
+    ok('both loaded elections are on offer',
+       (await page.locator('#results-side option').allTextContents()).join('|') === 'Federal (2025)|Provincial (2024)',
+       (await page.locator('#results-side option').allTextContents()).join('|'));
+    const fedStatus = (await page.locator('#results-status').innerText()).replace(/\s+/g, ' ');
+    ok('the federal side reports polling divisions', /polling divisions/.test(fedStatus), fedStatus.slice(0, 140));
+    await page.locator('#results-side').selectOption('prov');
+    await page.waitForTimeout(400);
+    const status = (await page.locator('#results-status').innerText()).replace(/\s+/g, ' ');
+    ok('switching election changes the figures', status !== fedStatus, status.slice(0, 140));
+    ok(`the tab totals match the file itself (${valid + rejected} ballots)`,
+       status.includes((valid + rejected).toLocaleString()), status.slice(0, 160));
+    const tiles = (await page.locator('#results-stats').innerText()).replace(/\s+/g, ' ');
+    ok(`the leading party is the one with the most votes (${top[0]})`, tiles.includes(top[0]), tiles.slice(0, 160));
+    ok(`rejected ballots are counted (${rejected})`, tiles.includes(rejected.toLocaleString()), tiles.slice(0, 160));
+    const partyText = (await page.locator('#results-parties').innerText()).replace(/\s+/g, ' ');
+    ok('every party in the file has a bar',
+       parties.every((p) => partyText.includes(p)), partyText.slice(0, 200));
+    ok(`the top party's votes are shown (${top[1]})`, partyText.includes(top[1].toLocaleString()), partyText.slice(0, 200));
+    const dRows = await page.locator('#results-districts tbody tr').count();
+    ok(`every district is listed (${dRows})`, dRows === 12, String(dRows));
+    ok('a voting-area file shows no channel breakdown',
+       await page.locator('#results-channels-card').isHidden());
+    ok('the largest units are named for the geography',
+       /Largest voting areas/.test(await page.locator('#results-largest-title').innerText()));
+
+    // Sorting the district table by a heading reorders it.
+    const firstBefore = await page.locator('#results-districts tbody tr td').first().innerText();
+    await page.locator('#results-districts thead th[data-key="name"]').click();
+    await page.waitForTimeout(300);
+    const firstAfter = await page.locator('#results-districts tbody tr td').first().innerText();
+    ok('clicking a heading sorts the districts', firstBefore !== firstAfter, `${firstBefore} -> ${firstAfter}`);
+
+    const rdl = page.waitForEvent('download', { timeout: 15000 });
+    await page.locator('#export-results').click();
+    const rcsv = require('fs').readFileSync(await (await rdl).path(), 'utf8').split(/\r?\n/).filter(Boolean);
+    ok(`the summary exports (${rcsv.length - 1} rows) with one section column`,
+       /^﻿?section,name,detail,ballots/.test(rcsv[0]), rcsv[0].slice(0, 90));
+    const totalRow = rcsv.find((r) => /^total,/.test(r));
+    ok('and its total row carries the same ballots as the tab',
+       totalRow && totalRow.split(',')[3] === String(valid + rejected), totalRow);
+  }
+
   console.log('\n== Crosswalk and correlation ==');
   await page.locator('#tab-corr').click();
   await page.waitForTimeout(300);
