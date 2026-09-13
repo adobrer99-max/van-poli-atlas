@@ -116,6 +116,8 @@ function prepareFederal(features) {
       pollNum: isFinite(num) ? num : null,
       pollType: p.type,
       outsideCity: Boolean(p.jurisdiction),
+      jurisdiction: p.jurisdiction || null,
+      locality: p.locality || null,
       inVancouver: VANCOUVER_FEDS.has(p.fed) && !p.jurisdiction,
       label: `${FED_NAMES[p.fed] || p.fed} · poll ${p.poll.replace(/-0$/, '')}`,
     };
@@ -124,15 +126,31 @@ function prepareFederal(features) {
 
 const isPointLike = (f) => f.pollType === 'M' || f.pollType === 'S';
 
-function activeFederal() {
+/* Two ridings reach past the city line, and only one of them is UBC. Quadra
+   covers the University Endowment Lands; Fraserview--South Burnaby is a third
+   Burnaby by electors. The locality on the poll says which, so the option
+   named "+ UBC / UEL" adds UBC and nothing else -- Burnaby appears only under
+   "everything in the file", like the other Metro ridings in the payload. */
+const UBC_LOCALITY = 'Metro Vancouver A';
+
+/* The study area: what the Area control admits, mobile polls included. This is
+   a statement about geography, so nothing that only changes the drawing is
+   allowed to narrow it. */
+function federalStudyArea() {
   const area = $('area-filter').value;
-  const showMobile = $('show-mobile').checked;
   return state.fed.all.filter((f) => {
-    if (area === 'van' && !f.inVancouver) return false;
-    if (area === 'van-ubc' && !VANCOUVER_FEDS.has(f.fedNum)) return false;
-    if (!showMobile && isPointLike(f)) return false;
+    if (area !== 'all' && !VANCOUVER_FEDS.has(f.fedNum)) return false;
+    if (area === 'van' && f.outsideCity) return false;
+    if (area === 'van-ubc' && f.outsideCity && f.locality !== UBC_LOCALITY) return false;
     return true;
   });
+}
+
+/* What is drawn and ranked: the study area, less anything the reader has
+   switched off. */
+function activeFederal() {
+  const showMobile = $('show-mobile').checked;
+  return federalStudyArea().filter((f) => showMobile || !isPointLike(f));
 }
 
 /* Provincial features are trimmed to those touching the federal extent so a
@@ -805,7 +823,7 @@ function renderReadout() {
     fedCard.append(el('p', 'readout-name', fed.label));
     const bits = [`Riding ${fed.fedNum}`, `poll ${fed.poll}`,
       POLL_TYPE[fed.pollType] ? `${POLL_TYPE[fed.pollType]} poll` : null,
-      fed.outsideCity ? 'UBC / UEL — outside the City of Vancouver' : null];
+      fed.jurisdiction];
     fedCard.append(el('p', 'text-small text-muted', bits.filter(Boolean).join(' · ')));
     const unit = fedValues()?.get(fed.idx);
     if (unit) {

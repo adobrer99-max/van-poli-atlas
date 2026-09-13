@@ -159,6 +159,36 @@ for (const basis of ['votes', 'electors']) {
        [...vals.values()].reduce((a, u) => a + u.parties.get('A'), 0) + 600, 1e-9);
 }
 
+console.log('\n== A district that straddles the edge of the study area ==');
+/* Vancouver Fraserview--South Burnaby is two thirds Vancouver by electors. Its
+   advance ballots were cast by the whole riding, so handing all of them to the
+   two thirds that is on screen inflates it. Only that share is spread, and
+   only over the units inside. */
+const half = new Set([0, 1, 2, 3]);                 // four of district 59035's eight
+const straddle = T.apportionUnmatched(vals, new Map([['59035', extra.get('59035')]]),
+  { basis: 'electors', inArea: half, share: new Map([['59035', 0.5]]) });
+const pool = extra.get('59035').total + extra.get('59035').rejected;
+near('only the district\'s own share is spread', straddle.apportioned, pool * 0.5, 1e-9);
+near('and the rest is withheld rather than dropped quietly', straddle.withheld, pool * 0.5, 1e-9);
+let got = 0, outside = 0;
+for (const [i, u] of straddle.values) {
+  if (half.has(i)) got += u.apportioned || 0;
+  else outside += u.apportioned || 0;
+}
+near('every apportioned ballot lands inside the study area', got, pool * 0.5, 1e-9);
+ok('and not one lands outside it', outside === 0, String(outside));
+ok('units outside keep exactly the ballots they were reported with',
+   [...straddle.values].filter(([i]) => !half.has(i) && i < 8)
+     .every(([i, u]) => u.total === vals.get(i).total && u.rejected === vals.get(i).rejected));
+/* Without either option the behaviour is the one every other file gets. */
+const plain = T.apportionUnmatched(vals, extra, { basis: 'electors' });
+near('no study area and no share: the whole pool is spread, as before',
+     plain.apportioned, 1310, 1e-9);
+near('and nothing is withheld', plain.withheld, 0, 1e-9);
+let plainSum = 0;
+for (const u of new Set(plain.values.values())) plainSum += u.apportioned || 0;
+near('which is still conserved across the units', plainSum, 1310, 1e-6);
+
 console.log('\n== Merged polls ==');
 const keyOpts = { ignoreLeadingZeros: true, ignoreCase: true };
 const units = new Map();

@@ -24,6 +24,13 @@ Open the file in a browser, then work through the **Data** tab:
    lon/lat are converted automatically.
 2. **Federal results** — Elections Canada's
    `pollresults_resultatsbureau<riding>.csv`, one riding at a time or zipped.
+   Take this file, not `pollbypoll_bureauparbureau<riding>.csv`: the poll-by-poll
+   summary heads its columns with candidate names and carries no party at all,
+   so nothing can be compared across ridings. Both the 2016-era `Merge With`
+   column and the 2025 `Combined with No.` spelling are read. A division split
+   on the day — reported as `10A` and `10B` while the boundary file still draws
+   one polygon, `10-0` — is pooled back into that polygon, since the halves are
+   one polling division between them.
 3. **Provincial results** — Elections BC results by voting area, in either long
    (one row per candidate) or wide (one column per party) form; or, for 2024,
    results by *voting place* (see
@@ -138,6 +145,32 @@ and city-wide. Either the abbreviation (`VFV`) or the full name
 ignored, since that is the numerator the atlas already has. Checked against the
 Statement of Votes: Vancouver-Fraserview, 20,865 ballots over 39,801 registered,
 reads 52.4%.
+
+### Ridings that leave the city
+
+Two of the six federal ridings cross the City of Vancouver line: Vancouver
+Quadra reaches into UBC and the University Endowment Lands, and Vancouver
+Fraserview—South Burnaby is **a third Burnaby by electors**. Polls outside the
+city are tagged in the boundary file (`tools/tag-jurisdiction.js` derives the
+tag by measuring each poll against a municipal boundary you supply), and the
+**Area** control decides what to do with them: *City of Vancouver* excludes
+both, *+ UBC / UEL* adds UBC alone, *Everything in the file* adds the rest of
+Metro Vancouver.
+
+Excluding a poll is only half of it. A straddling riding cast its advance and
+special ballots across the whole riding, and those have no polygon at all, so
+apportioning them onto the polls that remain would hand Burnaby's share to
+Vancouver. Instead each district's pool is scaled by the share of its
+electorate inside the study area — measured from the file, not assumed — and
+only that share is spread, onto the polls inside. On the real 2025 files that
+is 66% for Fraserview—South Burnaby and 87% for Quadra; every other riding is
+100% and nothing about it changes. Ordinary polls with no boundary in the study
+area are kept apart from advance polls, which look the same to a join and are
+not the same thing at all.
+
+The **Results** tab still reports the file exactly as loaded, because it is the
+one unmodelled check in the atlas — but it names how many of those ballots were
+cast outside the chosen area, so a city total is never quoted by accident.
 
 That denominator is per district, so it is **not** spread onto voting areas:
 one number per district split across its areas would be a model, not a

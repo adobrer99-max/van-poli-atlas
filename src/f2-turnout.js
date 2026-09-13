@@ -29,38 +29,53 @@ const Turnout = (() => {
      both change cross-district comparisons; neither is a measurement, and the
      Method tab says so. Electors are never touched: the advance-poll elector
      counts overlap the ordinary polls' and must not be added. */
-  function apportionUnmatched(values, unmatchedByDistrict, { basis = 'votes', keyOpts } = {}) {
+  /* inArea, when given, is the set of feature indices inside the study area,
+     and share says how much of each district's electorate that is. A riding
+     that straddles the edge of the study area -- Vancouver Fraserview--South
+     Burnaby is a third Burnaby by electors -- cast its advance ballots across
+     the whole riding, so handing all of them to the half on screen inflates
+     it. Only that district's share is spread, and only over the units inside.
+     The remainder is withheld and reported rather than quietly dropped. */
+  function apportionUnmatched(values, unmatchedByDistrict,
+                              { basis = 'votes', keyOpts, inArea = null, share = null } = {}) {
     const clones = new Map();
     const out = new Map();
     for (const [idx, u] of values) {
       if (!clones.has(u)) clones.set(u, cloneUnit(u));
       out.set(idx, clones.get(u));
     }
+    /* Grouped from the index map rather than from the clones, because which
+       units are inside is a fact about features, not about units -- and two
+       merged polls share one unit. A Set dedupes that back down. */
     const byDistrict = new Map();
-    for (const c of clones.values()) {
+    for (const [idx, c] of out) {
+      if (inArea && !inArea.has(idx)) continue;
       const d = Results.normalizePart(c.district, keyOpts);
-      if (!byDistrict.has(d)) byDistrict.set(d, []);
-      byDistrict.get(d).push(c);
+      if (!byDistrict.has(d)) byDistrict.set(d, new Set());
+      byDistrict.get(d).add(c);
     }
     const weightOf = basis === 'electors' ? (u) => u.electors : (u) => ballots(u);
-    let apportioned = 0, districts = 0;
+    let apportioned = 0, districts = 0, withheld = 0;
     for (const [d, extra] of unmatchedByDistrict) {
       const members = byDistrict.get(d);
-      const pool = extra.total + extra.rejected;
-      if (!members || !(pool > 0)) continue;
-      const sum = members.reduce((a, u) => a + weightOf(u), 0);
-      if (!(sum > 0)) continue;
+      const whole = extra.total + extra.rejected;
+      const f = share && share.has(d) ? share.get(d) : 1;
+      const pool = whole * f;
+      if (!members || !members.size || !(pool > 0)) { withheld += whole; continue; }
+      const sum = [...members].reduce((a, u) => a + weightOf(u), 0);
+      if (!(sum > 0)) { withheld += whole; continue; }
       for (const u of members) {
         const s = weightOf(u) / sum;
-        u.total += extra.total * s;
-        u.rejected += extra.rejected * s;
+        u.total += extra.total * f * s;
+        u.rejected += extra.rejected * f * s;
         u.apportioned += pool * s;
-        for (const [p, v] of extra.parties) u.parties.set(p, (u.parties.get(p) || 0) + v * s);
+        for (const [p, v] of extra.parties) u.parties.set(p, (u.parties.get(p) || 0) + v * f * s);
       }
       apportioned += pool;
+      withheld += whole - pool;
       districts++;
     }
-    return { values: out, apportioned, districts };
+    return { values: out, apportioned, districts, withheld };
   }
 
   /* --- Rows on a common geography ------------------------------------------

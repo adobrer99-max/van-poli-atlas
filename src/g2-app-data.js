@@ -560,12 +560,17 @@ function rejoinFederalResults() {
   if (!store) return;
   const keyDef = { district: 'fed', poll: 'poll', federalSuffixes: true };
   const focus = new Set(activeFederal().map((f) => f.idx));
-  const joined = Results.join(state.fed.all, keyDef, store.table, store.mapping, focus);
+  /* The study area is the Area control alone. Hiding mobile polls narrows what
+     is drawn and what the match rate is reported against, but a mobile poll is
+     still inside the city, and its electors still belong in the denominator
+     that decides how a straddling riding's advance ballots are split. */
+  const inArea = new Set(federalStudyArea().map((f) => f.idx));
+  const joined = Results.join(state.fed.all, keyDef, store.table, store.mapping, focus, inArea);
   store.values = joined.values;
   store.parties = joined.parties;
   store.report = joined.report;
   store.keyOpts = joined.keyOpts;
-  store.apportioned = buildApportioned(store);
+  store.apportioned = buildApportioned(store, inArea);
   refreshResults(true);
   $('clear-fed-results').hidden = false;
   setStatus('status-fed-results', joined.report.matchedFeatures ? 'ok' : 'error',
@@ -574,12 +579,15 @@ function rejoinFederalResults() {
   draw(); renderReadout(); refreshCorrelation(); refreshTurnout();
 }
 
-/* Both apportionment bases are computed once per join; the Turnout tab picks. */
-function buildApportioned(store) {
+/* Both apportionment bases are computed once per join; the Turnout tab picks.
+   The focus set and the per-district in-area share travel with it, so a riding
+   that straddles the study area hands over only its own share of the advance
+   ballots, and hands it only to the polls that are inside. */
+function buildApportioned(store, focus) {
   const out = {};
   for (const basis of ['votes', 'electors']) {
     out[basis] = Turnout.apportionUnmatched(store.values, store.report.unmatchedByDistrict,
-      { basis, keyOpts: store.keyOpts });
+      { basis, keyOpts: store.keyOpts, inArea: focus || null, share: store.report.inAreaShare });
   }
   return out;
 }
@@ -595,7 +603,7 @@ function rejoinProvincialResults() {
   store.parties = joined.parties;
   store.report = joined.report;
   store.keyOpts = joined.keyOpts;
-  store.apportioned = buildApportioned(store);
+  store.apportioned = buildApportioned(store, focus);
   refreshResults(true);
   $('clear-prov-results').hidden = false;
   setStatus('status-prov-results', joined.report.matchedFeatures ? 'ok' : 'error',

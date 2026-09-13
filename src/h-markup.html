@@ -655,6 +655,41 @@
       If a result only holds on one of the three, it is a property of the method
       rather than of the electorate.</p>
 
+    <h3>Ridings that leave the city</h3>
+    <p>
+      Two of the six federal ridings cross the City of Vancouver line. Vancouver
+      Quadra reaches into UBC and the University Endowment Lands; Vancouver
+      Fraserview&mdash;South Burnaby is <b>a third Burnaby by electors</b>. Polls
+      outside the city are tagged in the boundary file, and the <b>Area</b> control on
+      the Map tab decides what to do with them &mdash; but excluding a poll is only
+      half of the problem.
+    </p>
+    <p>
+      A straddling riding cast its advance and special ballots across the whole
+      riding, and those ballots have no polygon at all. Apportioning them onto the
+      polls that remain would hand Burnaby&rsquo;s share to Vancouver: on the 2025
+      files that is roughly 9,700 ballots landing on a part of the city that did not
+      cast them. So each district&rsquo;s pool is scaled by the share of its
+      electorate inside the study area &mdash; measured from the loaded file, not
+      assumed &mdash; and only that share is spread, onto the polls inside. Every
+      riding wholly inside has a share of 1 and nothing about it changes.
+    </p>
+    <p>
+      Two smaller things follow from the same distinction. An <i>ordinary</i> poll
+      with no boundary is not the same as an advance poll with no boundary, even
+      though a join cannot tell them apart: the first was cast somewhere this atlas
+      does not cover, and is reported rather than spread. And the study area is the
+      Area control alone &mdash; hiding mobile polls changes what is drawn, not where
+      the city is, so no apportioned figure moves when that switch does.
+    </p>
+    <p>
+      The remaining assumption is that people inside and outside the line vote early
+      at the same rate. There is no way to test it from published data: Elections
+      Canada reports an advance poll by the poll, not by the elector&rsquo;s home
+      division. The <b>Results</b> tab therefore keeps reporting the file exactly as
+      loaded, and names how many of its ballots were cast outside the chosen area.
+    </p>
+
     <h3>Turnout</h3>
     <p>Turnout is ballots cast &mdash; valid votes plus rejected ballots &mdash; divided
       by the electors on the list for that poll or voting area. Electors, votes and

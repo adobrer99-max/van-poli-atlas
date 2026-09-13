@@ -135,5 +135,74 @@ console.log('\n== Federal poll suffix variants ==');
 eq('plain poll', R.federalPollVariants('12-0').sort(), ['12','12-0'].sort());
 ok('suffix 1 offers the A spelling', R.federalPollVariants('164-1').includes('164A'));
 
+console.log('\n== Split polls, and a riding that leaves the study area ==');
+/* The real shapes from Elections Canada's 2025 poll-by-poll files: a busy
+   division split into 10A and 10B on the day while the boundary still draws
+   one polygon for 10-0; advance polls in the 600 series with no polygon by
+   design; and an ordinary poll that has no polygon because it sits outside the
+   study area, which is a different thing and must not be spread as if it were
+   an advance poll. */
+const SP_HEADER = ['Electoral District Number/Numéro de circonscription',
+  'Polling Division Number/Numéro de section de vote',
+  'Combined with No./Résultats combinés à ceux du n°',
+  'Rejected Ballots for poll/Bulletins rejetés du bureau',
+  'Electors for poll/Électeurs du bureau',
+  'Political Affiliation Name_English/Appartenance politique_Anglais',
+  'Candidate Vote Count/Votes du candidat'];
+const sp = [];
+const addSp = (poll, electors, rejected, red, blue) => {
+  sp.push(['59035', poll, '', String(rejected), String(electors), 'Red', String(red)]);
+  sp.push(['59035', poll, '', String(rejected), String(electors), 'Blue', String(blue)]);
+};
+addSp('1', 400, 1, 60, 40);          // an ordinary poll, matches 1-0
+addSp('2A', 250, 1, 30, 20);         // poll 2 split on the day; boundary says 2-0
+addSp('2B', 260, 0, 25, 35);
+addSp('600', 0, 3, 300, 200);        // advance: no polygon by design
+addSp('490', 500, 2, 70, 30);        // ordinary number, no polygon: outside the study area
+const spMapping = R.detectLayout(SP_HEADER, sp);
+ok('the 2025 spelling of the merge column is detected',
+   spMapping.mergeWith >= 0 && /Combined with/.test(SP_HEADER[spMapping.mergeWith]),
+   String(spMapping.mergeWith));
+
+const twoPolls = van.filter((f) => ['1-0', '2-0'].includes(f.properties.poll));
+ok(`the fixture riding has both polygons (${twoPolls.length})`, twoPolls.length === 2);
+const spJoin = R.join(twoPolls, { district: 'fed', poll: 'poll', federalSuffixes: true },
+  { header: SP_HEADER, rows: sp }, spMapping, null);
+
+ok(`both halves of poll 2 pooled into its polygon (${spJoin.report.splitPolls} parent synthesised)`,
+   spJoin.report.splitPolls === 1);
+const byPoll = new Map([...spJoin.values.values()].map((u) => [u.poll, u]));
+eq('poll 2 carries the sum of its halves',
+   [byPoll.get('2').total, byPoll.get('2').electors, byPoll.get('2').rejected], [110, 510, 1]);
+eq('and both parties are summed, not one of them',
+   [byPoll.get('2').parties.get('Red'), byPoll.get('2').parties.get('Blue')], [55, 55]);
+ok('the halves stop being units of their own, so nothing is counted twice',
+   ![...spJoin.values.values()].some((u) => /[AB]$/.test(u.poll)),
+   [...spJoin.values.values()].map((u) => u.poll).join(','));
+ok('every polygon found a result', spJoin.report.matchedFeatures === 2);
+
+const rw = spJoin.report.unmatchedByDistrict.get('59035');
+const np = spJoin.report.noPolygonByDistrict.get('59035');
+eq('the advance poll is the district\'s to spread', [rw.units, rw.total], [1, 500]);
+eq('the ordinary poll with no polygon is kept apart from it', [np.units, np.total, np.electors], [1, 100, 500]);
+ok('and is reported as such', spJoin.report.noPolygonUnits === 1 && spJoin.report.noPolygonVotes === 102,
+   `${spJoin.report.noPolygonUnits} / ${spJoin.report.noPolygonVotes}`);
+const share = spJoin.report.inAreaShare.get('59035');
+/* 400 + 510 electors inside, 500 outside. */
+ok(`the in-area share of the district's electorate is measured (${share.toFixed(3)})`,
+   Math.abs(share - 910 / 1410) < 1e-9, String(share));
+
+const already = sp.concat([['59035', '2', '', '0', '999', 'Red', '7'], ['59035', '2', '', '0', '999', 'Blue', '3']]);
+const joinAlready = R.join(twoPolls, { district: 'fed', poll: 'poll', federalSuffixes: true },
+  { header: SP_HEADER, rows: already }, spMapping, null);
+ok('a file that already reports the parent is left alone, never doubled',
+   joinAlready.report.splitPolls === 0
+   && [...joinAlready.values.values()].find((u) => u.poll === '2').total === 10);
+
+const other = R.join(twoPolls, { district: 'fed', poll: 'poll' },
+  { header: SP_HEADER, rows: sp }, spMapping, null);
+ok('a file that is not Elections Canada numbering is untouched by any of this',
+   other.report.splitPolls === 0 && other.report.noPolygonUnits === 0);
+
 console.log(fails ? `\n${fails} FAILURE(S)\n` : '\nAll results tests passed.\n');
 process.exit(fails?1:0);

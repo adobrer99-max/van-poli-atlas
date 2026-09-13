@@ -96,6 +96,7 @@ function refreshResults(invalidate) {
         + `of ${fmtInt(summary.districts.length)} districts have one, so the city figure covers `
         + 'those alone'}.`));
   }
+  for (const line of outOfAreaLines(side)) lines.push(line);
   if (summary.located) {
     lines.push(el('p', 'text-small text-muted',
       `${fmtPct(summary.located.share)} of ballots were cast somewhere with a location `
@@ -103,6 +104,34 @@ function refreshResults(invalidate) {
       + 'spread across a district. See the Method tab.'));
   }
   setStatus('results-status', 'ok', lines);
+}
+
+/* This tab reports the file as loaded -- that is its whole purpose, and
+   filtering it would remove the one unmodelled check in the atlas. But a file
+   can carry ballots cast outside the area every other tab is restricted to,
+   and quoting a city total that silently includes them is the trap. So the
+   number is named here instead of removed. */
+function outOfAreaLines(side) {
+  const store = side === 'fed' ? state.fedResults : state.provResults;
+  const r = store && store.report;
+  if (!r || !(r.outOfAreaVotes > 0)) return [];
+  const out = [];
+  const where = $('area-filter')?.selectedOptions[0]?.textContent || 'the chosen area';
+  out.push(el('p', 'text-small text-warning',
+    `${fmtInt(r.outOfAreaVotes)} of these ballots were cast outside ${where} — `
+    + `${fmtInt(r.noPolygonUnits)} polls have no boundary in the study area and the rest sit on one `
+    + 'that does. They are counted here, because this tab reports the file as loaded; every other '
+    + 'tab leaves them out.'));
+  if (r.straddling && r.straddling.length) {
+    const names = r.straddling.map((x) => {
+      const name = side === 'fed' ? federalDistrictName(x.district) : null;
+      return `${name || x.district} ${fmtPct(x.share, 0)} inside`;
+    });
+    out.push(el('p', 'text-small text-muted',
+      `Districts that cross the edge: ${names.join(', ')}. Their advance and special ballots were `
+      + 'cast across the whole district, so only that share of them is spread onto the polls inside.'));
+  }
+  return out;
 }
 
 function renderResultsStats(side, s) {

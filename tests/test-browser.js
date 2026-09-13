@@ -31,7 +31,9 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   ok('title set', (await page.title()).includes('Vancouver'));
   const fedPaths = await page.locator('.layer-fed path').count();
   ok(`federal polls rendered (${fedPaths})`, fedPaths > 1000, `got ${fedPaths}`);
-  ok('mobile polls hidden by default', fedPaths === 1031, `got ${fedPaths}`);
+  /* 1017, not 1031: the sixteen Vancouver Fraserview--South Burnaby polls that
+     sit in Burnaby are tagged out-of-city and the default area excludes them. */
+  ok('mobile polls hidden by default, and so are the Burnaby polls', fedPaths === 1017, `got ${fedPaths}`);
   ok('empty-provincial notice shown', await page.locator('#prov-missing').isVisible());
   const finder = await page.locator('#find-poll option').count();
   ok(`poll finder populated (${finder})`, finder === fedPaths + 1);
@@ -70,7 +72,7 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.locator('#show-mobile').check();
   await page.waitForTimeout(400);
   const withMobile = await page.locator('.layer-fed path').count();
-  ok(`mobile polls can be shown (${fedPaths} -> ${withMobile})`, withMobile === 1103, `got ${withMobile}`);
+  ok(`mobile polls can be shown (${fedPaths} -> ${withMobile})`, withMobile === 1087, `got ${withMobile}`);
   await page.locator('#show-mobile').uncheck();
   await page.waitForTimeout(300);
 
@@ -116,7 +118,7 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.locator('#file-fed-results').setInputFiles('fixtures/e2e_federal_results.csv');
   await page.waitForTimeout(2500);
   status = await page.locator('#status-fed-results').innerText();
-  ok('federal results joined', /1,031 \/ 1,031/.test(status.replace(/\s+/g,' ')), status.replace(/\s+/g,' ').slice(0,220));
+  ok('federal results joined', /1,017 \/ 1,017/.test(status.replace(/\s+/g,' ')), status.replace(/\s+/g,' ').slice(0,220));
   ok('advance polls reported as unmatched', /advance polls/i.test(status), status.slice(0, 300));
   const coverage = status.match(/(\d+\.\d)%/);
   ok(`vote coverage reported (${coverage ? coverage[0] : 'none'})`, !!coverage);
