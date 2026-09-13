@@ -1949,6 +1949,8 @@ html>body{padding:0}
         <option value="turnout-agg">Aggregate turnout, both elections</option>
         <option value="turnout-delta">Federal minus provincial turnout</option>
         <option value="gap">Federal minus provincial party share</option>
+        <option value="muni-party" hidden>Municipal (2022) party share</option>
+        <option value="muni-ballots" hidden>Municipal (2022) ballots cast (smoothed)</option>
         <option value="points-count" hidden>Places loaded (count)</option>
         <option value="points-weight" hidden>Places loaded (weighted)</option>
       </select>
@@ -1958,6 +1960,9 @@ html>body{padding:0}
     </label>
     <label class="form-label grow" for="shade-party-prov">Provincial (2024) party
       <select class="form-select" id="shade-party-prov" disabled><option>Load 2024 provincial results</option></select>
+    </label>
+    <label class="form-label grow" for="muni-party" id="muni-party-label" hidden>Municipal (2022) party
+      <select class="form-select" id="muni-party"><option value="">Load the municipal results</option></select>
     </label>
   </div>
 
@@ -1971,6 +1976,8 @@ html>body{padding:0}
         <option value="catchment" hidden>Voting-place catchment (modelled)</option>
         <option value="prov-per-elector" hidden>Ballots per federal elector (not turnout)</option>
         <option value="prov-per-resident" hidden>Ballots per resident 15+ (not turnout)</option>
+        <option value="muni-party" hidden>Municipal (2022) party share</option>
+        <option value="muni-ballots" hidden>Municipal (2022) ballots cast (smoothed)</option>
         <option value="points-count" hidden>Places loaded (count)</option>
         <option value="points-weight" hidden>Places loaded (weighted)</option>
       </select>
@@ -2268,6 +2275,49 @@ html>body{padding:0}
       <button type="button" class="btn" id="clear-points-ref" hidden>Remove</button>
     </div>
     <div id="status-points-ref" class="status"></div>
+  </div>
+
+  <div class="card">
+    <h2>6. Vancouver&rsquo;s municipal election (2022)</h2>
+    <p class="text-small text-muted">
+      Two files from the City of Vancouver open data portal: the results archive
+      and the voting places, joined on the numeric voting place id. Load either
+      first &mdash; the results appear once both are in.
+    </p>
+    <p class="text-small text-muted">
+      This election is not like the other two. You may vote at any voting place in
+      Vancouver, and in 2022 most people did: 68 of the 104 places were
+      vote-anywhere centres and 22 more were advance places drawing from across the
+      city. So the ballots are <em>smoothed</em> onto areas by distance rather than
+      assigned to the nearest place, and <strong>there is no municipal turnout by
+      area anywhere in this atlas</strong> &mdash; measured against the federal
+      turnout surface, any such map agrees at about r&nbsp;0.2 however it is built.
+      The party share survives that and is offered; the city&rsquo;s own published
+      city-wide rate is on the Results tab. The Method tab has the numbers.
+    </p>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-muni-results">Results archive (2022MunicipalElectionResults.zip)
+        <input class="form-control" type="file" id="file-muni-results" accept=".zip,.csv">
+      </label>
+      <button type="button" class="btn" id="clear-muni" hidden>Remove</button>
+    </div>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-muni-places">Voting places (voting-places-2022.csv)
+        <input class="form-control" type="file" id="file-muni-places" accept=".csv,.tsv,.txt,.zip,.geojson,.json">
+      </label>
+    </div>
+    <div class="viz-controls" id="muni-controls" hidden>
+      <label class="form-label grow" for="muni-race">Race
+        <select class="form-select" id="muni-race"></select>
+      </label>
+      <label class="form-label grow" for="muni-band-final">Final-day spread (m)
+        <input class="form-control" type="number" id="muni-band-final" value="600" min="100" max="5000" step="50">
+      </label>
+      <label class="form-label grow" for="muni-band-advance">Advance spread (m)
+        <input class="form-control" type="number" id="muni-band-advance" value="2000" min="100" max="10000" step="100">
+      </label>
+    </div>
+    <div id="status-muni" class="status"></div>
   </div>
 </section>
 
@@ -2765,6 +2815,69 @@ html>body{padding:0}
       shares and ballot counts are unaffected. An elector count <i>by voting area</i>
       would turn it on for real; so would Elections BC's own voting-area-to-place
       assignment, which would replace the catchment model entirely.
+    </p>
+
+    <h3>The municipal election, and why it has no turnout map</h3>
+    <p>
+      Vancouver's municipal election is measured differently from the other two in this
+      atlas, and the difference is not a detail. Federally and provincially you are assigned
+      a voting place near your home, so the ballots counted there were mostly cast by the
+      people who live around it &mdash; which is what makes a catchment a reasonable guess.
+      Municipally you may vote at any voting place in the city. In 2022, 68 of the 104 places
+      were vote-anywhere centres carrying 54.8% of the ballots, and 22 more were advance
+      places carrying another 40.1%. Only 12 ordinary neighbourhood places remained, and they
+      took 5.1% of the vote.
+    </p>
+    <p>
+      So a nearest-place catchment is the wrong instrument here, and it fails visibly. Applied
+      to the 2022 results it put more ballots into 32 polling divisions than those divisions
+      have electors &mdash; one advance place at Dunbar dropped 4,166 ballots onto four
+      divisions of about 450 electors each. What this atlas does instead is spread each
+      place's ballots over every area by distance, <code>exp(&minus;distance / bandwidth)</code>,
+      with a different bandwidth for each channel: about 600&nbsp;m for a final-day place and
+      about 2&nbsp;km for an advance one, because the advance network is sparse and drew from
+      further away. That removes all 32 impossible areas and conserves every ballot exactly.
+      Both bandwidths are on the Data tab, so the sensitivity is yours to check rather than
+      ours to assert.
+    </p>
+    <p>
+      Two things were tried and rejected, and both are worth stating because they are the
+      obvious things to try. Constraining each area's total to its electors times the
+      city-wide rate &mdash; the natural way to stop any area exceeding its own electorate
+      &mdash; returns that rate in every area: standard deviation 0.0 points, zero correlation
+      with anything. It does not estimate turnout, it asserts it. The atlas therefore uses a
+      <em>ceiling</em> at an area's own electorate, which binds only where the model is
+      impossible and is never a target. And a single bandwidth for every place, rather than
+      one per channel, is worse than doing nothing at all.
+    </p>
+    <p>
+      That leaves the question of whether the smoothed surface is worth anything. Measured
+      against the federal 2025 turnout surface &mdash; ordinary ballots on their own division,
+      advance ballots on the divisions their advance poll actually served, which the municipal
+      model never sees &mdash; every version tried agrees at about r&nbsp;0.2, and aggregating
+      to 1&nbsp;km and 2&nbsp;km cells does not rescue it (0.23 and 0.21). That is about 4% of
+      the variation. Two real elections at one geography would normally agree far more closely
+      than that. <strong>So this atlas offers no municipal turnout by area, at all.</strong>
+      A map of where municipal ballots were cast is largely a map of where the voting places
+      were.
+    </p>
+    <p>
+      Party share is a different matter, and it is why the municipal layer exists. A share is
+      a ratio of two numbers measured at the same place, so it needs no denominator tied to
+      the area it is drawn on: travel blurs it, but does not bias it the way it biases a rate.
+      Measured on the 2022 mayoral results, a voting place's share agrees with its neighbours
+      within a kilometre at r&nbsp;0.76. The surface that survives is offered; the one that
+      does not is absent.
+    </p>
+    <p>
+      The one turnout figure this election does contribute is the city's own: 170,274 ballots
+      on 464,126 registered voters in the City of Vancouver. That has no geographic modelling
+      in it whatever, and the city publishes it. The two places on the UBC Lands and the
+      University Endowment Lands are excluded throughout &mdash; their electors vote for
+      School Trustee and nothing else, and the city counts them separately too. And in a
+      ten-seat council race a ballot carries up to ten votes, so the party columns are votes
+      and the ballots column is ballots; the atlas keeps them apart rather than reporting
+      nine times the turnout.
     </p>
 
     <h3>Two denominators that are not an electorate</h3>
@@ -6142,11 +6255,17 @@ const Places = (() => {
   /* A party column is one named "<party>_votes" that is not one of the
      bookkeeping totals. Its readable name is the header without the suffix. */
   const NOT_A_PARTY = /^(valid|total|rejected|spoiled|cast|advance|final)$/i;
-  const ACRONYMS = new Set(['bc', 'ndp', 'cpc', 'ppc', 'lpc', 'cpbc', 'usa', 'uk']);
+  /* Municipal Vancouver runs on initials as much as the other two do, and a
+     party the atlas title-cases into "Abc Vancouver" reads as a typo on a map
+     legend. "OneCity" is not an acronym and is spelled as its own word. */
+  const ACRONYMS = new Set(['bc', 'ndp', 'cpc', 'ppc', 'lpc', 'cpbc', 'usa', 'uk',
+    'abc', 'npa', 'team', 'cope', 'vote', 'ovc']);
+  const SPELLINGS = new Map([['onecity', 'OneCity']]);
 
   function partyLabel(stem) {
     return stem.split(/[_\s]+/).filter(Boolean).map((word, i) => {
       const low = word.toLowerCase();
+      if (SPELLINGS.has(low)) return SPELLINGS.get(low);
       if (ACRONYMS.has(low)) return low.toUpperCase();
       if (i > 0 && (low === 'of' || low === 'the' || low === 'and')) return low;
       return low.charAt(0).toUpperCase() + low.slice(1);
@@ -6335,10 +6454,189 @@ const Places = (() => {
     };
   }
 
+  /* --- Smoothing, for an election where you may vote anywhere --------------
+
+     A catchment says: the ballots cast at this place were cast by the people
+     who live nearest it. Provincially that is close to true, because your
+     voting place is assigned to you. Municipally in Vancouver it is not: most
+     places are open to any elector of the city, so a nearest-place rule hands
+     one building's whole day to the handful of areas around it.
+
+     Measured on the 2022 city file against the federal 2025 turnout surface,
+     a nearest-place rule put more ballots into 32 areas than those areas have
+     electors. Replacing the hard assignment with a distance decay -- each
+     place spreading over every area, weighted by exp(-distance/bandwidth) --
+     removes all 32 and agrees slightly better with the federal surface
+     (r 0.20 against 0.18). One bandwidth for every place is worse than doing
+     nothing (r 0.15); the bandwidth has to differ by channel, because the
+     22 advance places drew from the whole city while the 68 final-day ones
+     did not.
+
+     Two warnings, both earned the hard way and both worth repeating wherever
+     this output is shown:
+
+     Constraining an area's total to its electors times a city-wide rate --
+     the obvious way to stop any area exceeding its own electorate -- produces
+     a map where every area has identical turnout. It does not estimate the
+     answer, it assumes it. The cap below is a ceiling that binds only where
+     the model is impossible, never a target.
+
+     And the whole exercise tops out at r about 0.2 against a real turnout
+     surface, at every resolution tried. Smoothing makes a municipal ballots
+     map defensible; it does not make it informative. Party share is the part
+     that survives -- a place agrees with its neighbours within a kilometre at
+     r 0.76 -- because a share is measured at one place and needs no
+     denominator tied to the area it is drawn on. */
+
+  const BANDWIDTH = { finalM: 600, advanceM: 2000 };
+
+  /* exp(-d/lambda), with lambda chosen per place. Normalising down the column
+     conserves each place's ballots exactly however wide the kernel is. */
+  function kernelWeights(features, places, options = {}) {
+    const pointOf = options.pointOf
+      || ((f) => (typeof Geo !== 'undefined' ? Geo.representativePoint(f.geometry) : null));
+    const weightOf = options.weightOf || (() => 1);
+    const band = { ...BANDWIDTH, ...(options.bandwidth || {}) };
+    const bandwidthOf = options.bandwidthOf
+      || ((p) => (p.final ? band.finalM : band.advanceM));
+
+    const pts = features.map(pointOf);
+    const w = features.map(() => new Float64Array(places.length));
+    for (let p = 0; p < places.length; p++) {
+      const lam = Math.max(1, bandwidthOf(places[p]));
+      const at = [places[p].lon, places[p].lat];
+      let col = 0;
+      for (let i = 0; i < features.length; i++) {
+        if (!pts[i]) continue;
+        const base = weightOf(i);
+        if (!(base > 0)) continue;
+        const v = base * Math.exp(-metresBetween(pts[i], at) / lam);
+        w[i][p] = v; col += v;
+      }
+      /* A place every area is impossibly far from would otherwise vanish; it
+         is spread by plain weight instead, which is the no-information answer
+         rather than a lost thousand ballots. */
+      if (!(col > 0)) for (let i = 0; i < features.length; i++) w[i][p] = weightOf(i) || 1;
+    }
+    return { w, bandwidth: band };
+  }
+
+  /* Scales each place's column to its ballots, then pulls back any area that
+     ends up above its cap, and repeats. The final pass is always a column
+     scaling, so ballots are conserved exactly even if a cap is still binding.
+     capOf(i) returning null or 0 means the area has no ceiling. */
+  function fitKernel(w, places, options = {}) {
+    const capOf = options.capOf || (() => 0);
+    const rounds = options.rounds == null ? 12 : options.rounds;
+    const F = w.length, P = places.length;
+    const ballots = places.map((p) => p.total + p.rejected);
+    const scaleColumns = () => {
+      for (let p = 0; p < P; p++) {
+        let s = 0;
+        for (let i = 0; i < F; i++) s += w[i][p];
+        if (!(s > 0)) continue;
+        const f = ballots[p] / s;
+        for (let i = 0; i < F; i++) w[i][p] *= f;
+      }
+    };
+    let bound = 0;
+    for (let r = 0; r < rounds; r++) {
+      scaleColumns();
+      bound = 0;
+      for (let i = 0; i < F; i++) {
+        const cap = capOf(i);
+        if (!(cap > 0)) continue;
+        let s = 0;
+        for (let p = 0; p < P; p++) s += w[i][p];
+        if (s <= cap) continue;
+        bound++;
+        const f = cap / s;
+        for (let p = 0; p < P; p++) w[i][p] *= f;
+      }
+      if (!bound) break;
+    }
+    scaleColumns();
+    let over = 0;
+    for (let i = 0; i < F; i++) {
+      const cap = capOf(i);
+      if (!(cap > 0)) continue;
+      let s = 0;
+      for (let p = 0; p < P; p++) s += w[i][p];
+      if (s > cap * 1.000001) over++;
+    }
+    return { capsBinding: bound, stillOverCap: over };
+  }
+
+  /* features + places -> one unit per feature, same shape spreadToAreas
+     returns, so the map, the Results tab and the exports do not know which of
+     the two produced what they are drawing. */
+  function smoothToAreas(features, read, options = {}) {
+    const pollOf = options.pollOf || ((f) => norm((f.properties || {}).VA_CODE));
+    const districtOf = options.districtOf
+      || ((f) => upper((f.properties || {}).ED_ABBREVIATION));
+    const places = read.places;
+    const { w, bandwidth } = kernelWeights(features, places, options);
+    const fit = fitKernel(w, places, options);
+
+    const values = new Map();
+    const effective = new Float64Array(features.length);
+    for (let i = 0; i < features.length; i++) {
+      let sum = 0, sq = 0;
+      for (let p = 0; p < places.length; p++) { const v = w[i][p]; sum += v; sq += v * v; }
+      if (!(sum > 0)) continue;
+      /* How many places an area's figure really rests on: one place at full
+         weight counts once, ten places at a tenth each count ten. Spreading
+         one place over five areas never made five measurements, and spreading
+         five places onto one area does not make it five times as certain
+         either -- this is what the correlation tab needs to know. */
+      effective[i] = (sum * sum) / sq;
+      const u = emptyUnit(districtOf(features[i]) || '', pollOf(features[i]));
+      for (let p = 0; p < places.length; p++) {
+        const share = w[i][p] / (places[p].total + places[p].rejected || 1);
+        if (w[i][p] > 0) addShare(u, places[p], share);
+      }
+      u.fromPlaces = sum;
+      values.set(i, u);
+    }
+
+    const eff = [...effective].filter((v) => v > 0).sort((a, b) => a - b);
+    const placed = [...values.values()].reduce((a, u) => a + u.fromPlaces, 0);
+    return {
+      values,
+      effective,
+      report: {
+        rowsRead: read.rowsRead,
+        places: places.length,
+        unlocatedRows: read.unlocated.length,
+        areasTotal: features.length,
+        areasAssigned: values.size,
+        ballotsTotal: read.ballots,
+        ballotsFromPlaces: placed,
+        ballotsSpread: 0,
+        ballotsUnplaced: read.unlocated.reduce((a, p) => a + p.total + p.rejected, 0),
+        bandwidth,
+        placesPerArea: {
+          min: eff[0] || 0,
+          median: eff.length ? eff[Math.floor(eff.length / 2)] : 0,
+          max: eff[eff.length - 1] || 0,
+        },
+        capsBinding: fit.capsBinding,
+        stillOverCap: fit.stillOverCap,
+        basis: 'kernel',
+        districtsMissing: [],
+        districtsWithoutPlace: [],
+        districtsWithoutPlaceBallots: [],
+        districtsWithAreasButNoResults: [],
+        electorsColumn: places.concat(read.unlocated).some((p) => p.electors > 0),
+        warnings: read.warnings,
+      },
+    };
+  }
+
   /* --- Spreading ballots onto the areas ------------------------------------ */
 
   const emptyUnit = (district, poll) => ({
-    total: 0, parties: new Map(), electors: 0, rejected: 0, rows: 0,
+    total: 0, parties: new Map(), electors: 0, rejected: 0, rows: 0, ballots: 0,
     district, poll, mergeWith: '', flags: { void: false, noPoll: false },
     mergedGroup: null, fromPlaces: 0, fromDistrict: 0, place: null, placeDistanceM: null,
   });
@@ -6347,6 +6645,13 @@ const Places = (() => {
     if (!(share > 0)) return;
     unit.total += place.total * share;
     unit.rejected += place.rejected * share;
+    /* Ballots, kept apart from votes. They are the same thing in a one-seat
+       race and they are not in a ten-seat one, where a ballot carries up to
+       ten votes and adding the candidate columns gives about ten times the
+       turnout. The file's own declared total is the ballot count when it has
+       one. */
+    unit.ballots += (place.declaredTotal == null ? place.total + place.rejected
+                                                 : place.declaredTotal) * share;
     unit.electors += place.electors * share;
     for (const [name, v] of place.byParty) {
       unit.parties.set(name, (unit.parties.get(name) || 0) + v * share);
@@ -6508,6 +6813,7 @@ const Places = (() => {
   return {
     detectPlaceLayout, detectColumn, partyColumns, partyLabel, readPlaces,
     assignAreas, spreadToAreas, sourceUnits, metresBetween, isFinalVoting,
+    smoothToAreas, kernelWeights, fitKernel, BANDWIDTH,
   };
 })();
 
@@ -7133,6 +7439,328 @@ const Points = (() => {
            detectPairOrder, NEEDS_REFERENCE };
 })();
 
+/* --- Vancouver's municipal election, which arrives in two files --------------
+
+   The city publishes results by voting place and the voting places themselves
+   separately, joined by a numeric id. That is a better starting position than
+   either other election in this atlas: the provincial 2024 results had to be
+   geocoded by place name, and the federal results reach a polygon only through
+   the poll number. Here the coordinates are published and the key is an
+   integer.
+
+   What this module does is put the two together into exactly the shape
+   f4-places.js already reads, so the map, the Results tab and everything else
+   downstream work on municipal results without knowing they are municipal.
+
+   Two things about the file are worth knowing before reading the code. The
+   race sheets carry a title row above the header, and the header has blank
+   columns between the candidates -- merged cells, from the spreadsheet these
+   were exported from. And a candidate column is spelled
+
+       51 STEWART, Kennedy (Forward with Kennedy Stewart)
+
+   so the party is in the brackets. Parties are what the rest of the atlas
+   groups by, and for a council race with ten seats and fifty-nine candidates
+   the party total is the only figure that means anything, so the bracket is
+   what is read. A candidate with no bracket is their own party, which is what
+   running as an independent amounts to.
+--------------------------------------------------------------------------- */
+const Municipal = (() => {
+  const norm = (v) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+  const num = (v) => {
+    const n = parseFloat(norm(v).replace(/[,\s]/g, ''));
+    return isFinite(n) ? n : 0;
+  };
+
+  /* --- The voting places --------------------------------------------------- */
+
+  const PLACE_COLS = {
+    id: [/^voting[_ ]?place[_ ]?id$/i, /voting.?place.?id/i, /^place[_ ]?id$/i],
+    name: [/^facility[_ ]?name$/i, /facility.?name/i, /^name$/i],
+    address: [/^facility[_ ]?address$/i, /facility.?address/i, /^address$/i],
+    area: [/^local[_ ]?area$/i, /local.?area/i, /neighbourhood/i],
+    advance: [/^advance[_ ]?only$/i, /advance.?only/i],
+    supercentre: [/^supercentre$/i, /supercent/i],
+  };
+
+  /* The two places on the UBC Lands and the University Endowment Lands are not
+     in the City of Vancouver. Their electors vote for School Trustee and
+     nothing else, and the city's own Overview sheet counts them separately, so
+     a City of Vancouver total that includes them is wrong. They are found by
+     the local area the file gives them rather than by their ids, which are a
+     property of one year's file. */
+  const OUTSIDE_CITY = /ubc|endowment|\buel\b/i;
+  const col = (header, key) => {
+    const H = header.map(norm);
+    for (const re of PLACE_COLS[key]) {
+      const i = H.findIndex((h) => re.test(h));
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+
+  /* Coordinates come through f6-points.js, which already knows the three
+     shapes this portal exports and which way round a pair is written. */
+  function readVotingPlaces(table) {
+    const header = (table.header || []).map(norm);
+    const idCol = col(header, 'id');
+    if (idCol < 0) {
+      throw new Error('This file needs a voting place id to join results to. '
+        + `It has: ${header.slice(0, 8).join(', ') || '(no header)'}.`);
+    }
+    const layout = Points.detectPointLayout(header, table.rows || []);
+    if (!layout || Points.NEEDS_REFERENCE.has(layout.kind)) {
+      throw new Error('The voting places file carries no coordinates of its own. '
+        + 'Download it from the City of Vancouver open data portal, which publishes '
+        + 'both a Geom and a geo_point_2d column.');
+    }
+    const read = Points.readPoints(table, layout);
+    const nameCol = col(header, 'name'), addrCol = col(header, 'address');
+    const areaCol = col(header, 'area'), advCol = col(header, 'advance');
+    const superCol = col(header, 'supercentre');
+    const cell = (r, i) => (i >= 0 && i < r.length ? r[i] : '');
+
+    /* readPoints drops a row it cannot locate, so the two are walked in step
+       rather than indexed against each other. */
+    const byId = new Map();
+    let p = 0, unlocated = 0;
+    for (const r of table.rows || []) {
+      const id = norm(cell(r, idCol));
+      if (!id) continue;
+      const point = read.points[p];
+      /* A row with no id was skipped above, so the next point belongs to this
+         row only if this row was itself locatable. */
+      const has = point && read.report.read > p;
+      if (!has) { unlocated++; continue; }
+      p++;
+      byId.set(id, {
+        id,
+        name: norm(cell(r, nameCol)) || `Voting place ${id}`,
+        address: norm(cell(r, addrCol)),
+        area: norm(cell(r, areaCol)),
+        advanceOnly: /^y(es)?$/i.test(norm(cell(r, advCol))),
+        supercentre: /^y(es)?$/i.test(norm(cell(r, superCol))),
+        outsideCity: OUTSIDE_CITY.test(norm(cell(r, areaCol))),
+        lon: point.lon, lat: point.lat,
+      });
+    }
+    /* Two places can share a facility name -- 21 of the 104 in 2022 do, because
+       a building hosts both an advance place and a final-day one. Everything
+       here keys on the id for that reason; a name is a label, not a key. */
+    const names = new Map();
+    for (const p of byId.values()) names.set(p.name, (names.get(p.name) || 0) + 1);
+    const sharedNames = [...names.values()].filter((n) => n > 1).length;
+    return { byId, order: layout.order, unlocated, count: byId.size, sharedNames };
+  }
+
+  /* --- A race sheet -------------------------------------------------------- */
+
+  /* "51 STEWART, Kennedy (Forward with Kennedy Stewart)" -> the bracket, or
+     the surname when there is no bracket. Two candidates of one party add
+     together, which for a ten-seat council race is the only readable figure. */
+  function candidateParty(raw) {
+    const s = norm(raw);
+    if (!s) return null;
+    const bracket = /\(([^)]+)\)\s*$/.exec(s);
+    if (bracket) return norm(bracket[1]);
+    const body = s.replace(/^\d+\s*/, '');
+    const surname = body.split(',')[0];
+    return norm(surname) || null;
+  }
+
+  const ID_HEADER = /voting\s*place\s*id/i;
+  const CAST = /times\s*cast|ballots\s*cast/i;
+  /* "2022 Election COUNCILLOR Results by Location (Vote for  10)". The seat
+     count matters: in a ten-seat race every ballot carries up to ten votes, so
+     the candidate columns are votes and are not ballots, and adding them up
+     gives a number about ten times the turnout. The file says which, so it is
+     read rather than guessed at. */
+  const SEATS = /\(\s*vote\s*for\s*(\d+)\s*\)/i;
+
+  /* The header is not the first row: a title sits above it. Found by looking
+     for the row that names the voting place id, rather than by assuming a
+     fixed offset, because the sheets are not consistent about it. */
+  function detectRace(table) {
+    const rows = table.rows || [];
+    const all = [table.header || []].concat(rows);
+    let at = -1;
+    for (let i = 0; i < Math.min(all.length, 8); i++) {
+      if ((all[i] || []).some((c) => ID_HEADER.test(norm(c)))) { at = i; break; }
+    }
+    if (at < 0) return null;
+    let seats = 0, title = '';
+    for (let i = 0; i < at; i++) {
+      const line = (all[i] || []).map(norm).join(' ');
+      const m = SEATS.exec(line);
+      if (m) { seats = parseInt(m[1], 10); title = line.replace(/,+\s*$/, '').trim(); }
+    }
+    const header = all[at].map(norm);
+    const idCol = header.findIndex((c) => ID_HEADER.test(c));
+    const castCol = header.findIndex((c) => CAST.test(c));
+    const candidates = [];
+    for (let i = 0; i < header.length; i++) {
+      if (i === idCol || i === castCol) continue;
+      const h = header[i];
+      /* Blank columns sit between candidates; the bookkeeping columns are
+         named and are not candidates either. */
+      if (!h || /undervote|overvote|^total/i.test(h)) continue;
+      const party = candidateParty(h);
+      if (party) candidates.push({ index: i, label: h, party });
+    }
+    return { headerRow: at, header, idCol, castCol, candidates, seats, title,
+             body: all.slice(at + 1) };
+  }
+
+  /* --- The two, put together ----------------------------------------------- */
+
+  /* Produces a table f4-places.js reads without changes: one row per voting
+     place, one column per party, longitude and latitude of its own. The
+     opportunity column carries the channel the city records -- advance or
+     election day -- so the Results tab can break the count down by it the way
+     it does provincially. */
+  function toPlacesTable(raceTable, places, options = {}) {
+    const race = detectRace(raceTable);
+    if (!race) {
+      throw new Error('This does not look like a results sheet: no column names the '
+        + 'voting place id. Load one of the race sheets from the results zip, such as Mayor.');
+    }
+    if (!race.candidates.length) throw new Error('No candidate columns were found in this sheet.');
+
+    const parties = [];
+    for (const c of race.candidates) if (!parties.includes(c.party)) parties.push(c.party);
+    const seats = race.seats || 1;
+    const header = ['district', 'voting_opportunity', 'voting_location', 'street_address',
+                    'longitude', 'latitude', 'total_ballots', 'rejected_ballots']
+      .concat(parties.map((p) => `${p}_votes`));
+
+    const rows = [];
+    const unplaced = [], summaries = [];
+    let matched = 0, ballotsMatched = 0, ballotsUnplaced = 0, outsideCity = 0;
+    for (const r of race.body) {
+      const raw = norm(r[race.idCol]);
+      if (!raw) continue;
+      const m = /^(\d+)\s*-\s*(.*)$/.exec(raw);
+      /* The last row of every race sheet is a Total, and adding it to the
+         places would double the election. Anything whose id is not a number is
+         a summary line, and it is counted and named rather than dropped
+         quietly, because a file that grows a second summary row should show up
+         here rather than in a total nobody rechecks. */
+      if (!m && !/^\d+$/.test(raw)) {
+        summaries.push({ label: raw, ballots: race.castCol >= 0 ? num(r[race.castCol]) : 0 });
+        continue;
+      }
+      const id = m ? m[1] : raw;
+      const name = m ? norm(m[2]) : raw;
+      const cast = race.castCol >= 0 ? num(r[race.castCol]) : 0;
+      const byParty = new Map();
+      let votes = 0;
+      for (const c of race.candidates) {
+        const v = num(r[c.index]);
+        votes += v;
+        byParty.set(c.party, (byParty.get(c.party) || 0) + v);
+      }
+      /* Only meaningful where one ballot is one vote. In a ten-seat race a
+         ballot marked for three candidates is not seven rejected ballots. */
+      const rejected = seats === 1 ? Math.max(0, cast - votes) : 0;
+      const place = places.byId.get(id);
+      if (!place) {
+        /* Special voting and mail have an id and a name but no place: the city
+           reports them in the same column. They are kept and reported rather
+           than dropped, and carry no coordinates, which is exactly how
+           f4-places.js already treats a row it cannot put on a map. */
+        unplaced.push({ id, name, ballots: cast });
+        ballotsUnplaced += cast;
+      } else {
+        matched++; ballotsMatched += cast;
+        if (place.outsideCity) outsideCity += cast;
+      }
+      rows.push([
+        options.district || 'CoV',
+        place ? (place.advanceOnly ? 'Advance voting' : 'Final voting') : (name || 'Not stated'),
+        place ? place.name : name,
+        place ? place.address : '',
+        place ? String(place.lon) : '',
+        place ? String(place.lat) : '',
+        String(cast),
+        String(rejected),
+      ].concat(parties.map((p) => String(byParty.get(p) || 0))));
+      if (place && place.outsideCity) rows[rows.length - 1][0] = 'UBC/UEL';
+    }
+    return {
+      table: { header, rows },
+      parties,
+      report: {
+        places: places.count,
+        rows: rows.length,
+        matched,
+        unplaced,
+        ballotsMatched,
+        ballotsUnplaced,
+        summaries,
+        outsideCity,
+        seats,
+        title: race.title,
+        sharedNames: places.sharedNames || 0,
+        candidates: race.candidates.length,
+        supercentres: [...places.byId.values()].filter((p) => p.supercentre).length,
+        advanceOnly: [...places.byId.values()].filter((p) => p.advanceOnly).length,
+        order: places.order,
+      },
+    };
+  }
+
+  /* --- The one turnout figure this election does carry ----------------------
+
+     There is no municipal turnout column per area anywhere in this atlas, and
+     that is deliberate: you may vote at any voting place in Vancouver, so
+     where a ballot was cast says little about where its voter lives, and a
+     per-area rate built from voting places is a picture of the voting place
+     network. The city-wide rate has no such problem -- the city publishes it,
+     with its own denominator -- so it is read from the Overview sheet and
+     shown as the single figure it is. */
+  function readOverview(table) {
+    const all = [table.header || []].concat(table.rows || []);
+    const find = (re) => {
+      for (const row of all) {
+        const label = norm(row[0]);
+        if (!re.test(label)) continue;
+        for (let i = 1; i < row.length; i++) {
+          const v = norm(row[i]);
+          if (/^[\d,]+$/.test(v)) return num(v);
+          if (/^[\d.]+\s*%$/.test(v)) return parseFloat(v) / 100;
+        }
+      }
+      return null;
+    };
+    const electors = find(/^registered voters \(cov\)/i);
+    const ballots = find(/^ballots cast \(cov\)/i);
+    const electorsAll = find(/^registered voters\b.*total/i);
+    const ballotsAll = find(/^ballots cast total/i);
+    if (electors == null && ballots == null) return null;
+    return {
+      electors, ballots,
+      turnout: electors > 0 && ballots > 0 ? ballots / electors : null,
+      electorsAll, ballotsAll,
+      /* The city's own headline rate divides by the total including the UBC
+         Lands and the UEL, whose electors vote for School Trustee only. Both
+         are carried so the difference is visible rather than argued about. */
+      turnoutAsPublished: electorsAll > 0 && ballotsAll > 0 ? ballotsAll / electorsAll : null,
+    };
+  }
+
+  const isOverviewSheet = (name) => /overview/i.test(String(name));
+
+  /* Which sheet in the results zip is a race rather than a summary. The zip
+     carries Mayor, Councillor, Park Board, School Trustee, three referendum
+     questions, an Overview and a Totals sheet. */
+  const RACE_SHEET = /mayor|councillor|council|park.?board|school.?trustee|trustee|\bq\d/i;
+  const isRaceSheet = (name) =>
+    RACE_SHEET.test(String(name).replace(/^.*[-\/]/, '').trim());
+
+  return { readVotingPlaces, detectRace, candidateParty, toPlacesTable, isRaceSheet,
+           readOverview, isOverviewSheet };
+})();
+
 </script>
 <script>
 
@@ -7263,6 +7891,12 @@ const state = {
   /* A loaded file of places -- addresses, an elector roll -- counted onto each
      layer. `per` is keyed by layer, then by the feature's own index. */
   points: null,
+  /* Vancouver's municipal election. Held apart from fedResults and provResults
+     because it is a different kind of measurement: you may vote at any voting
+     place in the city, so its ballots are smoothed onto areas rather than
+     assigned, and it carries no per-area turnout at any point. */
+  muni: null,
+  muniFiles: { places: null, races: null, overview: null },
   socio: { outcome: 'turnout-agg', minElectors: 50, selected: new Set(), extra: new Map(),
            rows: null, byDa: null, table: null, sortKey: 'absR', sortDir: 'desc', picked: null },
 };
@@ -7503,6 +8137,7 @@ function fitAll() {
 function shadeValue(layerKey, f, mode, fedParty, provParty) {
   if (mode === 'none' || mode === 'type' || mode === 'flat') return null;
   if (POINT_MODES.has(mode)) return pointsValue(layerKey, f, mode);
+  if (MUNI_MODES.has(mode)) return muniValue(layerKey, f, mode);
   if (layerKey === 'prov') {
     if (PART_MODES.has(mode)) {
       const p = state.provPart && state.provPart.get(f.__idx);
@@ -7557,6 +8192,29 @@ const PART_MODES = new Set(['prov-per-elector', 'prov-per-resident']);
 /* A loaded point file, counted or weighted, on whichever layer is being
    shaded. Both ramp on the data like the turnout modes do. */
 const POINT_MODES = new Set(['points-count', 'points-weight']);
+/* The municipal election offers a party share and a ballots-cast surface, and
+   deliberately no turnout. Measured against the federal turnout surface, a
+   municipal rate built from voting places agrees at about r 0.2 however it is
+   smoothed -- the voting place network, not the electorate, is most of what
+   such a map would show. The city-wide rate the city publishes is shown on the
+   Results tab instead, as the single figure it honestly is. */
+const MUNI_MODES = new Set(['muni-party', 'muni-ballots']);
+
+/* What the municipal spread put on this feature, keyed the way each layer
+   indexes itself. */
+function muniUnit(layerKey, f) {
+  const on = state.muni && state.muni.on && state.muni.on[layerKey];
+  if (!on) return null;
+  return on.get(layerKey === 'fed' ? f.idx : f.__idx) || null;
+}
+
+function muniValue(layerKey, f, mode) {
+  const u = muniUnit(layerKey, f);
+  if (!u) return null;
+  if (mode === 'muni-ballots') return u.ballots;
+  const party = $('muni-party') ? $('muni-party').value : '';
+  return party ? Analysis.shareOf(u, party) : null;
+}
 
 /* What a loaded point file put on this feature. Keyed by the feature's own
    index, which is `idx` federally and `__idx` everywhere else. */
@@ -7579,8 +8237,22 @@ function pointsLine(layerKey, f) {
     ? `${fmtInt(a.count)} ${noun} · ${fmtInt(a.weight)} ${p.weightNoun || 'weighted'}`
     : `${fmtInt(a.count)} ${noun}`;
 }
+/* The municipal line on a readout card. It says "ballots", never "turnout",
+   and it says smoothed, because the number is a model's output rather than a
+   count of anything that happened inside this area. */
+function muniLine(layerKey, f) {
+  const u = muniUnit(layerKey, f);
+  if (!state.muni) return null;
+  if (!u) return 'no municipal ballots reached this area';
+  const party = $('muni-party') ? $('muni-party').value : '';
+  const share = party ? Analysis.shareOf(u, party) : null;
+  return `${fmtInt(u.ballots)} municipal ballots (smoothed)`
+    + (share == null ? '' : ` · ${party} ${fmtPct(share)}`);
+}
+
 /* Modes whose ramp follows the data on the map rather than a fixed scale. */
-const DATA_MODES = new Set([...TURNOUT_MODES, ...PART_MODES, ...POINT_MODES, 'variable']);
+const DATA_MODES = new Set([...TURNOUT_MODES, ...PART_MODES, ...POINT_MODES,
+                            'muni-ballots', 'variable']);
 
 /* Turnout ramps are data-driven -- 5th to 95th percentile of what is on the
    map -- because a fixed scale would either wash out or saturate depending on
@@ -7616,6 +8288,8 @@ function fillColour(mode, v, fedParty, provParty) {
   if (mode === 'prov-per-elector') return 'var(--viz-series-4)';
   if (mode === 'prov-per-resident') return 'var(--viz-series-5)';
   if (POINT_MODES.has(mode)) return 'var(--viz-series-6)';
+  if (mode === 'muni-ballots') return 'var(--viz-series-3)';
+  if (mode === 'muni-party') return partyColour($('muni-party') ? $('muni-party').value : '');
   if (mode === 'fed-party') return partyColour(fedParty);
   if (mode === 'prov-party') return partyColour(provParty);
   return 'var(--muted)';
@@ -8100,6 +8774,8 @@ function renderReadout() {
     }
     const fpl = pointsLine('fed', fed);
     if (fpl) fedCard.append(el('p', 'text-small text-muted', fpl));
+    const fml = muniLine('fed', fed);
+    if (fml) fedCard.append(el('p', 'text-small text-muted', fml));
   } else {
     fedCard.append(el('p', 'text-muted', 'No federal polling division at this point.'));
   }
@@ -8133,6 +8809,8 @@ function renderReadout() {
     if (partLine) provCard.append(partLine);
     const pl = pointsLine('prov', prov);
     if (pl) provCard.append(el('p', 'text-small text-muted', pl));
+    const ml = muniLine('prov', prov);
+    if (ml) provCard.append(el('p', 'text-small text-muted', ml));
   } else if (state.prov.all.length) {
     provCard.append(el('p', 'text-muted', 'No provincial voting area at this point.'));
   } else {
@@ -11168,6 +11846,288 @@ if ($('file-points')) {
     $('clear-points-ref').hidden = true;
     setStatus('status-points-ref', 'idle', []);
     if (state.pointsTable) applyPointFile(state.pointsTable);
+  });
+}
+
+/* --- Vancouver's municipal election, on the Data tab -------------------------
+   Two files from the city's open data portal, joined on an integer, smoothed
+   onto whichever polygon layers are loaded. The maths is in f7-municipal.js
+   and f4-places.js; this file is wiring and words.
+
+   The one thing worth knowing before reading it: this election is measured
+   differently from the other two, and the difference is not cosmetic. You may
+   vote at any voting place in Vancouver, so a ballot's location says much less
+   about its voter than it does federally or provincially. Everything below
+   follows from that -- the distance smoothing instead of catchments, the two
+   bandwidths instead of one, and the absence of any per-area turnout. */
+
+/* Every polygon layer that is loaded, so one spread serves all of them. The
+   weight is the layer's own electorate where the atlas has one and ground area
+   where it does not: an area with no electors would otherwise take no ballots
+   at all, which is wrong for a park with a tower on its edge and very wrong
+   for a layer with no results loaded yet. */
+function muniTargets() {
+  const out = [];
+  const areaOf = (f) => (f.__area || (f.__area = Geo.areaM2(f.geometry))) || 1;
+  if (state.fed.active.length) {
+    const v = fedValues();
+    out.push({ key: 'fed', features: federalStudyArea(), idOf: (f) => f.idx,
+               weightOf: (f) => (v && v.get(f.idx)?.electors) || areaOf(f) / 1e4,
+               capOf: (f) => (v && v.get(f.idx)?.electors) || 0 });
+  }
+  if (state.prov.active.length) {
+    const v = provValues();
+    out.push({ key: 'prov', features: state.prov.active, idOf: (f) => f.__idx,
+               weightOf: (f) => (v && v.get(f.__idx)?.electors) || areaOf(f) / 1e4,
+               capOf: (f) => (v && v.get(f.__idx)?.electors) || 0 });
+  }
+  if (state.da.active.length) {
+    out.push({ key: 'da', features: state.da.active, idOf: (f) => f.__idx,
+               weightOf: (f) => (state.da.pop && state.da.pop[f.__idx]) || areaOf(f) / 1e4,
+               capOf: () => 0 });
+  }
+  return out;
+}
+
+function muniBandwidth() {
+  const n = (id, fallback) => {
+    const v = $(id) ? parseFloat($(id).value) : NaN;
+    return isFinite(v) && v > 0 ? v : fallback;
+  };
+  return { finalM: n('muni-band-final', Places.BANDWIDTH.finalM),
+           advanceM: n('muni-band-advance', Places.BANDWIDTH.advanceM) };
+}
+
+/* One race, spread onto every loaded layer. The cap is the area's own
+   electorate where there is one: a ceiling that stops a model claiming more
+   ballots than an area has voters, never a target. Constraining to a target
+   returns that target everywhere, which is an answer rather than a
+   measurement. */
+function spreadMunicipal(read) {
+  const on = {}, reports = {};
+  const bandwidth = muniBandwidth();
+  for (const t of muniTargets()) {
+    const idx = new Map(t.features.map((f, i) => [i, f]));
+    const spread = Places.smoothToAreas(t.features, read, {
+      bandwidth,
+      pointOf: (f) => (f.__pt || (f.__pt = Geo.representativePoint(f.geometry))),
+      weightOf: (i) => t.weightOf(idx.get(i)),
+      capOf: (i) => t.capOf(idx.get(i)),
+      pollOf: (f) => String(t.idOf(f)),
+      districtOf: () => 'CoV',
+    });
+    const byId = new Map();
+    for (const [i, u] of spread.values) byId.set(t.idOf(t.features[i]), u);
+    on[t.key] = byId;
+    reports[t.key] = spread.report;
+  }
+  return { on, reports, bandwidth };
+}
+
+function applyMunicipal() {
+  const files = state.muniFiles;
+  if (!files.places || !files.races || !files.races.length) return;
+  const raceName = $('muni-race') && $('muni-race').value;
+  const race = files.races.find((r) => r.name === raceName) || files.races[0];
+  try {
+    const built = Municipal.toPlacesTable(race.table, files.places, { district: 'CoV' });
+    const layout = Places.detectPlaceLayout(built.table.header);
+    if (!layout) throw new Error('The joined table carried no party columns to read.');
+    const read = Places.readPlaces(built.table, layout);
+    /* UBC and the UEL are a different jurisdiction whose electors vote for
+       School Trustee and nothing else. Their two places are held out of the
+       city spread rather than quietly folded into a City of Vancouver map. */
+    const inCity = { ...read, places: read.places.filter((p) => p.ed === 'COV'),
+                     unlocated: read.unlocated.filter((p) => p.ed === 'COV') };
+    const spread = spreadMunicipal(inCity);
+    state.muni = {
+      ...spread,
+      race: race.name,
+      built,
+      read: inCity,
+      parties: read.parties,
+      overview: files.overview,
+      ballots: inCity.places.reduce((a, p) =>
+        a + (p.declaredTotal == null ? p.total + p.rejected : p.declaredTotal), 0),
+    };
+    fillSelect($('muni-party'), read.parties.map(([name]) => ({ value: name, label: name })),
+      $('muni-party').value);
+    fillSelect($('muni-race'), files.races.map((r) => ({ value: r.name, label: r.name })), race.name);
+    $('muni-party-label').hidden = false;
+    $('muni-controls').hidden = false;
+    $('clear-muni').hidden = false;
+    updateMuniControls();
+    renderMuniReport();
+    draw(); renderReadout(); refreshResults(true);
+  } catch (err) {
+    setStatus('status-muni', 'error', [String(err.message || err)]);
+  }
+}
+
+function renderMuniReport() {
+  const m = state.muni;
+  if (!m) { setStatus('status-muni', 'idle', []); return; }
+  const r = m.built.report;
+  const lines = [];
+  lines.push(`${r.title || m.race}: ${fmtInt(m.ballots)} ballots on ${fmtInt(r.matched)} voting places.`);
+  if (r.seats > 1) {
+    lines.push(el('p', 'text-small text-muted',
+      `Every ballot in this race carries up to ${fmtInt(r.seats)} votes, so the party columns are `
+      + 'votes and the ballots column is ballots. The share is a share of votes; the surface is ballots.'));
+  }
+  if (r.summaries.length) {
+    lines.push(el('p', 'text-small text-muted',
+      `${r.summaries.map((s) => `${s.label} (${fmtInt(s.ballots)})`).join(', ')} `
+      + `${r.summaries.length === 1 ? 'is a summary row and is' : 'are summary rows and are'} `
+      + 'held out rather than added as places, which would count the election twice.'));
+  }
+  if (r.unplaced.length) {
+    lines.push(el('p', 'text-small text-muted',
+      `${r.unplaced.map((u) => `${u.name} (${fmtInt(u.ballots)})`).join(', ')}: reported without a `
+      + 'voting place, so they are left off the map rather than put somewhere plausible.'));
+  }
+  if (r.outsideCity) {
+    lines.push(el('p', 'text-small text-muted',
+      `${fmtInt(r.outsideCity)} ballots were cast on the UBC Lands and the UEL, which are outside the `
+      + 'city. They are excluded from everything below.'));
+  }
+  const ov = m.overview;
+  if (ov && ov.turnout) {
+    lines.push(el('p', 'text-small text-muted',
+      `City-wide turnout was ${fmtPct(ov.turnout)} — ${fmtInt(ov.ballots)} ballots on `
+      + `${fmtInt(ov.electors)} registered voters, as the city publishes it. That is the only `
+      + 'turnout figure this election contributes: there is no municipal turnout by area, because '
+      + 'a map of where ballots were cast in a vote-anywhere election is largely a map of the '
+      + 'voting places.'));
+  }
+  for (const [key, rep] of Object.entries(m.reports)) {
+    const name = { fed: 'federal polling divisions', prov: 'provincial voting areas',
+                   da: 'dissemination areas' }[key];
+    lines.push(el('p', 'text-small text-muted',
+      `${name}: spread over ${fmtInt(rep.areasAssigned)} of ${fmtInt(rep.areasTotal)}, `
+      + `each resting on about ${rep.placesPerArea.median.toFixed(1)} voting places `
+      + `(${rep.placesPerArea.min.toFixed(1)} to ${rep.placesPerArea.max.toFixed(1)})`
+      + (rep.capsBinding
+        ? `, and ${fmtInt(rep.capsBinding)} were pulled back to their own electorate`
+        : '') + '.'));
+  }
+  lines.push(el('p', 'text-small text-muted',
+    `Spread at ${fmtInt(m.bandwidth.finalM)} m for final-day places and `
+    + `${fmtInt(m.bandwidth.advanceM)} m for advance ones. Widening these flattens the map and `
+    + 'narrowing them concentrates it; neither makes it agree better with a real turnout surface, '
+    + 'which is why the party share is what this election is here for.'));
+  setStatus('status-muni', 'ok', lines);
+}
+
+/* The two municipal shade options appear once the results are loaded, on every
+   layer they were spread onto. */
+function updateMuniControls() {
+  const m = state.muni;
+  for (const [sel, key] of [['shade-by', 'fed'], ['shade-prov-by', 'prov']]) {
+    const node = $(sel);
+    if (!node) continue;
+    for (const value of ['muni-party', 'muni-ballots']) {
+      const option = node.querySelector(`option[value="${value}"]`);
+      if (!option) continue;
+      const ok = Boolean(m && m.on[key]);
+      option.hidden = !ok;
+      if (!ok && node.value === value) node.value = 'none';
+    }
+  }
+}
+
+/* --- Reading the two files ------------------------------------------------- */
+
+/* The results arrive as an archive of one sheet per race plus an Overview and
+   a Totals sheet. Every race is kept so the selector can switch between them
+   without re-reading the file. */
+async function loadMuniResults(file) {
+  setStatus('status-muni', 'busy', `Reading ${file.name}…`);
+  const bytes = await readFile(file);
+  const races = [], seen = new Set();
+  let overview = null;
+  const add = (name, bytesIn) => {
+    const table = TextFormats.parseDelimited(TextFormats.decodeBytes(bytesIn));
+    if (!table.header.length) return;
+    if (Municipal.isOverviewSheet(name)) { overview = Municipal.readOverview(table) || overview; return; }
+    if (!Municipal.isRaceSheet(name) || seen.has(name)) return;
+    const label = name.replace(/^.*[-\/]/, '').replace(/\.[a-z]+$/i, '').trim() || name;
+    seen.add(name);
+    races.push({ name: label, table });
+  };
+  if (/\.zip$/i.test(file.name)) {
+    const zip = BinaryFormats.readZip(bytes);
+    for (const [name, open] of zip) {
+      /* The archive carries the resource forks a Mac adds when it is rezipped;
+         they parse as empty tables and would appear as races. */
+      if (name.includes('__MACOSX') || /(^|\/)\./.test(name)) continue;
+      if (!/\.(csv|tsv|txt)$/i.test(name)) continue;
+      add(name, await open());
+    }
+  } else {
+    add(file.name, bytes);
+  }
+  if (!races.length) {
+    throw new Error('No race sheet was found. The 2022 archive holds Mayor, Councillor, '
+      + 'ParkBoard, SchoolTrustee and three questions; load that archive, or one of its sheets.');
+  }
+  state.muniFiles.races = races;
+  state.muniFiles.overview = overview;
+}
+
+async function loadMuniPlaces(file) {
+  setStatus('status-muni', 'busy', `Reading ${file.name}…`);
+  const table = await Ingest.loadTable(file.name, await readFile(file));
+  state.muniFiles.places = Municipal.readVotingPlaces(table);
+}
+
+async function loadMuniFile(file, which) {
+  try {
+    if (which === 'results') await loadMuniResults(file); else await loadMuniPlaces(file);
+    const files = state.muniFiles;
+    if (!files.places) {
+      setStatus('status-muni', 'busy', [
+        `${fmtInt(files.races.length)} races read. Now load the voting places file, which carries the `
+        + 'coordinates these results have to be joined to.']);
+      return;
+    }
+    if (!files.races) {
+      setStatus('status-muni', 'busy', [
+        `${fmtInt(files.places.count)} voting places read. Now load the results archive.`]);
+      return;
+    }
+    applyMunicipal();
+  } catch (err) {
+    setStatus('status-muni', 'error', [String(err.message || err)]);
+    clearInput(which === 'results' ? 'file-muni-results' : 'file-muni-places');
+  }
+}
+
+/* --- Wiring ---------------------------------------------------------------- */
+
+if ($('file-muni-results')) {
+  $('file-muni-results').addEventListener('change', (e) => {
+    if (e.target.files.length) loadMuniFile(e.target.files[0], 'results');
+    e.target.value = '';
+  });
+  $('file-muni-places').addEventListener('change', (e) => {
+    if (e.target.files.length) loadMuniFile(e.target.files[0], 'places');
+    e.target.value = '';
+  });
+  $('muni-race').addEventListener('change', () => applyMunicipal());
+  for (const id of ['muni-band-final', 'muni-band-advance']) {
+    $(id).addEventListener('change', () => { if (state.muni) applyMunicipal(); });
+  }
+  $('muni-party').addEventListener('change', () => { draw(); renderReadout(); });
+  $('clear-muni').addEventListener('click', () => {
+    state.muni = null;
+    state.muniFiles = { places: null, races: null, overview: null };
+    $('clear-muni').hidden = true;
+    $('muni-controls').hidden = true;
+    $('muni-party-label').hidden = true;
+    setStatus('status-muni', 'idle', []);
+    updateMuniControls();
+    draw(); renderReadout(); refreshResults(true);
   });
 }
 

@@ -15,7 +15,7 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const NODE_SUITES = ['test-geo', 'test-lcc', 'test-text', 'test-binary', 'test-ingest', 'test-analysis',
   'test-sample', 'test-slivers', 'test-repair', 'test-results', 'test-turnout', 'test-census',
-  'test-places', 'test-summary', 'test-points', 'test-perf'];
+  'test-places', 'test-summary', 'test-points', 'test-municipal', 'test-perf'];
 const BROWSER_SUITES = ['test-browser', 'test-variants'];
 /* Python suites cover the local tools in tools/; they run with the node ones. */
 const PYTHON_SUITES = ['test-shp-tools', 'test-filter-census', 'test-clip-geojson'];

@@ -57,6 +57,12 @@ const state = {
   /* A loaded file of places -- addresses, an elector roll -- counted onto each
      layer. `per` is keyed by layer, then by the feature's own index. */
   points: null,
+  /* Vancouver's municipal election. Held apart from fedResults and provResults
+     because it is a different kind of measurement: you may vote at any voting
+     place in the city, so its ballots are smoothed onto areas rather than
+     assigned, and it carries no per-area turnout at any point. */
+  muni: null,
+  muniFiles: { places: null, races: null, overview: null },
   socio: { outcome: 'turnout-agg', minElectors: 50, selected: new Set(), extra: new Map(),
            rows: null, byDa: null, table: null, sortKey: 'absR', sortDir: 'desc', picked: null },
 };
@@ -297,6 +303,7 @@ function fitAll() {
 function shadeValue(layerKey, f, mode, fedParty, provParty) {
   if (mode === 'none' || mode === 'type' || mode === 'flat') return null;
   if (POINT_MODES.has(mode)) return pointsValue(layerKey, f, mode);
+  if (MUNI_MODES.has(mode)) return muniValue(layerKey, f, mode);
   if (layerKey === 'prov') {
     if (PART_MODES.has(mode)) {
       const p = state.provPart && state.provPart.get(f.__idx);
@@ -351,6 +358,29 @@ const PART_MODES = new Set(['prov-per-elector', 'prov-per-resident']);
 /* A loaded point file, counted or weighted, on whichever layer is being
    shaded. Both ramp on the data like the turnout modes do. */
 const POINT_MODES = new Set(['points-count', 'points-weight']);
+/* The municipal election offers a party share and a ballots-cast surface, and
+   deliberately no turnout. Measured against the federal turnout surface, a
+   municipal rate built from voting places agrees at about r 0.2 however it is
+   smoothed -- the voting place network, not the electorate, is most of what
+   such a map would show. The city-wide rate the city publishes is shown on the
+   Results tab instead, as the single figure it honestly is. */
+const MUNI_MODES = new Set(['muni-party', 'muni-ballots']);
+
+/* What the municipal spread put on this feature, keyed the way each layer
+   indexes itself. */
+function muniUnit(layerKey, f) {
+  const on = state.muni && state.muni.on && state.muni.on[layerKey];
+  if (!on) return null;
+  return on.get(layerKey === 'fed' ? f.idx : f.__idx) || null;
+}
+
+function muniValue(layerKey, f, mode) {
+  const u = muniUnit(layerKey, f);
+  if (!u) return null;
+  if (mode === 'muni-ballots') return u.ballots;
+  const party = $('muni-party') ? $('muni-party').value : '';
+  return party ? Analysis.shareOf(u, party) : null;
+}
 
 /* What a loaded point file put on this feature. Keyed by the feature's own
    index, which is `idx` federally and `__idx` everywhere else. */
@@ -373,8 +403,22 @@ function pointsLine(layerKey, f) {
     ? `${fmtInt(a.count)} ${noun} · ${fmtInt(a.weight)} ${p.weightNoun || 'weighted'}`
     : `${fmtInt(a.count)} ${noun}`;
 }
+/* The municipal line on a readout card. It says "ballots", never "turnout",
+   and it says smoothed, because the number is a model's output rather than a
+   count of anything that happened inside this area. */
+function muniLine(layerKey, f) {
+  const u = muniUnit(layerKey, f);
+  if (!state.muni) return null;
+  if (!u) return 'no municipal ballots reached this area';
+  const party = $('muni-party') ? $('muni-party').value : '';
+  const share = party ? Analysis.shareOf(u, party) : null;
+  return `${fmtInt(u.ballots)} municipal ballots (smoothed)`
+    + (share == null ? '' : ` · ${party} ${fmtPct(share)}`);
+}
+
 /* Modes whose ramp follows the data on the map rather than a fixed scale. */
-const DATA_MODES = new Set([...TURNOUT_MODES, ...PART_MODES, ...POINT_MODES, 'variable']);
+const DATA_MODES = new Set([...TURNOUT_MODES, ...PART_MODES, ...POINT_MODES,
+                            'muni-ballots', 'variable']);
 
 /* Turnout ramps are data-driven -- 5th to 95th percentile of what is on the
    map -- because a fixed scale would either wash out or saturate depending on
@@ -410,6 +454,8 @@ function fillColour(mode, v, fedParty, provParty) {
   if (mode === 'prov-per-elector') return 'var(--viz-series-4)';
   if (mode === 'prov-per-resident') return 'var(--viz-series-5)';
   if (POINT_MODES.has(mode)) return 'var(--viz-series-6)';
+  if (mode === 'muni-ballots') return 'var(--viz-series-3)';
+  if (mode === 'muni-party') return partyColour($('muni-party') ? $('muni-party').value : '');
   if (mode === 'fed-party') return partyColour(fedParty);
   if (mode === 'prov-party') return partyColour(provParty);
   return 'var(--muted)';
@@ -894,6 +940,8 @@ function renderReadout() {
     }
     const fpl = pointsLine('fed', fed);
     if (fpl) fedCard.append(el('p', 'text-small text-muted', fpl));
+    const fml = muniLine('fed', fed);
+    if (fml) fedCard.append(el('p', 'text-small text-muted', fml));
   } else {
     fedCard.append(el('p', 'text-muted', 'No federal polling division at this point.'));
   }
@@ -927,6 +975,8 @@ function renderReadout() {
     if (partLine) provCard.append(partLine);
     const pl = pointsLine('prov', prov);
     if (pl) provCard.append(el('p', 'text-small text-muted', pl));
+    const ml = muniLine('prov', prov);
+    if (ml) provCard.append(el('p', 'text-small text-muted', ml));
   } else if (state.prov.all.length) {
     provCard.append(el('p', 'text-muted', 'No provincial voting area at this point.'));
   } else {
