@@ -131,7 +131,7 @@ function refreshTurnout() {
 
   const lines = [];
   lines.push(`${fmtInt(withAgg.length)} ${UNIT_NAMES[t.unit]} ranked`
-    + (state.pairs ? '.' : ' — without a crosswalk only the election native to this geography is included; build it on the Correlation tab to combine both.'));
+    + (state.pairs ? '.' : ' — without a crosswalk only the election native to this geography is included; build it on the Compare tab to combine both.'));
   const ap = [];
   for (const side of ['fed', 'prov']) {
     const mode = t.apportion[side];
@@ -159,7 +159,7 @@ function refreshTurnout() {
   if (ap.length) {
     lines.push(el('p', 'text-warning', ap.join('; ')
       + '. A ballot spread over the divisions that fed its advance poll is on far firmer ground '
-      + 'than one spread across a district, but neither is a measurement — see Method.'));
+      + 'than one spread across a district, but neither is a measurement — see “How to read this”.'));
   }
   for (const line of participationLines(ranked)) lines.push(line);
   setStatus('turnout-status', 'ok', lines);
@@ -191,7 +191,7 @@ function participationLines(rows) {
     + (pair
       ? 'Neither is a provincial electorate, and the spread between them is the size of that choice. '
       : 'That is not a provincial electorate; load the other layer to see a second denominator beside it. ')
-    + 'See the Method tab.'));
+    + 'See “How to read this”.'));
   const over = (key) => Turnout.overOne(rows, key);
   const bits = [];
   if (withFed && over('perFedElector')) bits.push(`${fmtInt(over('perFedElector'))} over 100% of federal electors`);
@@ -413,7 +413,7 @@ for (const id of ['turnout-unit', 'turnout-weight', 'turnout-min-electors']) {
 
    correlationInputs already says why -- "a correlation computed on different
    ballots from all three would be a trap" -- and without this line that is
-   exactly what happened: switching apportionment left the Correlation tab
+   exactly what happened: switching apportionment left the Compare tab
    showing an r computed under the previous setting, with nothing to say so.
    Numbers that look stable because they never recomputed are worse than
    numbers that move. */

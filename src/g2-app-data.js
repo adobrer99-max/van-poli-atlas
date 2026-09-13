@@ -271,7 +271,7 @@ async function loadCensusProfile(file) {
     }
     if (source.unmatched.length) {
       lines.push(el('p', 'text-warning', `Not found by name: ${source.unmatched.join(', ')}. `
-        + 'Any characteristic can still be added on the Socioeconomic tab.'));
+        + 'Any characteristic can still be added on the Neighbourhood profile tab.'));
     }
     if (!state.da.all.length) lines.push(el('p', 'text-muted', 'Load the dissemination-area boundaries above to join these variables to the map.'));
     setStatus('status-census', 'ok', lines);
@@ -809,7 +809,7 @@ function placeReportNode(report) {
       ? ' — load the census layers and build the crosswalk to split by population instead.' : '.')));
   frag.append(el('p', 'text-small text-muted',
     'Catchments are modelled here, not published by Elections BC: each area goes to the '
-    + 'nearest final-voting place of its own district. See the Method tab.'));
+    + 'nearest final-voting place of its own district. See “How to read this”.'));
   if (report.districtsWithoutPlace.length) {
     const n = report.districtsWithoutPlaceBallots.reduce((a, d) => a + d.ballots, 0);
     frag.append(el('p', 'text-small text-warning',
@@ -863,7 +863,7 @@ function refreshPartySelectors() {
     apply('corr-fed-party', fedParties, 'Load federal results');
     apply('corr-prov-party', provParties, 'Load provincial results');
   }
-  /* The Socioeconomic outcome can be any loaded party's share as well as turnout. */
+  /* The Neighbourhood profile outcome can be any loaded party's share as well as turnout. */
   const outcome = $('socio-outcome');
   if (outcome) {
     const previous = outcome.value;

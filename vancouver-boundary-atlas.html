@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vancouver federal &amp; provincial poll atlas</title>
+<title>Vancouver Election Atlas</title>
 <style>
 /* required styles */
 
@@ -1909,10 +1909,10 @@ html>body{padding:0}
 <body>
 <div id="atlas">
 <header class="atlas-header">
-  <h1>Vancouver federal &amp; provincial poll atlas</h1>
+  <h1>Vancouver Election Atlas</h1>
   <p class="text-small text-muted">
-    2025 federal polling divisions with provincial voting areas overlaid, for comparing
-    federal and provincial voting poll by poll in the City of Vancouver.
+    Federal, provincial and municipal results on one map of the City of Vancouver &mdash;
+    poll by poll, voting area by voting area &mdash; with the 2021 census beside them.
   </p>
 </header>
 
@@ -1920,10 +1920,10 @@ html>body{padding:0}
   <button class="nav-link active" role="tab" id="tab-map" aria-controls="panel-map" aria-selected="true" type="button">Map</button>
   <button class="nav-link" role="tab" id="tab-data" aria-controls="panel-data" aria-selected="false" type="button">Data</button>
   <button class="nav-link" role="tab" id="tab-results" aria-controls="panel-results" aria-selected="false" type="button">Results</button>
-  <button class="nav-link" role="tab" id="tab-corr" aria-controls="panel-corr" aria-selected="false" type="button">Correlation</button>
+  <button class="nav-link" role="tab" id="tab-corr" aria-controls="panel-corr" aria-selected="false" type="button">Compare</button>
   <button class="nav-link" role="tab" id="tab-turnout" aria-controls="panel-turnout" aria-selected="false" type="button">Turnout</button>
-  <button class="nav-link" role="tab" id="tab-socio" aria-controls="panel-socio" aria-selected="false" type="button">Socioeconomic</button>
-  <button class="nav-link" role="tab" id="tab-method" aria-controls="panel-method" aria-selected="false" type="button">Method</button>
+  <button class="nav-link" role="tab" id="tab-socio" aria-controls="panel-socio" aria-selected="false" type="button">Neighbourhood profile</button>
+  <button class="nav-link" role="tab" id="tab-method" aria-controls="panel-method" aria-selected="false" type="button">How to read this</button>
 </nav>
 
 <!-- ------------------------------------------------------------------ MAP -->
@@ -2169,7 +2169,7 @@ html>body{padding:0}
       of their own and are spread across the whole district instead.
       <b>These catchments are modelled here, not published by Elections BC.</b>
       The status line below says how much of the count took which route, and the
-      <b>Method</b> tab says what that costs a correlation.
+      <b>How to read this</b> tab says what that costs a correlation.
     </p>
     <p class="text-small text-muted">
       Elections BC reports turnout as the share of <b>registered voters who voted</b>, and
@@ -2206,7 +2206,7 @@ html>body{padding:0}
     <h2>4. Census geography and profile (Statistics Canada, 2021)</h2>
     <p class="text-small text-muted">
       Dissemination areas are the third geography: election results are moved onto them
-      through the crosswalk and correlated with census variables on the <b>Socioeconomic</b>
+      through the crosswalk and correlated with census variables on the <b>Neighbourhood profile</b>
       tab. Dissemination blocks (optional) weight every crosswalk by where people live
       rather than by area. The national downloads are large, so run
       <code>python3 tools/filter_census.py</code> once (see the README) and load its
@@ -2311,7 +2311,7 @@ html>body{padding:0}
       area anywhere in this atlas</strong> &mdash; measured against the federal
       turnout surface, any such map agrees at about r&nbsp;0.2 however it is built.
       The party share survives that and is offered; the city&rsquo;s own published
-      city-wide rate is on the Results tab. The Method tab has the numbers.
+      city-wide rate is on the Results tab. &ldquo;How to read this&rdquo; has the numbers.
     </p>
     <div class="viz-controls">
       <label class="form-label grow" for="file-muni-results">Results archive (2022MunicipalElectionResults.zip)
@@ -2399,7 +2399,7 @@ html>body{padding:0}
       Federal polling divisions and provincial voting areas are drawn by different
       agencies and share no boundaries, so results cannot be joined on a key.
       This measures how much of each federal division falls inside each voting area
-      and splits votes in those proportions. Read the <b>Method</b> tab before quoting
+      and splits votes in those proportions. Read the <b>How to read this</b> tab before quoting
       any number from here.
     </p>
     <div class="viz-controls">
@@ -2482,7 +2482,7 @@ html>body{padding:0}
       district only &mdash; so its last three columns divide the ballots by two counts
       that <i>are</i> available per area, federal electors and census residents aged 15
       and over. Neither is turnout, and the spread between them is shown because it is
-      the size of that choice. Read the <b>Method</b> tab before quoting a figure.
+      the size of that choice. Read the <b>How to read this</b> tab before quoting a figure.
     </p>
     <div class="viz-controls">
       <label class="form-label grow" for="turnout-unit">Common geography
@@ -2557,7 +2557,7 @@ html>body{padding:0}
       Federal (2025) and provincial (2024) results are moved onto Statistics Canada's 2021
       dissemination areas through the crosswalk, so every area carries turnout and party
       shares next to its census profile. A correlation here is a statement about
-      neighbourhoods, not about people &mdash; read the <b>Method</b> tab before quoting one.
+      neighbourhoods, not about people &mdash; read the <b>How to read this</b> tab before quoting one.
     </p>
     <div class="viz-controls">
       <label class="form-label grow" for="socio-unit">Correlate on
@@ -2626,7 +2626,7 @@ html>body{padding:0}
         Where a poll mixes a tower block with a park, the even-spreading assumption
         is wrong, and no amount of extra sampling resolution fixes it.</li>
       <li><b>Area is a stand-in for voters, unless you replace it.</b> With the
-        census layers loaded, <i>Weight overlaps by</i> on the Correlation tab weights
+        census layers loaded, <i>Weight overlaps by</i> on the Compare tab weights
         every lattice point by dissemination-block population instead, and the status
         line there says which basis is in force. Without them it is ground area, which
         assumes voters are spread evenly across a polygon. One wrinkle either way: a
@@ -2810,7 +2810,7 @@ html>body{padding:0}
       Elections BC actually drew.</b> Nearest-place is a reasonable guess in a dense city
       and a worse one where a district is long or a hall sits at one end. And
       <b>spreading one place's result over five areas does not make five
-      observations.</b> The Correlation and Socioeconomic tabs therefore report the number
+      observations.</b> The Compare and Neighbourhood profile tabs therefore report the number
       of independent sources beside the number of units, and compute the confidence
       interval on the sources; quote a coefficient with that figure, not with the count
       of polygons.
@@ -2959,7 +2959,7 @@ html>body{padding:0}
         arrive as gaps, not zeros, and an area with a gap is left out of that variable's
         correlation. The n column says how many areas each figure rests on.</li>
       <li><b>Neighbouring areas resemble each other</b>, so the confidence intervals are
-        narrower than the spatial structure warrants, here as on the Correlation tab.</li>
+        narrower than the spatial structure warrants, here as on the Compare tab.</li>
       <li><b>Attribution.</b> Adapted from Statistics Canada, Census Profile, 2021 Census of
         Population, and the 2021 Geographic Attribute File. This does not constitute an
         endorsement by Statistics Canada.</li>
@@ -8329,7 +8329,7 @@ function muniLegend(mode, layerKey, on) {
            `2022 municipal ballots ${where}, smoothed`
            + (dom ? ` — ${fmtInt(dom.lo)} to ${fmtInt(dom.hi)}` : '')],
           ['note', 'Ballots, not turnout. This atlas reports no municipal turnout by area; '
-           + 'the Method tab says why.']];
+           + '“How to read this” says why.']];
 }
 
 /* What a loaded point file put on this feature. Keyed by the feature's own
@@ -8733,7 +8733,7 @@ function renderLegend() {
   const CROSS_LEVEL = new Set(['prov-party', 'turnout-prov', 'turnout-agg', 'turnout-delta', 'gap']);
   const crossReady = Boolean(state.provOnFed && state.provOnFed.size);
   if (CROSS_LEVEL.has(mode) && !crossReady) {
-    items.push(['note', 'This shading needs the crosswalk — build it on the Correlation tab.']);
+    items.push(['note', 'This shading needs the crosswalk — build it on the Compare tab.']);
   } else if (mode === 'type') {
     items.push(['var(--muted)', 'Ordinary poll'], ['var(--viz-series-5)', 'Mobile poll'],
                ['var(--viz-series-6)', 'Single building']);
@@ -9028,7 +9028,7 @@ function zoomToFeature(feature) {
 /* --- The sample table and its crosswalks ------------------------------------
    buildCrosswalk (g3) samples every loaded layer once into state.sample.
    crossPair(a, b) then derives the crosswalk for any two layers on demand,
-   weighted as the Correlation tab asks, and caches it; the federal-provincial
+   weighted as the Compare tab asks, and caches it; the federal-provincial
    pair also fills the older state.crosswalk / state.pairs fields the rest of
    the app reads. */
 
@@ -9385,7 +9385,7 @@ async function loadCensusProfile(file) {
     }
     if (source.unmatched.length) {
       lines.push(el('p', 'text-warning', `Not found by name: ${source.unmatched.join(', ')}. `
-        + 'Any characteristic can still be added on the Socioeconomic tab.'));
+        + 'Any characteristic can still be added on the Neighbourhood profile tab.'));
     }
     if (!state.da.all.length) lines.push(el('p', 'text-muted', 'Load the dissemination-area boundaries above to join these variables to the map.'));
     setStatus('status-census', 'ok', lines);
@@ -9923,7 +9923,7 @@ function placeReportNode(report) {
       ? ' — load the census layers and build the crosswalk to split by population instead.' : '.')));
   frag.append(el('p', 'text-small text-muted',
     'Catchments are modelled here, not published by Elections BC: each area goes to the '
-    + 'nearest final-voting place of its own district. See the Method tab.'));
+    + 'nearest final-voting place of its own district. See “How to read this”.'));
   if (report.districtsWithoutPlace.length) {
     const n = report.districtsWithoutPlaceBallots.reduce((a, d) => a + d.ballots, 0);
     frag.append(el('p', 'text-small text-warning',
@@ -9977,7 +9977,7 @@ function refreshPartySelectors() {
     apply('corr-fed-party', fedParties, 'Load federal results');
     apply('corr-prov-party', provParties, 'Load provincial results');
   }
-  /* The Socioeconomic outcome can be any loaded party's share as well as turnout. */
+  /* The Neighbourhood profile outcome can be any loaded party's share as well as turnout. */
   const outcome = $('socio-outcome');
   if (outcome) {
     const previous = outcome.value;
@@ -10210,7 +10210,7 @@ const ID_OF = { fed: (f) => f.idx, prov: (f) => f.__idx, da: (f) => f.__idx, db:
 
 /* One count moved from one loaded layer onto another, keyed by the target
    feature's own index. Counts share out by overlap; this is the same call the
-   Socioeconomic tab makes to carry census variables the other way. */
+   Neighbourhood profile tab makes to carry census variables the other way. */
 function carriedCount(from, to, valueOf) {
   if (!state[from]?.all.length || !state[to]?.all.length) return null;
   const c = crossPair(from, to);
@@ -10699,7 +10699,7 @@ function refreshTurnout() {
 
   const lines = [];
   lines.push(`${fmtInt(withAgg.length)} ${UNIT_NAMES[t.unit]} ranked`
-    + (state.pairs ? '.' : ' — without a crosswalk only the election native to this geography is included; build it on the Correlation tab to combine both.'));
+    + (state.pairs ? '.' : ' — without a crosswalk only the election native to this geography is included; build it on the Compare tab to combine both.'));
   const ap = [];
   for (const side of ['fed', 'prov']) {
     const mode = t.apportion[side];
@@ -10727,7 +10727,7 @@ function refreshTurnout() {
   if (ap.length) {
     lines.push(el('p', 'text-warning', ap.join('; ')
       + '. A ballot spread over the divisions that fed its advance poll is on far firmer ground '
-      + 'than one spread across a district, but neither is a measurement — see Method.'));
+      + 'than one spread across a district, but neither is a measurement — see “How to read this”.'));
   }
   for (const line of participationLines(ranked)) lines.push(line);
   setStatus('turnout-status', 'ok', lines);
@@ -10759,7 +10759,7 @@ function participationLines(rows) {
     + (pair
       ? 'Neither is a provincial electorate, and the spread between them is the size of that choice. '
       : 'That is not a provincial electorate; load the other layer to see a second denominator beside it. ')
-    + 'See the Method tab.'));
+    + 'See “How to read this”.'));
   const over = (key) => Turnout.overOne(rows, key);
   const bits = [];
   if (withFed && over('perFedElector')) bits.push(`${fmtInt(over('perFedElector'))} over 100% of federal electors`);
@@ -10981,7 +10981,7 @@ for (const id of ['turnout-unit', 'turnout-weight', 'turnout-min-electors']) {
 
    correlationInputs already says why -- "a correlation computed on different
    ballots from all three would be a trap" -- and without this line that is
-   exactly what happened: switching apportionment left the Correlation tab
+   exactly what happened: switching apportionment left the Compare tab
    showing an r computed under the previous setting, with nothing to say so.
    Numbers that look stable because they never recomputed are worse than
    numbers that move. */
@@ -11016,7 +11016,7 @@ $('basket-clear').addEventListener('click', () => {
   renderBasket(); markBasketOnMap(); renderReadout();
 });
 
-/* --- Socioeconomic tab ------------------------------------------------------
+/* --- Neighbourhood profile tab ------------------------------------------------------
    Election results moved onto Statistics Canada's dissemination areas through
    the sample-table crosswalk, correlated with census variables. The maths is
    in f2-turnout.js (rows on a target geography), e-analysis.js (correlateXY)
@@ -11217,7 +11217,7 @@ function refreshSocio() {
   if (state.da.all.length && !state.da.variables.length) missing.push('a census profile joined to them');
   if (!state.fedResults?.values && !state.provResults?.values) missing.push('federal or provincial results');
   if (state.da.all.length && (!state.sample || !state.sample.ids.includes('da'))) {
-    missing.push('the crosswalk (build it on the Correlation tab after loading the census layer)');
+    missing.push('the crosswalk (build it on the Compare tab after loading the census layer)');
   }
   if (missing.length) {
     setStatus('socio-status', 'idle', [`Needed first: ${missing.join('; ')}.`]);
@@ -11449,7 +11449,7 @@ function drawSocioScatter() {
     + `; r = ${fmtNum(t.r, 3)}, electors-weighted r = ${fmtNum(t.rWeighted, 3)}. Dot size follows electors.`
     /* The resident denominator is a census count, so correlating it against
        another census count shares a source with its own outcome. Worth saying
-       under the chart rather than only in the Method. */
+       under the chart rather than only in “How to read this”. */
     + (outcome.circular
       ? ' This outcome divides by a census count, so a correlation against another '
         + 'census variable shares a source with its own denominator — read it beside the '
@@ -11709,7 +11709,7 @@ function refreshResults(invalidate) {
     lines.push(el('p', 'text-small text-muted',
       `${fmtPct(summary.located.share)} of ballots were cast somewhere with a location `
       + `(${fmtInt(summary.located.places)} voting places); the rest have none and can only be `
-      + 'spread across a district. See the Method tab.'));
+      + 'spread across a district. See “How to read this”.'));
   }
   setStatus('results-status', 'ok', lines);
 }

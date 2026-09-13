@@ -204,7 +204,7 @@ const ID_OF = { fed: (f) => f.idx, prov: (f) => f.__idx, da: (f) => f.__idx, db:
 
 /* One count moved from one loaded layer onto another, keyed by the target
    feature's own index. Counts share out by overlap; this is the same call the
-   Socioeconomic tab makes to carry census variables the other way. */
+   Neighbourhood profile tab makes to carry census variables the other way. */
 function carriedCount(from, to, valueOf) {
   if (!state[from]?.all.length || !state[to]?.all.length) return null;
   const c = crossPair(from, to);

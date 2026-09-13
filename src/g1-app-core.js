@@ -477,7 +477,7 @@ function muniLegend(mode, layerKey, on) {
            `2022 municipal ballots ${where}, smoothed`
            + (dom ? ` — ${fmtInt(dom.lo)} to ${fmtInt(dom.hi)}` : '')],
           ['note', 'Ballots, not turnout. This atlas reports no municipal turnout by area; '
-           + 'the Method tab says why.']];
+           + '“How to read this” says why.']];
 }
 
 /* What a loaded point file put on this feature. Keyed by the feature's own
@@ -881,7 +881,7 @@ function renderLegend() {
   const CROSS_LEVEL = new Set(['prov-party', 'turnout-prov', 'turnout-agg', 'turnout-delta', 'gap']);
   const crossReady = Boolean(state.provOnFed && state.provOnFed.size);
   if (CROSS_LEVEL.has(mode) && !crossReady) {
-    items.push(['note', 'This shading needs the crosswalk — build it on the Correlation tab.']);
+    items.push(['note', 'This shading needs the crosswalk — build it on the Compare tab.']);
   } else if (mode === 'type') {
     items.push(['var(--muted)', 'Ordinary poll'], ['var(--viz-series-5)', 'Mobile poll'],
                ['var(--viz-series-6)', 'Single building']);
@@ -1176,7 +1176,7 @@ function zoomToFeature(feature) {
 /* --- The sample table and its crosswalks ------------------------------------
    buildCrosswalk (g3) samples every loaded layer once into state.sample.
    crossPair(a, b) then derives the crosswalk for any two layers on demand,
-   weighted as the Correlation tab asks, and caches it; the federal-provincial
+   weighted as the Compare tab asks, and caches it; the federal-provincial
    pair also fills the older state.crosswalk / state.pairs fields the rest of
    the app reads. */
 

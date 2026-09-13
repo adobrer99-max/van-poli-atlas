@@ -100,7 +100,7 @@ html = f"""<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vancouver federal &amp; provincial poll atlas</title>
+<title>Vancouver Election Atlas</title>
 <style>
 {leaflet_css}
 {design_css}

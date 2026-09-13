@@ -1,7 +1,8 @@
 # van-poli-atlas
 
-GeoJSON atlas for the City of Vancouver — a single self-contained HTML file for
-comparing federal and provincial voting poll by poll.
+**Vancouver Election Atlas** — a single self-contained HTML file laying federal,
+provincial and municipal results over one map of the City of Vancouver, poll by
+poll and voting area by voting area, with the 2021 census beside them.
 
 `vancouver-boundary-atlas.html` opens straight from disk: no server, no build
 step, no account. It carries the 2025 federal polling divisions (1,406 polygons,
@@ -137,10 +138,10 @@ areas per catchment and 379 m from an area to its place, with 40% of ballots
 arriving through a catchment and 60% spread across a district.
 
 **The catchments are modelled here, not published by Elections BC.** Three
-consequences, all stated on the Method tab: within a catchment the variation
+consequences, all stated on the “How to read this” tab: within a catchment the variation
 you see is the census, not the election; nearest-place is a guess at a boundary
 Elections BC actually drew; and spreading one place's result over five areas
-does not make five observations, so the Correlation and Socioeconomic tabs
+does not make five observations, so the Compare and Neighbourhood profile tabs
 report the number of independent sources beside the number of units and compute
 the confidence interval on the sources. Quote a coefficient with that figure.
 
@@ -178,7 +179,7 @@ exactly — what lands on units equals what was matched plus what was
 apportioned, on either basis.
 
 Unlike the provincial catchments this atlas invents, **this is published**. The
-Method tab says so, and says which is which.
+“How to read this” tab says so, and says which is which.
 
 ### Ridings that leave the city
 
@@ -356,13 +357,13 @@ or `census_da_wide.csv` in section 4 of the Data tab. The national files load
 too — the reader clips a zipped shapefile to the study area before parsing its
 geometry, and streams files too big to hold whole — but slowly, and the
 national profile must fit in memory. With blocks loaded, every crosswalk is
-weighted by where people live rather than by area; the Correlation tab says
+weighted by where people live rather than by area; the Compare tab says
 which weighting is in effect.
 
 Fifteen starter variables are derived by characteristic name (population,
 density, age, household size and tenure, income, low income, unemployment,
 mobility, immigration, education); any of the ~2,600 characteristics can be
-added by name on the Socioeconomic tab. The Census Profile's column names, the
+added by name on the Neighbourhood profile tab. The Census Profile's column names, the
 DGUID prefix and the suppression symbols were written from documentation and
 memory rather than from the real files, so both the reader and the tool detect
 by pattern and report what they matched; if a name differs in your download,
@@ -582,7 +583,7 @@ area), `e-analysis.js` (the lattice sample, crosswalks between any two layers,
 population weights, statistics), `f-results.js` (results joining),
 `f2-turnout.js` (turnout, apportionment, ranking), `f3-census.js` (Statistics
 Canada's Census Profile and Geographic Attribute File), `g1`–`g5` and `g9` (the
-application, one shared scope; `g5` is the Socioeconomic tab), plus the shared
+application, one shared scope; `g5` is the Neighbourhood profile tab), plus the shared
 stylesheet and two vendored libraries: d3 v7 for the charts and Leaflet 1.9.4
 for the map. The page exposes `window.vanPoliAtlas.state` for the browser
 console and the test suites.
@@ -619,7 +620,7 @@ reported by voting place and checking every ballot survives the catchments,
 building the crosswalk, ranking turnout, spreading advance ballots onto the
 divisions that fed each advance poll, reporting provincial ballots against
 both denominators that can be had for a voting area, loading the census layers
-and correlating a planted variable on the Socioeconomic tab, exporting CSV, dark
+and correlating a planted variable on the Neighbourhood profile tab, exporting CSV, dark
 mode, phone-width layout, and the basemap with tile requests stubbed —
 including a run where every tile fails, to check the atlas carries on without
 them.

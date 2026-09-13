@@ -1,4 +1,4 @@
-/* --- Socioeconomic tab ------------------------------------------------------
+/* --- Neighbourhood profile tab ------------------------------------------------------
    Election results moved onto Statistics Canada's dissemination areas through
    the sample-table crosswalk, correlated with census variables. The maths is
    in f2-turnout.js (rows on a target geography), e-analysis.js (correlateXY)
@@ -199,7 +199,7 @@ function refreshSocio() {
   if (state.da.all.length && !state.da.variables.length) missing.push('a census profile joined to them');
   if (!state.fedResults?.values && !state.provResults?.values) missing.push('federal or provincial results');
   if (state.da.all.length && (!state.sample || !state.sample.ids.includes('da'))) {
-    missing.push('the crosswalk (build it on the Correlation tab after loading the census layer)');
+    missing.push('the crosswalk (build it on the Compare tab after loading the census layer)');
   }
   if (missing.length) {
     setStatus('socio-status', 'idle', [`Needed first: ${missing.join('; ')}.`]);
@@ -431,7 +431,7 @@ function drawSocioScatter() {
     + `; r = ${fmtNum(t.r, 3)}, electors-weighted r = ${fmtNum(t.rWeighted, 3)}. Dot size follows electors.`
     /* The resident denominator is a census count, so correlating it against
        another census count shares a source with its own outcome. Worth saying
-       under the chart rather than only in the Method. */
+       under the chart rather than only in “How to read this”. */
     + (outcome.circular
       ? ' This outcome divides by a census count, so a correlation against another '
         + 'census variable shares a source with its own denominator — read it beside the '

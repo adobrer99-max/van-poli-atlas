@@ -101,7 +101,7 @@ function refreshResults(invalidate) {
     lines.push(el('p', 'text-small text-muted',
       `${fmtPct(summary.located.share)} of ballots were cast somewhere with a location `
       + `(${fmtInt(summary.located.places)} voting places); the rest have none and can only be `
-      + 'spread across a district. See the Method tab.'));
+      + 'spread across a district. See “How to read this”.'));
   }
   setStatus('results-status', 'ok', lines);
 }
