@@ -101,6 +101,21 @@ eq('the match report names the row that fired', derived.matched.find((m) => m.ke
 const anyChar = Census.characteristicVariable(profile, 51, 'count');
 eq('any characteristic can become a variable', [anyChar.key, anyChar.values.get('59150101')], ['c51', 60]);
 ok('an unknown id is null', Census.characteristicVariable(profile, 999999) === null);
+/* The profile carries "0 to 14 years" and an age total but no "15 and over"
+   line, and a per-area denominator of adult residents needs the second. It is
+   the total less the first -- a count, so it shares out across a crosswalk
+   rather than being averaged. */
+near('pop_15_plus is the age total less the 0-to-14 band',
+     byKey.get('pop_15_plus').values.get('59150101'), 500 - 80);
+near('and again where the split is different', byKey.get('pop_15_plus').values.get('59150102'), 1000 - 100);
+eq('it is a count, not a rate or a share', byKey.get('pop_15_plus').use, 'complement');
+const noAge = Census.deriveVariables(profile, [
+  { key: 'pop_15_plus', label: 'x', name: /^Nowhere near an age band$/i, use: 'complement',
+    over: /^Total - Age groups of the population/i },
+  { key: 'no_total', label: 'y', name: /^0 to 14 years$/i, use: 'complement', over: /^No such total$/i },
+]);
+eq('a complement with either half missing is absent, never zero', noAge.unmatched, ['pop_15_plus', 'no_total']);
+
 const missing = Census.deriveVariables(profile, [{ key: 'nope', label: 'x', name: /^Nothing here$/, use: 'count' }]);
 eq('unmatched starters are listed', missing.unmatched, ['nope']);
 

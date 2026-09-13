@@ -147,6 +147,20 @@ says it is partial. Party shares and ballot counts are unaffected throughout.
 Elections BC's own voting-area-to-place assignment would replace the catchment
 model entirely.
 
+What the Turnout tab reports per area instead is the ballots over the two
+counts that *are* available there, side by side and never called turnout:
+
+| column | denominator | what it is not |
+| --- | --- | --- |
+| Per fed elector | 2025 federal electors, carried across the crosswalk | the 2024 provincial roll |
+| Per resident 15+ | census residents aged 15 and over | registered voters |
+| Spread | the difference, in percentage points | — |
+
+Each appears only where its denominator resolves, and the tab counts the areas
+that come out over 100% rather than hiding them, because that is what a
+borrowed denominator looks like where it does not fit. Both can shade the map,
+and the legend names the denominator every time.
+
 ## Census data
 
 Statistics Canada publishes the pieces separately and nationally, and the
@@ -298,13 +312,14 @@ and so on. `tests/run.js` stops at the first failing suite. GitHub Actions (`.gi
 every pull request, plus a check that the committed
 `vancouver-boundary-atlas.html` matches a fresh build.
 
-662 assertions — 462 in the node suites, 200 in the browser ones — plus 13
+709 assertions — 487 in the node suites, 222 in the browser ones — plus 13
 Python tests over the tools in `tools/`. The browser suites drive the real page
 in Chromium through Playwright: loading each boundary format, loading a BC Data
 Catalogue order as delivered and clipped, joining results, reading results
 reported by voting place and checking every ballot survives the catchments,
-building the crosswalk, ranking turnout, loading the census layers and
-correlating a planted variable on the Socioeconomic tab, exporting CSV, dark
+building the crosswalk, ranking turnout, reporting provincial ballots against
+both denominators that can be had for a voting area, loading the census layers
+and correlating a planted variable on the Socioeconomic tab, exporting CSV, dark
 mode, phone-width layout, and the basemap with tile requests stubbed —
 including a run where every tile fails, to check the atlas carries on without
 them.

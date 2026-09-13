@@ -382,7 +382,7 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.waitForTimeout(1500);
   status = await page.locator('#status-census').innerText();
   ok('long profile read for the study area', new RegExp(`long layout: ${expected.census.dissemination_areas} geographies`).test(status), status);
-  ok('all 14 starter variables matched by name', /14 starter variables matched/.test(status), status);
+  ok('all 15 starter variables matched by name', /15 starter variables matched/.test(status), status);
 
   await page.locator('#tab-map').click();
   await page.waitForTimeout(600);
@@ -404,7 +404,7 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   ok('dissemination areas carry the aggregate turnout', /dissemination areas carry aggregate turnout/.test(socioStatus), socioStatus);
   const socioRows = page.locator('#socio-table tbody tr');
   const nVars = await socioRows.count();
-  ok(`table lists the 14 starter variables (${nVars})`, nVars === 14);
+  ok(`table lists the 15 starter variables (${nVars})`, nVars === 15);
   // Rows as cells: [variable, n, r, electors-weighted r, rho, |r|, CI].
   const socioCells = async () => socioRows.evaluateAll((trs) => trs.map((tr) => [...tr.children].map((td) => td.innerText.trim())));
   let cells = await socioCells();
@@ -431,7 +431,7 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.locator('#socio-outcome').selectOption({ label: /Liberal share, federal 2025/.test(await page.locator('#socio-outcome').innerText()) ? 'Liberal share, federal 2025' : 'Federal (2025) turnout' });
   await page.waitForTimeout(800);
   const texts2 = (await socioCells()).map((c) => c.join(' '));
-  ok('switching the outcome recomputes every row', texts2.length === 14 && texts2.join('|') !== texts.join('|'));
+  ok('switching the outcome recomputes every row', texts2.length === 15 && texts2.join('|') !== texts.join('|'));
 
   // The same correlation on the provincial voting areas: the census is carried
   // the other way, counts shared out and rates averaged by population. A
@@ -468,7 +468,7 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.waitForTimeout(300);
   await page.locator('#socio-search-results button').first().click();
   await page.waitForTimeout(800);
-  ok('a characteristic added by name joins the table', (await socioRows.count()) === 15 && /2 persons/.test((await socioCells()).map((c) => c[0]).join(' ')));
+  ok('a characteristic added by name joins the table', (await socioRows.count()) === 16 && /2 persons/.test((await socioCells()).map((c) => c[0]).join(' ')));
   const sdl = page.waitForEvent('download', { timeout: 15000 });
   await page.locator('#export-socio').click();
   const scsv = require('fs').readFileSync(await (await sdl).path(), 'utf8').split(/\r?\n/).filter(Boolean);
@@ -476,6 +476,96 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
      scsv.length - 1 >= minAreas && /turnout_agg/.test(scsv[0]) && /pct_renter/.test(scsv[0]) && /fed_share_/.test(scsv[0]) && /population_2021/.test(scsv[0]), scsv[0]);
   ok('the export carries the columns needed to cluster on the real source',
      /(^|,)source_unit(,|$)/.test(scsv[0]) && /(^|,)catchment_share(,|$)/.test(scsv[0]), scsv[0]);
+
+  console.log('\n== Two provincial denominators, side by side ==');
+  /* With the census loaded and the crosswalk built, both denominators resolve:
+     federal electors come across the crosswalk, residents 15+ come from the age
+     table. Neither is turnout, and the tab has to say so. */
+  await page.locator('#tab-turnout').click();
+  await page.waitForTimeout(400);
+  await page.locator('#turnout-unit').selectOption('prov');
+  await page.waitForTimeout(900);
+  const headers = await page.$$eval('#turnout-table thead th', (ns) => ns.map((n) => n.textContent));
+  ok(`both denominators are columns, with the spread between them (${headers.join(' | ')})`,
+     headers.includes('Per fed elector') && headers.includes('Per resident 15+') && headers.includes('Spread'),
+     headers.join(' | '));
+  ok('neither is headed as a turnout',
+     !/turnout/i.test(headers[headers.indexOf('Per fed elector')] + headers[headers.indexOf('Per resident 15+')]));
+  const partRows = await page.evaluate(() => {
+    const head = [...document.querySelectorAll('#turnout-table thead th')].map((n) => n.textContent);
+    const iE = head.indexOf('Per fed elector'), iA = head.indexOf('Per resident 15+'),
+          iS = head.indexOf('Spread'), iF = head.indexOf('Federal 2025');
+    return [...document.querySelectorAll('#turnout-table tbody tr')].map((r) => {
+      const c = [...r.children].map((td) => td.textContent);
+      const n = (t) => (t === '--' ? null : parseFloat(t));
+      return { e: n(c[iE]), a: n(c[iA]), s: n(c[iS]), fed: n(c[iF]) };
+    });
+  });
+  const withFed = partRows.filter((r) => r.e != null);
+  const withAdult = partRows.filter((r) => r.a != null);
+  const withBoth = partRows.filter((r) => r.e != null && r.a != null);
+  // The federal denominator rides on the same carried federal unit as the
+  // federal turnout, so it is present on exactly the areas the crosswalk
+  // reaches -- no more, and never on one it does not. The fixture census is a
+  // 44-area patch, so the resident denominator reaches fewer still. Both are
+  // reported where they exist and blank where they do not, never filled in.
+  ok(`the federal denominator is present on exactly the areas the crosswalk reaches (${withFed.length}/${partRows.length})`,
+     withFed.length > 0 && partRows.every((r) => (r.e != null) === (r.fed != null)));
+  ok(`the census denominator reaches the areas the census covers (${withAdult.length})`,
+     withAdult.length >= 10 && withAdult.length < partRows.length);
+  ok(`areas outside the census patch leave it blank rather than guessing`,
+     partRows.some((r) => r.e != null && r.a == null && r.s == null));
+  ok(`the spread is the difference between the two, in points (${withBoth.length} areas)`,
+     withBoth.length > 0 && withBoth.every((r) => Math.abs(r.s - (r.e - r.a)) < 0.15),
+     JSON.stringify(withBoth.slice(0, 3)));
+  const tstatus2 = await page.locator('#turnout-status').innerText();
+  ok('the tab says in words that these are not turnout',
+     /not turnout/i.test(tstatus2) && /registered voters per electoral district/i.test(tstatus2),
+     tstatus2.slice(0, 260));
+  // Sorting on a denominator orders by it, like any other column.
+  await page.locator('#turnout-table thead th', { hasText: 'Per fed elector' }).click();
+  await page.waitForTimeout(700);
+  const sortedByPart = await page.evaluate(() => {
+    const head = [...document.querySelectorAll('#turnout-table thead th')].map((n) => n.textContent);
+    const i = head.indexOf('Per fed elector');
+    return [...document.querySelectorAll('#turnout-table tbody tr')].slice(0, 6)
+      .map((r) => parseFloat(r.children[i].textContent)).filter((v) => isFinite(v));
+  });
+  ok(`a denominator column sorts (${sortedByPart.join(' ≥ ')})`,
+     sortedByPart.every((v, i) => i === 0 || sortedByPart[i - 1] >= v));
+
+  const pdl = page.waitForEvent('download', { timeout: 15000 });
+  await page.locator('#export-turnout').click();
+  const pcsv = require('fs').readFileSync(await (await pdl).path(), 'utf8').trim().split(/\r?\n/);
+  ok('the export carries both ratios and both denominators',
+     ['residents_15_plus', 'prov_per_fed_elector', 'prov_per_resident_15_plus', 'denominator_spread',
+      'fed_electors'].every((c) => pcsv[0].split(',').includes(c)), pcsv[0]);
+
+  await page.locator('#tab-map').click();
+  await page.waitForTimeout(400);
+  for (const [mode, wanted] of [['prov-per-elector', /federal elector/i], ['prov-per-resident', /resident aged 15/i]]) {
+    await page.locator('#shade-prov-by').selectOption(mode);
+    await page.waitForTimeout(600);
+    const shade = await page.evaluate(() => [...document.querySelectorAll('.layer-prov path')].map((n) => {
+      const cs = getComputedStyle(n); return { fill: cs.fill, op: parseFloat(cs.fillOpacity) }; }));
+    // A ramped area is one the mode actually valued; 0.04 is the "no value"
+    // wash, so counting distinct ramped opacities is what proves it shaded.
+    const ramped = shade.filter((v) => v.op > 0.05);
+    ok(`${mode} shades the areas it has a value for (${ramped.length}/${shade.length}, ${new Set(ramped.map((v) => v.op.toFixed(2))).size} opacities)`,
+       ramped.length >= 10 && new Set(ramped.map((v) => v.op.toFixed(2))).size > 5);
+    const legend = await page.locator('#map-legend').innerText();
+    ok(`${mode}: the legend names the denominator and refuses the word turnout`,
+       wanted.test(legend) && /Not turnout/i.test(legend), legend.slice(0, 200));
+  }
+  await page.locator('#shade-prov-by').selectOption('none');
+  await page.waitForTimeout(300);
+  ok('the Method tab explains both denominators and their biases',
+     /Two denominators that are not an electorate/.test(await page.evaluate(() => document.querySelector('#panel-method').textContent)));
+  await page.locator('#tab-turnout').click();
+  await page.locator('#turnout-unit').selectOption('fed');
+  await page.waitForTimeout(600);
+  await page.locator('#tab-socio').click();
+  await page.waitForTimeout(400);
 
   console.log('\n== Census on the map ==');
   await page.locator('#tab-map').click();

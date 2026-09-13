@@ -81,6 +81,15 @@ function socioSources(unit) {
   return sources;
 }
 
+/* Census residents aged 15 and over per row on this tab. Rows here carry their
+   feature directly, so the lookup is by the feature's own index. */
+function socioAdultsOf(unit) {
+  const by = residentAdultsOn(unit);
+  if (!by) return null;
+  const id = unit === 'fed' ? (f) => f.idx : (f) => f.__idx;
+  return (row) => (row.feature ? (by.get(id(row.feature)) ?? null) : null);
+}
+
 /* The chosen outcome as a function of a scored row; null when unavailable. */
 /* usesProvincial marks an outcome that reads the provincial numbers, which
    matters when those were modelled from voting places: the areas of one
@@ -88,6 +97,18 @@ function socioSources(unit) {
 function socioOutcome(mode) {
   if (mode === 'turnout-fed') return { label: 'Federal (2025) turnout', of: (r) => r.t.fed, format: fmtPct, usesProvincial: false };
   if (mode === 'turnout-prov') return { label: 'Provincial (2024) turnout', of: (r) => r.t.prov, format: fmtPct, usesProvincial: true };
+  /* Not turnout: a voting area has no electorate of its own, so these divide
+     the ballots by the two counts that can be carried onto it. `circular` marks
+     the second, whose denominator comes out of the same census as the
+     variables it would be correlated against. */
+  if (mode === 'part-fed') {
+    return { label: 'Provincial ballots per federal elector', of: (r) => r.p?.perFedElector ?? null,
+             format: fmtPct, usesProvincial: true };
+  }
+  if (mode === 'part-adult') {
+    return { label: 'Provincial ballots per resident 15+', of: (r) => r.p?.perAdult ?? null,
+             format: fmtPct, usesProvincial: true, circular: true };
+  }
   const m = /^(fed|prov):(.*)$/.exec(mode);
   if (m) {
     const side = m[1], party = m[2];
@@ -105,7 +126,7 @@ function socioOutcome(mode) {
    C<id> / R<id> spelling and a few obvious names stand in, and the picker
    shows the treatment so the guess is never silent. */
 function variableKind(v) {
-  if (v.use === 'count') return 'count';
+  if (v.use === 'count' || v.use === 'complement') return 'count';
   if (v.use) return 'mean';
   if (/^C\d+$/i.test(v.key)) return 'count';
   if (/^R\d+$/i.test(v.key)) return 'mean';
@@ -189,6 +210,9 @@ function refreshSocio() {
     return out;
   };
   let rows = scoredOn(unit, sources);
+  /* The same two denominators the Turnout tab reports, on whichever geography
+     this tab is using, so an outcome can be one of them. */
+  Turnout.participation(rows, { side: 'prov', adultsOf: socioAdultsOf(unit) });
   /* The map's dissemination-area shading and the readout's census card read
      their own rows, so they are kept whichever unit the table is using. */
   st.byDa = unit === 'da' ? null
@@ -326,9 +350,20 @@ function drawSocioScatter() {
     title: (p) => `${p.label}\n${t.label}: ${xFormat(p.x)}\n${outcome.label}: ${fmtPct(p.y)}\n${fmtInt(p.weight)} electors`,
   });
   const dropped = (st.rows || []).length - t.n;
-  caption.textContent = `${t.label} against ${outcome.label.toLowerCase()} across ${fmtInt(t.n)} dissemination areas`
+  /* The unit is whatever the tab is running on; saying "dissemination areas"
+     under a voting-area correlation names the wrong geography. */
+  const unitName = SOCIO_UNITS[st.unit || 'da'].name;
+  caption.textContent = `${t.label} against ${outcome.label.toLowerCase()} across ${fmtInt(t.n)} ${unitName}`
     + (dropped > 0 ? ` (${fmtInt(dropped)} left out for missing values)` : '')
-    + `; r = ${fmtNum(t.r, 3)}, electors-weighted r = ${fmtNum(t.rWeighted, 3)}. Dot size follows electors.`;
+    + `; r = ${fmtNum(t.r, 3)}, electors-weighted r = ${fmtNum(t.rWeighted, 3)}. Dot size follows electors.`
+    /* The resident denominator is a census count, so correlating it against
+       another census count shares a source with its own outcome. Worth saying
+       under the chart rather than only in the Method. */
+    + (outcome.circular
+      ? ' This outcome divides by a census count, so a correlation against another '
+        + 'census variable shares a source with its own denominator — read it beside the '
+        + 'per-federal-elector version, which does not.'
+      : '');
 }
 
 /* --- Variable picker and search ------------------------------------------ */

@@ -66,6 +66,8 @@
         <option value="prov-party">Provincial party share</option>
         <option value="turnout-prov">Provincial turnout</option>
         <option value="catchment" hidden>Voting-place catchment (modelled)</option>
+        <option value="prov-per-elector" hidden>Ballots per federal elector (not turnout)</option>
+        <option value="prov-per-resident" hidden>Ballots per resident 15+ (not turnout)</option>
       </select>
     </label>
     <label class="form-label" for="prov-opacity">Overlay fill strength
@@ -457,8 +459,12 @@
       Turnout is ballots cast (valid plus rejected) over electors, for each area, in
       each election. The aggregate combines the two with the weight below. Advance
       polls and special ballots have no boundary; by default they are left out, which
-      understates turnout in areas where people vote early. Read the <b>Method</b> tab
-      before quoting a figure.
+      understates turnout in areas where people vote early. The provincial side has no
+      electorate per area at all &mdash; Elections BC publishes registered voters per
+      district only &mdash; so its last three columns divide the ballots by two counts
+      that <i>are</i> available per area, federal electors and census residents aged 15
+      and over. Neither is turnout, and the spread between them is shown because it is
+      the size of that choice. Read the <b>Method</b> tab before quoting a figure.
     </p>
     <div class="viz-controls">
       <label class="form-label grow" for="turnout-unit">Common geography
@@ -724,14 +730,47 @@
       those are measurements, not estimates.
     </p>
     <p>
-      It stops there deliberately. One registered-voter count per district, split across
-      the district's voting areas, would be a model dressed as a measurement &mdash; and
-      since the only sensible split is by population, the variation between neighbouring
-      areas would be the census rather than the electorate. So per-area provincial
-      turnout stays blank, the combined ranking falls back to the federal side alone and
-      says it is partial, and party shares and ballot counts are unaffected. An elector
-      count <i>by voting area</i> would turn it on for real; so would Elections BC's own
-      voting-area-to-place assignment, which would replace the catchment model entirely.
+      Per-area provincial turnout stops there deliberately. One registered-voter count
+      per district, split across the district's voting areas, would be a model dressed as
+      a measurement &mdash; and since the only sensible split is by population, the
+      variation between neighbouring areas would be the census rather than the
+      electorate. So the provincial turnout column stays blank per area, the combined
+      ranking falls back to the federal side alone and says it is partial, and party
+      shares and ballot counts are unaffected. An elector count <i>by voting area</i>
+      would turn it on for real; so would Elections BC's own voting-area-to-place
+      assignment, which would replace the catchment model entirely.
+    </p>
+
+    <h3>Two denominators that are not an electorate</h3>
+    <p>
+      What can be done instead is to divide the ballots by something that <i>is</i>
+      available per area, and to be exact about what that something is. Two counts
+      qualify, and the Turnout tab reports both, side by side, in its last three
+      columns &mdash; never called turnout, and never folded into the aggregate:
+    </p>
+    <ul>
+      <li><b>Per federal elector.</b> Elections Canada reports electors per polling
+        division, and the crosswalk shares them onto voting areas exactly as it shares
+        votes. The denominator is real and registrational, but it is the <i>2025
+        federal</i> roll against <i>2024 provincial</i> ballots: a year of moves, deaths
+        and new registrations apart, compiled by a different agency under different
+        rules.</li>
+      <li><b>Per resident aged 15 and over.</b> The census layer carries the age table,
+        so residents of voting age are had by subtracting the 0-to-14 band from the age
+        total and carrying that count across. This one counts <i>residents rather than
+        registrants</i>: non-citizens, the unregistered and 15- to 17-year-olds are all
+        in the denominator and none of them could vote, so it reads systematically
+        lower. It is also the 2021 census against a 2024 election.</li>
+    </ul>
+    <p>
+      The <b>Spread</b> column is the difference between the two in percentage points,
+      and it is the reason for showing both: it is the size of the choice of denominator,
+      per area, instead of an argument about which one to trust. Where an area comes out
+      above 100% the tab says how many did &mdash; that is a fact about the denominator
+      not fitting that area, not about the ballots. Either can shade the map, and the
+      legend names the denominator every time. The only thing that would make any of this
+      turnout is a registered-voter count by voting area; if one is ever published it
+      loads in section 3 of the Data tab, and the real column fills in beside these two.
     </p>
 
     <h3>Census geography and socioeconomic variables</h3>

@@ -361,6 +361,82 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
          if (!r.ci || !r.ciNominal) return true;
          return (r.ci[1] - r.ci[0]) > (r.ciNominal[1] - r.ciNominal[0]);
        }));
+    // --- Two denominators, on the geography the ballots actually landed on ---
+    // This is the shape of the real thing: results by voting place, no elector
+    // column anywhere in them, a census loaded and a crosswalk built. Neither
+    // denominator is a provincial electorate, and both have to be right.
+    await page.locator('#tab-turnout').click();
+    await page.locator('#turnout-unit').selectOption('prov');
+    await page.waitForTimeout(1200);
+    const part = await page.evaluate(() => {
+      const st = window.vanPoliAtlas.state;
+      const out = { areas: 0, withFed: 0, withAdult: 0, withBoth: 0, badRatio: 0, badSpread: 0,
+                    ballots: 0, electors: 0, adults: 0, differ: 0 };
+      for (const p of (st.provPart || new Map()).values()) {
+        out.areas++;
+        if (p.perFedElector != null) {
+          out.withFed++;
+          if (Math.abs(p.perFedElector - p.ballots / p.fedElectors) > 1e-9) out.badRatio++;
+        }
+        if (p.perAdult != null) {
+          out.withAdult++;
+          if (Math.abs(p.perAdult - p.ballots / p.adults) > 1e-9) out.badRatio++;
+        }
+        if (p.perFedElector != null && p.perAdult != null) {
+          out.withBoth++;
+          if (Math.abs(p.spread - (p.perFedElector - p.perAdult)) > 1e-12) out.badSpread++;
+          if (Math.abs(p.spread) > 1e-6) out.differ++;
+          out.ballots += p.ballots; out.electors += p.fedElectors; out.adults += p.adults;
+        }
+      }
+      return out;
+    });
+    ok(`both denominators land on voting areas (${part.withFed} federal, ${part.withAdult} resident, `
+       + `${part.withBoth} with both, of ${part.areas})`,
+       part.withFed > 0 && part.withAdult > 0 && part.withBoth > 0);
+    ok('every ratio is its own ballots over its own denominator', part.badRatio === 0, String(part.badRatio));
+    ok('and the spread is exactly the difference between them', part.badSpread === 0, String(part.badSpread));
+    ok('the two denominators disagree, which is the reason for reporting both',
+       part.differ > part.withBoth * 0.9, `${part.differ}/${part.withBoth}`);
+    // Conservation: a count shared out across a crosswalk can lose mass where the
+    // target layer does not reach, but it can never gain any. Without this, a
+    // share bug would show up only as an implausible-looking ratio.
+    const carried = await page.evaluate(() => {
+      const st = window.vanPoliAtlas.state;
+      let native = 0;
+      for (const f of st.fed.active) {
+        const u = st.fedResults.values.get(f.idx);
+        if (u && u.electors > 0) native += u.electors;
+      }
+      let onProv = 0;
+      for (const p of (st.provPart || new Map()).values()) onProv += p.fedElectors || 0;
+      return { native, onProv };
+    });
+    ok(`federal electors carried onto voting areas conserve mass `
+       + `(${Math.round(carried.onProv).toLocaleString()} of ${Math.round(carried.native).toLocaleString()})`,
+       carried.onProv > 0 && carried.onProv <= carried.native * 1.0001,
+       JSON.stringify(carried));
+    const pooled = { fed: part.ballots / part.electors, adult: part.ballots / part.adults };
+    ok(`pooled over the covered areas: ${(pooled.fed * 100).toFixed(1)}% of federal electors vs `
+       + `${(pooled.adult * 100).toFixed(1)}% of residents 15+`,
+       isFinite(pooled.fed) && isFinite(pooled.adult) && pooled.fed > 0 && pooled.adult > 0);
+    // A district-level registered-voter count is loaded further up. It gives the
+    // Results tab a real turnout per district, and must not make either of these
+    // one: a proxy that quietly becomes "turnout" once any elector file exists
+    // is exactly the failure this is built to avoid.
+    const stillProxy = await page.evaluate(() => {
+      const rows = window.vanPoliAtlas.state.turnout.rows || [];
+      const withP = rows.filter((r) => r.p && (r.p.perFedElector != null || r.p.perAdult != null));
+      return { rows: rows.length, withP: withP.length, anyProvTurnout: rows.some((r) => r.t.prov != null) };
+    });
+    ok(`a district elector file does not turn a proxy into turnout `
+       + `(${stillProxy.withP} rows carry a denominator, provincial turnout per area: `
+       + `${stillProxy.anyProvTurnout ? 'reported' : 'still blank'})`,
+       stillProxy.withP > 0 && stillProxy.anyProvTurnout === false);
+    const theads = await page.$$eval('#turnout-table thead th', (ns) => ns.map((n) => n.textContent));
+    ok(`the ranked table heads them by their denominators (${theads.slice(-3).join(' | ')})`,
+       theads.includes('Per fed elector') && theads.includes('Per resident 15+') && theads.includes('Spread'));
+
     ok('no errors anywhere in the voting-place path', errs.length === 0, errs.slice(0, 3).join(' | '));
     await page.screenshot({ path: 'shot-places.png' });
     await page.close();

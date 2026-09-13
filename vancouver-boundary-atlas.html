@@ -1967,6 +1967,8 @@ html>body{padding:0}
         <option value="prov-party">Provincial party share</option>
         <option value="turnout-prov">Provincial turnout</option>
         <option value="catchment" hidden>Voting-place catchment (modelled)</option>
+        <option value="prov-per-elector" hidden>Ballots per federal elector (not turnout)</option>
+        <option value="prov-per-resident" hidden>Ballots per resident 15+ (not turnout)</option>
       </select>
     </label>
     <label class="form-label" for="prov-opacity">Overlay fill strength
@@ -2358,8 +2360,12 @@ html>body{padding:0}
       Turnout is ballots cast (valid plus rejected) over electors, for each area, in
       each election. The aggregate combines the two with the weight below. Advance
       polls and special ballots have no boundary; by default they are left out, which
-      understates turnout in areas where people vote early. Read the <b>Method</b> tab
-      before quoting a figure.
+      understates turnout in areas where people vote early. The provincial side has no
+      electorate per area at all &mdash; Elections BC publishes registered voters per
+      district only &mdash; so its last three columns divide the ballots by two counts
+      that <i>are</i> available per area, federal electors and census residents aged 15
+      and over. Neither is turnout, and the spread between them is shown because it is
+      the size of that choice. Read the <b>Method</b> tab before quoting a figure.
     </p>
     <div class="viz-controls">
       <label class="form-label grow" for="turnout-unit">Common geography
@@ -2625,14 +2631,47 @@ html>body{padding:0}
       those are measurements, not estimates.
     </p>
     <p>
-      It stops there deliberately. One registered-voter count per district, split across
-      the district's voting areas, would be a model dressed as a measurement &mdash; and
-      since the only sensible split is by population, the variation between neighbouring
-      areas would be the census rather than the electorate. So per-area provincial
-      turnout stays blank, the combined ranking falls back to the federal side alone and
-      says it is partial, and party shares and ballot counts are unaffected. An elector
-      count <i>by voting area</i> would turn it on for real; so would Elections BC's own
-      voting-area-to-place assignment, which would replace the catchment model entirely.
+      Per-area provincial turnout stops there deliberately. One registered-voter count
+      per district, split across the district's voting areas, would be a model dressed as
+      a measurement &mdash; and since the only sensible split is by population, the
+      variation between neighbouring areas would be the census rather than the
+      electorate. So the provincial turnout column stays blank per area, the combined
+      ranking falls back to the federal side alone and says it is partial, and party
+      shares and ballot counts are unaffected. An elector count <i>by voting area</i>
+      would turn it on for real; so would Elections BC's own voting-area-to-place
+      assignment, which would replace the catchment model entirely.
+    </p>
+
+    <h3>Two denominators that are not an electorate</h3>
+    <p>
+      What can be done instead is to divide the ballots by something that <i>is</i>
+      available per area, and to be exact about what that something is. Two counts
+      qualify, and the Turnout tab reports both, side by side, in its last three
+      columns &mdash; never called turnout, and never folded into the aggregate:
+    </p>
+    <ul>
+      <li><b>Per federal elector.</b> Elections Canada reports electors per polling
+        division, and the crosswalk shares them onto voting areas exactly as it shares
+        votes. The denominator is real and registrational, but it is the <i>2025
+        federal</i> roll against <i>2024 provincial</i> ballots: a year of moves, deaths
+        and new registrations apart, compiled by a different agency under different
+        rules.</li>
+      <li><b>Per resident aged 15 and over.</b> The census layer carries the age table,
+        so residents of voting age are had by subtracting the 0-to-14 band from the age
+        total and carrying that count across. This one counts <i>residents rather than
+        registrants</i>: non-citizens, the unregistered and 15- to 17-year-olds are all
+        in the denominator and none of them could vote, so it reads systematically
+        lower. It is also the 2021 census against a 2024 election.</li>
+    </ul>
+    <p>
+      The <b>Spread</b> column is the difference between the two in percentage points,
+      and it is the reason for showing both: it is the size of the choice of denominator,
+      per area, instead of an argument about which one to trust. Where an area comes out
+      above 100% the tab says how many did &mdash; that is a fact about the denominator
+      not fitting that area, not about the ballots. Either can shade the map, and the
+      legend names the denominator every time. The only thing that would make any of this
+      turnout is a registered-voter count by voting area; if one is ever published it
+      loads in section 3 of the Data tab, and the real column fills in beside these two.
     </p>
 
     <h3>Census geography and socioeconomic variables</h3>
@@ -5181,7 +5220,13 @@ const Turnout = (() => {
     }
     const out = [];
     for (const row of rows.values()) {
-      const ref = row.by[target] || row.by.fed || row.by.prov || Object.values(row.by)[0];
+      /* The reference count is whichever source actually has electors, not
+         whichever geography the rows are keyed on. A provincial voting area
+         carries none -- Elections BC publishes registered voters per district,
+         never per area -- so preferring the native source would set every row
+         to zero and the minimum below would then drop the lot. */
+      const order = [row.by[target], row.by.fed, row.by.prov, ...Object.values(row.by)];
+      const ref = order.find((u) => u && u.electors > 0) || order.find(Boolean);
       row.electors = ref ? ref.electors : 0;
       if (row.electors < minElectors) continue;
       out.push(row);
@@ -5217,7 +5262,59 @@ const Turnout = (() => {
     return rows;
   }
 
-  const valueOf = (row, key) => (key.startsWith('t.') ? row.t[key.slice(2)] : row[key]);
+  /* --- Participation, where there is no electorate to divide by -------------
+
+     Elections BC publishes registered voters per electoral district and never
+     per voting area, and the 2024 results arrive per voting place with no
+     elector column at all. So the provincial side has ballots on every area
+     and a denominator on none, and its turnout column is blank.
+
+     Two denominators can be had for an area, and neither of them is a
+     provincial electorate:
+
+       federal electors   the 2025 federal roll, areally interpolated onto the
+                          voting area by the crosswalk. A real electorate, but
+                          the wrong election's.
+       residents 15+      census population of the area, carried across the
+                          same way. The right year is not on offer either, and
+                          it counts residents rather than registrants, with
+                          15- to 17-year-olds among them.
+
+     Both are computed, neither is called turnout, and the spread between them
+     is reported because it is the size of the choice. Nothing here is written
+     to `t`, `agg`, `min`, `delta` or `expected`: those stay strictly ballots
+     over electors, so a modelled ratio can never reach something labelled
+     turnout. A ratio over 1 is left as it stands -- it says the denominator is
+     wrong for that area, not that anyone voted twice. */
+  function participation(rows, { side = 'prov', adultsOf = null } = {}) {
+    for (const row of rows) {
+      const u = row.by[side];
+      const b = u ? ballots(u) : null;
+      const e = row.by.fed ? row.by.fed.electors : 0;
+      const a = adultsOf ? adultsOf(row) : null;
+      const over = (den) => (b != null && den > 0 && isFinite(den) ? b / den : null);
+      const p = {
+        ballots: b,
+        fedElectors: e > 0 ? e : null,
+        adults: a > 0 && isFinite(a) ? a : null,
+        perFedElector: over(e),
+        perAdult: over(a),
+      };
+      p.spread = p.perFedElector != null && p.perAdult != null ? p.perFedElector - p.perAdult : null;
+      row.p = p;
+    }
+    return rows;
+  }
+
+  /* How many rows came out over 100%, which is worth saying out loud rather
+     than hiding: it counts the areas where the denominator plainly does not
+     describe the people who voted there. */
+  const overOne = (rows, key) => rows.filter((r) => r.p && r.p[key] != null && r.p[key] > 1).length;
+
+  const valueOf = (row, key) => (
+    key.startsWith('t.') ? row.t[key.slice(2)]
+      : key.startsWith('p.') ? (row.p ? row.p[key.slice(2)] : null)
+        : row[key]);
 
   /* Sorted copy with 1-based ranks; nulls sink to the bottom either way. */
   function rank(rows, key = 'agg', dir = 'desc') {
@@ -5275,21 +5372,29 @@ const Turnout = (() => {
 
   function toCsv(rows, sides = ['fed', 'prov']) {
     const f = (v, dp = 6) => (v == null || !isFinite(v) ? '' : Number(v).toFixed(dp));
+    /* The participation columns ride along only when they were computed. Both
+       denominators go in the file beside their ratios -- `fed_electors` is
+       already a column, so only the census one is added -- because the point
+       of reporting two is that a reader can recompute either. */
+    const part = rows.some((r) => r.p);
     const header = ['rank', 'unit_key', 'unit_label', 'electors',
       ...sides.flatMap((s) => [`${s}_ballots`, `${s}_electors`, `${s}_apportioned`, `turnout_${s}`]),
-      'turnout_agg', 'turnout_min', 'turnout_delta', 'expected_ballots', 'partial'];
+      'turnout_agg', 'turnout_min', 'turnout_delta', 'expected_ballots', 'partial',
+      ...(part ? ['residents_15_plus', 'prov_per_fed_elector', 'prov_per_resident_15_plus',
+                  'denominator_spread'] : [])];
     const out = [header];
     for (const r of rows) {
       out.push([r.rank ?? '', r.key, r.label, f(r.electors, 2),
         ...sides.flatMap((s) => [f(r.ballots?.[s], 2), f(r.by[s]?.electors, 2),
           f(r.by[s]?.apportioned, 2), f(r.t?.[s])]),
-        f(r.agg), f(r.min), f(r.delta), f(r.expected, 2), r.partial ? 'yes' : 'no']);
+        f(r.agg), f(r.min), f(r.delta), f(r.expected, 2), r.partial ? 'yes' : 'no',
+        ...(part ? [f(r.p?.adults, 2), f(r.p?.perFedElector), f(r.p?.perAdult), f(r.p?.spread)] : [])]);
     }
     return out;
   }
 
-  return { ballots, rate, cloneUnit, apportionUnmatched, rowsOnUnit, score, rank, cumulative,
-           basketSummary, toCsv };
+  return { ballots, rate, cloneUnit, apportionUnmatched, rowsOnUnit, score, participation, overOne,
+           rank, cumulative, basketSummary, toCsv };
 })();
 
 /* ---------------------------------------------------------------------------
@@ -5406,6 +5511,8 @@ const Census = (() => {
     { key: 'median_age', label: 'Median age', name: /^Median age of the population$/i, use: 'count' },
     { key: 'pct_65_plus', label: 'Aged 65 and over (%)', name: /^65 years and over$/i, use: 'ratio',
       over: /^Total - Age groups of the population/i },
+    { key: 'pop_15_plus', label: 'Population aged 15 and over', name: /^0 to 14 years$/i,
+      use: 'complement', over: /^Total - Age groups of the population/i },
     { key: 'avg_household_size', label: 'Average household size', name: /^Average household size$/i, use: 'count' },
     { key: 'pct_one_person_hh', label: 'One-person households (%)', name: /^1 person$/i, use: 'ratio',
       over: /^Total - Private households by household size/i },
@@ -5453,6 +5560,13 @@ const Census = (() => {
       else if (use === 'ratio') {
         const num = g.count[index], den = overIndex != null ? g.count[overIndex] : NaN;
         v = den > 0 && isFinite(num) ? (100 * num) / den : NaN;
+      } else if (use === 'complement') {
+        /* Everyone in the table except the named band. The profile carries
+           "0 to 14 years" but no "15 and over" line, and a denominator of
+           adult residents needs the second, so it is the total less the
+           first -- a count, and treated as one wherever it is carried. */
+        const part = g.count[index], whole = overIndex != null ? g.count[overIndex] : NaN;
+        v = isFinite(part) && isFinite(whole) ? whole - part : NaN;
       } else v = g.count[index];
       if (v != null && isFinite(v)) values.set(geo, v);
     }
@@ -6394,6 +6508,9 @@ const state = {
   weightingInEffect: null,
   results: { sortKey: 'ballots', sortDir: 'desc' },
   provElectors: null,
+  /* Ballots per federal elector and per resident aged 15 and over, by voting
+     area. Neither is turnout; see recomputeProvincialParticipation. */
+  provPart: null,
   socio: { outcome: 'turnout-agg', minElectors: 50, selected: new Set(), extra: new Map(),
            rows: null, byDa: null, table: null, sortKey: 'absR', sortDir: 'desc', picked: null },
 };
@@ -6612,6 +6729,11 @@ function fitAll() {
 function shadeValue(layerKey, f, mode, fedParty, provParty) {
   if (mode === 'none' || mode === 'type' || mode === 'flat') return null;
   if (layerKey === 'prov') {
+    if (PART_MODES.has(mode)) {
+      const p = state.provPart && state.provPart.get(f.__idx);
+      if (!p) return null;
+      return mode === 'prov-per-elector' ? p.perFedElector : p.perAdult;
+    }
     const u = provValues()?.get(f.__idx);
     if (!u) return null;
     if (mode === 'prov-party') return provParty ? Analysis.shareOf(u, provParty) : null;
@@ -6653,8 +6775,12 @@ function shadeValue(layerKey, f, mode, fedParty, provParty) {
 
 const TYPE_FILL = { N: 'var(--muted)', M: 'var(--viz-series-5)', S: 'var(--viz-series-6)' };
 const TURNOUT_MODES = new Set(['turnout-fed', 'turnout-prov', 'turnout-agg']);
+/* Provincial ballots over a denominator that is not a provincial electorate.
+   They ramp like a turnout because they are the same shape of number, and they
+   are kept out of TURNOUT_MODES because they are not one. */
+const PART_MODES = new Set(['prov-per-elector', 'prov-per-resident']);
 /* Modes whose ramp follows the data on the map rather than a fixed scale. */
-const DATA_MODES = new Set([...TURNOUT_MODES, 'variable']);
+const DATA_MODES = new Set([...TURNOUT_MODES, ...PART_MODES, 'variable']);
 
 /* Turnout ramps are data-driven -- 5th to 95th percentile of what is on the
    map -- because a fixed scale would either wash out or saturate depending on
@@ -6687,6 +6813,8 @@ function fillColour(mode, v, fedParty, provParty) {
   if (mode === 'turnout-delta') return v >= 0 ? 'var(--viz-series-1)' : 'var(--viz-series-2)';
   if (mode === 'variable') return 'var(--viz-series-3)';
   if (TURNOUT_MODES.has(mode)) return 'var(--viz-series-1)';
+  if (mode === 'prov-per-elector') return 'var(--viz-series-4)';
+  if (mode === 'prov-per-resident') return 'var(--viz-series-5)';
   if (mode === 'fed-party') return partyColour(fedParty);
   if (mode === 'prov-party') return partyColour(provParty);
   return 'var(--muted)';
@@ -6788,6 +6916,20 @@ function provPlaceLine(feature, unit) {
   if (!bits.length) return null;
   const p = el('p', 'text-small text-muted', bits.join('. ') + '.');
   return p;
+}
+
+/* The two denominators for one voting area, side by side, because a reader
+   checking a single area is exactly who needs to see how far apart they are.
+   Written as a share of something named, never as a turnout. */
+function provPartLine(feature) {
+  const p = state.provPart && state.provPart.get(feature.__idx);
+  if (!p || (p.perFedElector == null && p.perAdult == null)) return null;
+  const bits = [`${fmtInt(p.ballots)} ballots`];
+  if (p.perFedElector != null) bits.push(`${fmtPct(p.perFedElector)} of ${fmtInt(p.fedElectors)} federal electors`);
+  if (p.perAdult != null) bits.push(`${fmtPct(p.perAdult)} of ${fmtInt(p.adults)} residents 15+`);
+  const line = el('p', 'text-small text-muted', bits.join(' · '));
+  if (p.spread != null && Math.abs(p.spread) >= 0.1) line.classList.add('text-warning');
+  return line;
 }
 
 /* --- Voting places ---------------------------------------------------------- */
@@ -6933,10 +7075,27 @@ function draw() {
 
 /* Controls that only mean something for results reported by voting place. */
 function updatePlaceControls() {
-  const byPlace = state.provResults?.kind === 'places';
-  const option = $('shade-prov-by').querySelector('option[value="catchment"]');
-  if (option) option.hidden = !byPlace;
-  if (!byPlace && $('shade-prov-by').value === 'catchment') $('shade-prov-by').value = 'none';
+  const sel = $('shade-prov-by');
+  const part = state.provPart;
+  const has = (key) => {
+    if (!part) return false;
+    for (const p of part.values()) if (p[key] != null) return true;
+    return false;
+  };
+  /* Each of these shades something the loaded data may not support: a
+     catchment needs results by voting place, and a denominator needs the layer
+     it is carried from. An option that would shade nothing is withdrawn rather
+     than left to paint an empty map. */
+  const available = {
+    catchment: state.provResults?.kind === 'places',
+    'prov-per-elector': has('perFedElector'),
+    'prov-per-resident': has('perAdult'),
+  };
+  for (const [value, ok] of Object.entries(available)) {
+    const option = sel.querySelector(`option[value="${value}"]`);
+    if (option) option.hidden = !ok;
+    if (!ok && sel.value === value) sel.value = 'none';
+  }
 }
 
 function updateLayerVisibility() {
@@ -6995,6 +7154,18 @@ function renderLegend() {
       items.push([partyColour(provParty), `${provParty} share, 2024, on voting areas`]);
     } else if (provMode === 'turnout-prov') {
       items.push(['var(--viz-series-1)', `2024 provincial turnout on voting areas${range(state.shadeDomain.prov)}`]);
+    } else if (PART_MODES.has(provMode)) {
+      /* Named by its denominator every time it is drawn. The whole reason
+         these exist is that neither denominator is a provincial electorate,
+         and a legend reading "turnout" would undo that in one word. */
+      const perElector = provMode === 'prov-per-elector';
+      const dom = state.shadeDomain.prov;
+      items.push([perElector ? 'var(--viz-series-4)' : 'var(--viz-series-5)',
+        `2024 provincial ballots per ${perElector ? '2025 federal elector' : 'resident aged 15+'}`
+        + (dom ? ` — ${fmtPct(dom.lo, 0)} to ${fmtPct(dom.hi, 0)}` : '')]);
+      items.push(['note', perElector
+        ? 'Not turnout: the denominator is the 2025 federal roll, not the 2024 provincial one.'
+        : 'Not turnout: the denominator counts 2021 residents, not registered voters.']);
     } else if (provMode === 'catchment') {
       const n = state.provResults?.report?.catchments || 0;
       /* The colours cycle and carry no order, so the legend says what they
@@ -7132,6 +7303,8 @@ function renderReadout() {
     }
     const placeLine = provPlaceLine(prov, unit);
     if (placeLine) provCard.append(placeLine);
+    const partLine = provPartLine(prov);
+    if (partLine) provCard.append(partLine);
   } else if (state.prov.all.length) {
     provCard.append(el('p', 'text-muted', 'No provincial voting area at this point.'));
   } else {
@@ -7294,6 +7467,9 @@ function invalidateCross() {
      the effective-n figure counting sources from the previous crosswalk. */
   clearPlaceGroups();
   state.crosswalk = null; state.pairs = null; state.coverage = null; state.provOnFed = null;
+  /* Both denominators are carried across the crosswalk, so they die with it
+     rather than shading the map from the previous weighting. */
+  state.provPart = null;
   state.crosswalkFed = null; state.crosswalkProv = null;
   if (state.sample) crossPair('fed', 'prov');
 }
@@ -8140,6 +8316,12 @@ function refreshPartySelectors() {
       { value: 'turnout-agg', label: 'Aggregate turnout, both elections' },
       { value: 'turnout-fed', label: 'Federal (2025) turnout' },
       { value: 'turnout-prov', label: 'Provincial (2024) turnout' },
+      /* Offered only where the provincial results have ballots to divide: with
+         none loaded these would be an outcome with no numerator. */
+      ...(provParties.length ? [
+        { value: 'part-fed', label: 'Provincial ballots per federal elector' },
+        { value: 'part-adult', label: 'Provincial ballots per resident 15+' },
+      ] : []),
       ...fedParties.map(([name]) => ({ value: `fed:${name}`, label: `${name} share, federal 2025` })),
       ...provParties.map(([name]) => ({ value: `prov:${name}`, label: `${name} share, provincial 2024` })),
     ]);
@@ -8334,6 +8516,77 @@ function recomputeProvincialOnFederal() {
     if (feature) out.set(feature.idx, unit);
   }
   state.provOnFed = out;
+}
+
+/* --- Two denominators for a provincial voting area ---------------------------
+
+   The 2024 provincial results arrive per voting place with no elector column,
+   and Elections BC publishes registered voters per electoral district only, so
+   a voting area has ballots and no electorate. Two counts can be carried onto
+   it instead -- the 2025 federal roll, and census residents aged 15 and over --
+   and neither of them is a provincial electorate. Both are computed here, side
+   by side, so the gap between them is on the page rather than in an argument.
+
+   Prepared once per refresh and read per feature by the map, exactly as
+   state.provOnFed is, because shading cannot afford a crosswalk pass per
+   polygon. */
+
+const ID_OF = { fed: (f) => f.idx, prov: (f) => f.__idx, da: (f) => f.__idx, db: (f) => f.__idx };
+
+/* One count moved from one loaded layer onto another, keyed by the target
+   feature's own index. Counts share out by overlap; this is the same call the
+   Socioeconomic tab makes to carry census variables the other way. */
+function carriedCount(from, to, valueOf) {
+  if (!state[from]?.all.length || !state[to]?.all.length) return null;
+  const c = crossPair(from, to);
+  if (!c) return null;
+  const src = new Map();
+  state[from].active.forEach((f, i) => {
+    const v = valueOf(f);
+    if (v != null && isFinite(v)) src.set(i, v);
+  });
+  if (!src.size) return null;
+  const moved = Analysis.moveVariable(c.pairs, src, { from: 'a', kind: 'count' });
+  const id = ID_OF[to];
+  const out = new Map();
+  for (const [i, value] of moved) {
+    const f = state[to].active[i];
+    if (f) out.set(id(f), value);
+  }
+  return out;
+}
+
+/* Census residents aged 15 and over, on whichever geography is asked for.
+   Native on the dissemination areas; carried across for anything else. The
+   variable is absent when the loaded profile has no age table, and then so is
+   the denominator -- it is never stood in for. */
+function residentAdultsOn(unit) {
+  const v = state.da.variables.find((x) => x.key === 'pop_15_plus');
+  if (!v) return null;
+  if (unit === 'da') return v.byFeature;
+  return carriedCount('da', unit, (f) => v.byFeature.get(f.__idx));
+}
+
+function recomputeProvincialParticipation() {
+  state.provPart = null;
+  const pv = provValues();
+  if (!pv || !state.prov.active.length) return;
+  const fv = fedValues();
+  /* The ranked table takes its federal electors from the unit already carried
+     onto each row; the map has no rows, so it carries the count itself. */
+  const electors = fv ? carriedCount('fed', 'prov', (f) => fv.get(f.idx)?.electors) : null;
+  const adults = residentAdultsOn('prov');
+  if (!electors && !adults) return;
+  const rows = [];
+  for (const f of state.prov.active) {
+    const u = pv.get(f.__idx);
+    if (!u) continue;
+    rows.push({ f, by: { prov: u, fed: { electors: electors?.get(f.__idx) || 0 } } });
+  }
+  /* The arithmetic lives in f2-turnout.js and is used from here unchanged, so
+     the map and the ranked table can never disagree about a ratio. */
+  Turnout.participation(rows, { side: 'prov', adultsOf: (r) => adults?.get(r.f.__idx) ?? null });
+  state.provPart = new Map(rows.map((r) => [r.f.__idx, r.p]));
 }
 
 /* --- Correlation view -------------------------------------------------------- */
@@ -8649,6 +8902,22 @@ function turnoutFeature(side, i) {
   return side === 'fed' ? state.fed.all[i] : state.prov.all[i];
 }
 
+/* Census residents aged 15 and over for each row, on whichever geography the
+   tab is ranking. Null on the overlap pieces: a piece of a federal poll inside
+   a voting area has no dissemination-area pair of its own, so the census
+   denominator simply is not available there and the column says so by being
+   absent. The federal one still is, since it travels on the row itself. */
+function adultsForRows(unit) {
+  if (unit === 'atom') return null;
+  const by = residentAdultsOn(unit);
+  if (!by) return null;
+  const id = unit === 'fed' ? (f) => f.idx : (f) => f.__idx;
+  return (row) => {
+    const f = turnoutFeature(unit, +row.key);
+    return f ? (by.get(id(f)) ?? null) : null;
+  };
+}
+
 function turnoutSources() {
   const usePairs = Boolean(state.pairs && state.crosswalkFed && state.crosswalkProv);
   const sources = [];
@@ -8700,6 +8969,7 @@ function refreshTurnout() {
   /* Apportionment changes which values every reader sees, so the provincial
      votes pushed onto federal polls must follow. */
   recomputeProvincialOnFederal();
+  recomputeProvincialParticipation();
 
   const sources = turnoutSources();
   statsHost.textContent = '';
@@ -8717,6 +8987,10 @@ function refreshTurnout() {
   };
   let rows = Turnout.rowsOnUnit(t.unit, sources, labels, { minElectors: t.minElectors });
   rows = Turnout.score(rows, { weights: { fed: t.weight, prov: 1 - t.weight } });
+  /* Provincial ballots over the two denominators that can be had for an area.
+     Computed always, reported only where a denominator resolved, and kept out
+     of the aggregate: score() above is the only thing that writes a turnout. */
+  Turnout.participation(rows, { side: 'prov', adultsOf: adultsForRows(t.unit) });
   rows.forEach((r) => { r.basketKey = basketKeyFor(t.unit, r); });
   const ranked = sortTurnoutRows(rows);
   t.rows = ranked;
@@ -8754,6 +9028,7 @@ function refreshTurnout() {
       + `(${fmtInt(store.apportioned[mode].apportioned)} ballots across ${fmtInt(store.apportioned[mode].districts)} districts)`);
   }
   if (ap.length) lines.push(el('p', 'text-warning', ap.join('; ') + '. These are estimates, not measurements — see Method.'));
+  for (const line of participationLines(ranked)) lines.push(line);
   setStatus('turnout-status', 'ok', lines);
 
   results.hidden = withAgg.length === 0;
@@ -8764,8 +9039,45 @@ function refreshTurnout() {
   restyleMapForTurnout();
 }
 
+/* What the two denominator columns are, said in the tab rather than only in
+   the Method — including how many areas came out over 100%, which is the
+   honest way to show that a borrowed denominator does not fit everywhere. */
+function participationLines(rows) {
+  const out = [];
+  const withFed = rows.filter((r) => r.p?.perFedElector != null).length;
+  const withAdult = rows.filter((r) => r.p?.perAdult != null).length;
+  if (!withFed && !withAdult) return out;
+  const both = [];
+  if (withFed) both.push('the 2025 federal roll carried onto these areas by the crosswalk');
+  if (withAdult) both.push('census residents aged 15 and over');
+  const pair = withFed && withAdult;
+  out.push(el('p', 'text-small text-muted',
+    `The last ${pair ? 'three columns are' : 'column is'} not turnout: Elections BC publishes `
+    + 'registered voters per electoral district and never per voting area, so provincial ballots '
+    + `are divided by ${both.join(' and by ')} instead. `
+    + (pair
+      ? 'Neither is a provincial electorate, and the spread between them is the size of that choice. '
+      : 'That is not a provincial electorate; load the other layer to see a second denominator beside it. ')
+    + 'See the Method tab.'));
+  const over = (key) => Turnout.overOne(rows, key);
+  const bits = [];
+  if (withFed && over('perFedElector')) bits.push(`${fmtInt(over('perFedElector'))} over 100% of federal electors`);
+  if (withAdult && over('perAdult')) bits.push(`${fmtInt(over('perAdult'))} over 100% of residents 15+`);
+  if (bits.length) {
+    out.push(el('p', 'text-small text-warning',
+      `${bits.join('; ')} — in those areas the denominator does not describe the people who voted there, `
+      + 'which is a fact about the denominator rather than about the ballots.'));
+  }
+  return out;
+}
+
 function sortTurnoutRows(rows) {
-  const { sortKey, sortDir } = state.turnout;
+  const t = state.turnout;
+  /* A column can be withdrawn between refreshes -- unloading the census takes
+     the resident denominator with it -- and sorting on one that is no longer
+     there would silently order the table by nothing. */
+  if (!turnoutColumns(rows).some((c) => c.key === t.sortKey)) { t.sortKey = 'agg'; t.sortDir = 'desc'; }
+  const { sortKey, sortDir } = t;
   if (sortKey === 'label') {
     const sorted = rows.slice().sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
     if (sortDir === 'desc') sorted.reverse();
@@ -8788,14 +9100,35 @@ const TURNOUT_COLUMNS = [
     fmt: (v) => (v == null ? '--' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)} pt`) },
   { key: 'electors', label: 'Electors', get: (r) => r.electors, fmt: fmtInt },
   { key: 'expected', label: 'Expected ballots', get: (r) => r.expected, fmt: (v) => (v == null ? '--' : fmtInt(v)) },
+  /* Not turnout, and never headed as one. The provincial side has ballots on
+     every area and registered voters on none, so these divide by the two
+     counts that can be carried onto an area instead -- shown together, because
+     the distance between them is the size of the choice. */
+  { key: 'p.perFedElector', label: 'Per fed elector', get: (r) => r.p?.perFedElector ?? null, fmt: fmtPct },
+  { key: 'p.perAdult', label: 'Per resident 15+', get: (r) => r.p?.perAdult ?? null, fmt: fmtPct },
+  { key: 'p.spread', label: 'Spread', get: (r) => r.p?.spread ?? null,
+    fmt: (v) => (v == null ? '--' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)} pt`) },
 ];
+
+/* A column of dashes says nothing. Each denominator appears only where it
+   resolved for at least one area, exactly as the Results tab drops its turnout
+   column for a file that carries no electors. */
+function turnoutColumns(rows) {
+  const has = (key) => rows.some((r) => r.p && r.p[key] != null);
+  const drop = new Set();
+  if (!has('perFedElector')) drop.add('p.perFedElector');
+  if (!has('perAdult')) drop.add('p.perAdult');
+  if (drop.size) drop.add('p.spread');
+  return TURNOUT_COLUMNS.filter((c) => !drop.has(c.key));
+}
 
 function renderTurnoutTable(rows) {
   const table = $('turnout-table');
   table.textContent = '';
+  const columns = turnoutColumns(rows);
   const thead = el('thead'), hr = el('tr');
   hr.append(el('th', 'text-start', ''));
-  for (const c of TURNOUT_COLUMNS) {
+  for (const c of columns) {
     const th = el('th', c.left ? 'text-start' : null, c.label);
     if (c.key === state.turnout.sortKey) th.classList.add('sorted', state.turnout.sortDir);
     th.dataset.key = c.key;
@@ -8822,7 +9155,7 @@ function renderTurnoutTable(rows) {
     cb.setAttribute('aria-label', `Add ${r.label} to basket`);
     cb.addEventListener('change', () => toggleBasket(r.basketKey));
     td0.append(cb); tr.append(td0);
-    for (const c of TURNOUT_COLUMNS) {
+    for (const c of columns) {
       const v = c.get(r);
       tr.append(el('td', c.left ? 'text-start' : null, v == null ? '--' : c.fmt(v)));
     }
@@ -8919,6 +9252,9 @@ function markBasketOnMap() {
 }
 
 function restyleMapForTurnout() {
+  /* The two denominator shadings become available only once they are computed,
+     so the options are re-checked here rather than only on the next redraw. */
+  updatePlaceControls();
   applyFederalStyle(gFed.selectAll('path'));
   applyProvincialStyle(gProv.selectAll('path'));
   renderLegend();
@@ -9034,6 +9370,15 @@ function socioSources(unit) {
   return sources;
 }
 
+/* Census residents aged 15 and over per row on this tab. Rows here carry their
+   feature directly, so the lookup is by the feature's own index. */
+function socioAdultsOf(unit) {
+  const by = residentAdultsOn(unit);
+  if (!by) return null;
+  const id = unit === 'fed' ? (f) => f.idx : (f) => f.__idx;
+  return (row) => (row.feature ? (by.get(id(row.feature)) ?? null) : null);
+}
+
 /* The chosen outcome as a function of a scored row; null when unavailable. */
 /* usesProvincial marks an outcome that reads the provincial numbers, which
    matters when those were modelled from voting places: the areas of one
@@ -9041,6 +9386,18 @@ function socioSources(unit) {
 function socioOutcome(mode) {
   if (mode === 'turnout-fed') return { label: 'Federal (2025) turnout', of: (r) => r.t.fed, format: fmtPct, usesProvincial: false };
   if (mode === 'turnout-prov') return { label: 'Provincial (2024) turnout', of: (r) => r.t.prov, format: fmtPct, usesProvincial: true };
+  /* Not turnout: a voting area has no electorate of its own, so these divide
+     the ballots by the two counts that can be carried onto it. `circular` marks
+     the second, whose denominator comes out of the same census as the
+     variables it would be correlated against. */
+  if (mode === 'part-fed') {
+    return { label: 'Provincial ballots per federal elector', of: (r) => r.p?.perFedElector ?? null,
+             format: fmtPct, usesProvincial: true };
+  }
+  if (mode === 'part-adult') {
+    return { label: 'Provincial ballots per resident 15+', of: (r) => r.p?.perAdult ?? null,
+             format: fmtPct, usesProvincial: true, circular: true };
+  }
   const m = /^(fed|prov):(.*)$/.exec(mode);
   if (m) {
     const side = m[1], party = m[2];
@@ -9058,7 +9415,7 @@ function socioOutcome(mode) {
    C<id> / R<id> spelling and a few obvious names stand in, and the picker
    shows the treatment so the guess is never silent. */
 function variableKind(v) {
-  if (v.use === 'count') return 'count';
+  if (v.use === 'count' || v.use === 'complement') return 'count';
   if (v.use) return 'mean';
   if (/^C\d+$/i.test(v.key)) return 'count';
   if (/^R\d+$/i.test(v.key)) return 'mean';
@@ -9142,6 +9499,9 @@ function refreshSocio() {
     return out;
   };
   let rows = scoredOn(unit, sources);
+  /* The same two denominators the Turnout tab reports, on whichever geography
+     this tab is using, so an outcome can be one of them. */
+  Turnout.participation(rows, { side: 'prov', adultsOf: socioAdultsOf(unit) });
   /* The map's dissemination-area shading and the readout's census card read
      their own rows, so they are kept whichever unit the table is using. */
   st.byDa = unit === 'da' ? null
@@ -9279,9 +9639,20 @@ function drawSocioScatter() {
     title: (p) => `${p.label}\n${t.label}: ${xFormat(p.x)}\n${outcome.label}: ${fmtPct(p.y)}\n${fmtInt(p.weight)} electors`,
   });
   const dropped = (st.rows || []).length - t.n;
-  caption.textContent = `${t.label} against ${outcome.label.toLowerCase()} across ${fmtInt(t.n)} dissemination areas`
+  /* The unit is whatever the tab is running on; saying "dissemination areas"
+     under a voting-area correlation names the wrong geography. */
+  const unitName = SOCIO_UNITS[st.unit || 'da'].name;
+  caption.textContent = `${t.label} against ${outcome.label.toLowerCase()} across ${fmtInt(t.n)} ${unitName}`
     + (dropped > 0 ? ` (${fmtInt(dropped)} left out for missing values)` : '')
-    + `; r = ${fmtNum(t.r, 3)}, electors-weighted r = ${fmtNum(t.rWeighted, 3)}. Dot size follows electors.`;
+    + `; r = ${fmtNum(t.r, 3)}, electors-weighted r = ${fmtNum(t.rWeighted, 3)}. Dot size follows electors.`
+    /* The resident denominator is a census count, so correlating it against
+       another census count shares a source with its own outcome. Worth saying
+       under the chart rather than only in the Method. */
+    + (outcome.circular
+      ? ' This outcome divides by a census count, so a correlation against another '
+        + 'census variable shares a source with its own denominator — read it beside the '
+        + 'per-federal-elector version, which does not.'
+      : '');
 }
 
 /* --- Variable picker and search ------------------------------------------ */

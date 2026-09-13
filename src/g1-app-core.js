@@ -51,6 +51,9 @@ const state = {
   weightingInEffect: null,
   results: { sortKey: 'ballots', sortDir: 'desc' },
   provElectors: null,
+  /* Ballots per federal elector and per resident aged 15 and over, by voting
+     area. Neither is turnout; see recomputeProvincialParticipation. */
+  provPart: null,
   socio: { outcome: 'turnout-agg', minElectors: 50, selected: new Set(), extra: new Map(),
            rows: null, byDa: null, table: null, sortKey: 'absR', sortDir: 'desc', picked: null },
 };
@@ -269,6 +272,11 @@ function fitAll() {
 function shadeValue(layerKey, f, mode, fedParty, provParty) {
   if (mode === 'none' || mode === 'type' || mode === 'flat') return null;
   if (layerKey === 'prov') {
+    if (PART_MODES.has(mode)) {
+      const p = state.provPart && state.provPart.get(f.__idx);
+      if (!p) return null;
+      return mode === 'prov-per-elector' ? p.perFedElector : p.perAdult;
+    }
     const u = provValues()?.get(f.__idx);
     if (!u) return null;
     if (mode === 'prov-party') return provParty ? Analysis.shareOf(u, provParty) : null;
@@ -310,8 +318,12 @@ function shadeValue(layerKey, f, mode, fedParty, provParty) {
 
 const TYPE_FILL = { N: 'var(--muted)', M: 'var(--viz-series-5)', S: 'var(--viz-series-6)' };
 const TURNOUT_MODES = new Set(['turnout-fed', 'turnout-prov', 'turnout-agg']);
+/* Provincial ballots over a denominator that is not a provincial electorate.
+   They ramp like a turnout because they are the same shape of number, and they
+   are kept out of TURNOUT_MODES because they are not one. */
+const PART_MODES = new Set(['prov-per-elector', 'prov-per-resident']);
 /* Modes whose ramp follows the data on the map rather than a fixed scale. */
-const DATA_MODES = new Set([...TURNOUT_MODES, 'variable']);
+const DATA_MODES = new Set([...TURNOUT_MODES, ...PART_MODES, 'variable']);
 
 /* Turnout ramps are data-driven -- 5th to 95th percentile of what is on the
    map -- because a fixed scale would either wash out or saturate depending on
@@ -344,6 +356,8 @@ function fillColour(mode, v, fedParty, provParty) {
   if (mode === 'turnout-delta') return v >= 0 ? 'var(--viz-series-1)' : 'var(--viz-series-2)';
   if (mode === 'variable') return 'var(--viz-series-3)';
   if (TURNOUT_MODES.has(mode)) return 'var(--viz-series-1)';
+  if (mode === 'prov-per-elector') return 'var(--viz-series-4)';
+  if (mode === 'prov-per-resident') return 'var(--viz-series-5)';
   if (mode === 'fed-party') return partyColour(fedParty);
   if (mode === 'prov-party') return partyColour(provParty);
   return 'var(--muted)';
@@ -445,6 +459,20 @@ function provPlaceLine(feature, unit) {
   if (!bits.length) return null;
   const p = el('p', 'text-small text-muted', bits.join('. ') + '.');
   return p;
+}
+
+/* The two denominators for one voting area, side by side, because a reader
+   checking a single area is exactly who needs to see how far apart they are.
+   Written as a share of something named, never as a turnout. */
+function provPartLine(feature) {
+  const p = state.provPart && state.provPart.get(feature.__idx);
+  if (!p || (p.perFedElector == null && p.perAdult == null)) return null;
+  const bits = [`${fmtInt(p.ballots)} ballots`];
+  if (p.perFedElector != null) bits.push(`${fmtPct(p.perFedElector)} of ${fmtInt(p.fedElectors)} federal electors`);
+  if (p.perAdult != null) bits.push(`${fmtPct(p.perAdult)} of ${fmtInt(p.adults)} residents 15+`);
+  const line = el('p', 'text-small text-muted', bits.join(' · '));
+  if (p.spread != null && Math.abs(p.spread) >= 0.1) line.classList.add('text-warning');
+  return line;
 }
 
 /* --- Voting places ---------------------------------------------------------- */
@@ -590,10 +618,27 @@ function draw() {
 
 /* Controls that only mean something for results reported by voting place. */
 function updatePlaceControls() {
-  const byPlace = state.provResults?.kind === 'places';
-  const option = $('shade-prov-by').querySelector('option[value="catchment"]');
-  if (option) option.hidden = !byPlace;
-  if (!byPlace && $('shade-prov-by').value === 'catchment') $('shade-prov-by').value = 'none';
+  const sel = $('shade-prov-by');
+  const part = state.provPart;
+  const has = (key) => {
+    if (!part) return false;
+    for (const p of part.values()) if (p[key] != null) return true;
+    return false;
+  };
+  /* Each of these shades something the loaded data may not support: a
+     catchment needs results by voting place, and a denominator needs the layer
+     it is carried from. An option that would shade nothing is withdrawn rather
+     than left to paint an empty map. */
+  const available = {
+    catchment: state.provResults?.kind === 'places',
+    'prov-per-elector': has('perFedElector'),
+    'prov-per-resident': has('perAdult'),
+  };
+  for (const [value, ok] of Object.entries(available)) {
+    const option = sel.querySelector(`option[value="${value}"]`);
+    if (option) option.hidden = !ok;
+    if (!ok && sel.value === value) sel.value = 'none';
+  }
 }
 
 function updateLayerVisibility() {
@@ -652,6 +697,18 @@ function renderLegend() {
       items.push([partyColour(provParty), `${provParty} share, 2024, on voting areas`]);
     } else if (provMode === 'turnout-prov') {
       items.push(['var(--viz-series-1)', `2024 provincial turnout on voting areas${range(state.shadeDomain.prov)}`]);
+    } else if (PART_MODES.has(provMode)) {
+      /* Named by its denominator every time it is drawn. The whole reason
+         these exist is that neither denominator is a provincial electorate,
+         and a legend reading "turnout" would undo that in one word. */
+      const perElector = provMode === 'prov-per-elector';
+      const dom = state.shadeDomain.prov;
+      items.push([perElector ? 'var(--viz-series-4)' : 'var(--viz-series-5)',
+        `2024 provincial ballots per ${perElector ? '2025 federal elector' : 'resident aged 15+'}`
+        + (dom ? ` — ${fmtPct(dom.lo, 0)} to ${fmtPct(dom.hi, 0)}` : '')]);
+      items.push(['note', perElector
+        ? 'Not turnout: the denominator is the 2025 federal roll, not the 2024 provincial one.'
+        : 'Not turnout: the denominator counts 2021 residents, not registered voters.']);
     } else if (provMode === 'catchment') {
       const n = state.provResults?.report?.catchments || 0;
       /* The colours cycle and carry no order, so the legend says what they
@@ -789,6 +846,8 @@ function renderReadout() {
     }
     const placeLine = provPlaceLine(prov, unit);
     if (placeLine) provCard.append(placeLine);
+    const partLine = provPartLine(prov);
+    if (partLine) provCard.append(partLine);
   } else if (state.prov.all.length) {
     provCard.append(el('p', 'text-muted', 'No provincial voting area at this point.'));
   } else {
@@ -951,6 +1010,9 @@ function invalidateCross() {
      the effective-n figure counting sources from the previous crosswalk. */
   clearPlaceGroups();
   state.crosswalk = null; state.pairs = null; state.coverage = null; state.provOnFed = null;
+  /* Both denominators are carried across the crosswalk, so they die with it
+     rather than shading the map from the previous weighting. */
+  state.provPart = null;
   state.crosswalkFed = null; state.crosswalkProv = null;
   if (state.sample) crossPair('fed', 'prov');
 }

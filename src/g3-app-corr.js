@@ -187,6 +187,77 @@ function recomputeProvincialOnFederal() {
   state.provOnFed = out;
 }
 
+/* --- Two denominators for a provincial voting area ---------------------------
+
+   The 2024 provincial results arrive per voting place with no elector column,
+   and Elections BC publishes registered voters per electoral district only, so
+   a voting area has ballots and no electorate. Two counts can be carried onto
+   it instead -- the 2025 federal roll, and census residents aged 15 and over --
+   and neither of them is a provincial electorate. Both are computed here, side
+   by side, so the gap between them is on the page rather than in an argument.
+
+   Prepared once per refresh and read per feature by the map, exactly as
+   state.provOnFed is, because shading cannot afford a crosswalk pass per
+   polygon. */
+
+const ID_OF = { fed: (f) => f.idx, prov: (f) => f.__idx, da: (f) => f.__idx, db: (f) => f.__idx };
+
+/* One count moved from one loaded layer onto another, keyed by the target
+   feature's own index. Counts share out by overlap; this is the same call the
+   Socioeconomic tab makes to carry census variables the other way. */
+function carriedCount(from, to, valueOf) {
+  if (!state[from]?.all.length || !state[to]?.all.length) return null;
+  const c = crossPair(from, to);
+  if (!c) return null;
+  const src = new Map();
+  state[from].active.forEach((f, i) => {
+    const v = valueOf(f);
+    if (v != null && isFinite(v)) src.set(i, v);
+  });
+  if (!src.size) return null;
+  const moved = Analysis.moveVariable(c.pairs, src, { from: 'a', kind: 'count' });
+  const id = ID_OF[to];
+  const out = new Map();
+  for (const [i, value] of moved) {
+    const f = state[to].active[i];
+    if (f) out.set(id(f), value);
+  }
+  return out;
+}
+
+/* Census residents aged 15 and over, on whichever geography is asked for.
+   Native on the dissemination areas; carried across for anything else. The
+   variable is absent when the loaded profile has no age table, and then so is
+   the denominator -- it is never stood in for. */
+function residentAdultsOn(unit) {
+  const v = state.da.variables.find((x) => x.key === 'pop_15_plus');
+  if (!v) return null;
+  if (unit === 'da') return v.byFeature;
+  return carriedCount('da', unit, (f) => v.byFeature.get(f.__idx));
+}
+
+function recomputeProvincialParticipation() {
+  state.provPart = null;
+  const pv = provValues();
+  if (!pv || !state.prov.active.length) return;
+  const fv = fedValues();
+  /* The ranked table takes its federal electors from the unit already carried
+     onto each row; the map has no rows, so it carries the count itself. */
+  const electors = fv ? carriedCount('fed', 'prov', (f) => fv.get(f.idx)?.electors) : null;
+  const adults = residentAdultsOn('prov');
+  if (!electors && !adults) return;
+  const rows = [];
+  for (const f of state.prov.active) {
+    const u = pv.get(f.__idx);
+    if (!u) continue;
+    rows.push({ f, by: { prov: u, fed: { electors: electors?.get(f.__idx) || 0 } } });
+  }
+  /* The arithmetic lives in f2-turnout.js and is used from here unchanged, so
+     the map and the ranked table can never disagree about a ratio. */
+  Turnout.participation(rows, { side: 'prov', adultsOf: (r) => adults?.get(r.f.__idx) ?? null });
+  state.provPart = new Map(rows.map((r) => [r.f.__idx, r.p]));
+}
+
 /* --- Correlation view -------------------------------------------------------- */
 
 function correlationInputs() {

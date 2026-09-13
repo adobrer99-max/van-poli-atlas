@@ -110,7 +110,13 @@ const Turnout = (() => {
     }
     const out = [];
     for (const row of rows.values()) {
-      const ref = row.by[target] || row.by.fed || row.by.prov || Object.values(row.by)[0];
+      /* The reference count is whichever source actually has electors, not
+         whichever geography the rows are keyed on. A provincial voting area
+         carries none -- Elections BC publishes registered voters per district,
+         never per area -- so preferring the native source would set every row
+         to zero and the minimum below would then drop the lot. */
+      const order = [row.by[target], row.by.fed, row.by.prov, ...Object.values(row.by)];
+      const ref = order.find((u) => u && u.electors > 0) || order.find(Boolean);
       row.electors = ref ? ref.electors : 0;
       if (row.electors < minElectors) continue;
       out.push(row);
@@ -146,7 +152,59 @@ const Turnout = (() => {
     return rows;
   }
 
-  const valueOf = (row, key) => (key.startsWith('t.') ? row.t[key.slice(2)] : row[key]);
+  /* --- Participation, where there is no electorate to divide by -------------
+
+     Elections BC publishes registered voters per electoral district and never
+     per voting area, and the 2024 results arrive per voting place with no
+     elector column at all. So the provincial side has ballots on every area
+     and a denominator on none, and its turnout column is blank.
+
+     Two denominators can be had for an area, and neither of them is a
+     provincial electorate:
+
+       federal electors   the 2025 federal roll, areally interpolated onto the
+                          voting area by the crosswalk. A real electorate, but
+                          the wrong election's.
+       residents 15+      census population of the area, carried across the
+                          same way. The right year is not on offer either, and
+                          it counts residents rather than registrants, with
+                          15- to 17-year-olds among them.
+
+     Both are computed, neither is called turnout, and the spread between them
+     is reported because it is the size of the choice. Nothing here is written
+     to `t`, `agg`, `min`, `delta` or `expected`: those stay strictly ballots
+     over electors, so a modelled ratio can never reach something labelled
+     turnout. A ratio over 1 is left as it stands -- it says the denominator is
+     wrong for that area, not that anyone voted twice. */
+  function participation(rows, { side = 'prov', adultsOf = null } = {}) {
+    for (const row of rows) {
+      const u = row.by[side];
+      const b = u ? ballots(u) : null;
+      const e = row.by.fed ? row.by.fed.electors : 0;
+      const a = adultsOf ? adultsOf(row) : null;
+      const over = (den) => (b != null && den > 0 && isFinite(den) ? b / den : null);
+      const p = {
+        ballots: b,
+        fedElectors: e > 0 ? e : null,
+        adults: a > 0 && isFinite(a) ? a : null,
+        perFedElector: over(e),
+        perAdult: over(a),
+      };
+      p.spread = p.perFedElector != null && p.perAdult != null ? p.perFedElector - p.perAdult : null;
+      row.p = p;
+    }
+    return rows;
+  }
+
+  /* How many rows came out over 100%, which is worth saying out loud rather
+     than hiding: it counts the areas where the denominator plainly does not
+     describe the people who voted there. */
+  const overOne = (rows, key) => rows.filter((r) => r.p && r.p[key] != null && r.p[key] > 1).length;
+
+  const valueOf = (row, key) => (
+    key.startsWith('t.') ? row.t[key.slice(2)]
+      : key.startsWith('p.') ? (row.p ? row.p[key.slice(2)] : null)
+        : row[key]);
 
   /* Sorted copy with 1-based ranks; nulls sink to the bottom either way. */
   function rank(rows, key = 'agg', dir = 'desc') {
@@ -204,19 +262,27 @@ const Turnout = (() => {
 
   function toCsv(rows, sides = ['fed', 'prov']) {
     const f = (v, dp = 6) => (v == null || !isFinite(v) ? '' : Number(v).toFixed(dp));
+    /* The participation columns ride along only when they were computed. Both
+       denominators go in the file beside their ratios -- `fed_electors` is
+       already a column, so only the census one is added -- because the point
+       of reporting two is that a reader can recompute either. */
+    const part = rows.some((r) => r.p);
     const header = ['rank', 'unit_key', 'unit_label', 'electors',
       ...sides.flatMap((s) => [`${s}_ballots`, `${s}_electors`, `${s}_apportioned`, `turnout_${s}`]),
-      'turnout_agg', 'turnout_min', 'turnout_delta', 'expected_ballots', 'partial'];
+      'turnout_agg', 'turnout_min', 'turnout_delta', 'expected_ballots', 'partial',
+      ...(part ? ['residents_15_plus', 'prov_per_fed_elector', 'prov_per_resident_15_plus',
+                  'denominator_spread'] : [])];
     const out = [header];
     for (const r of rows) {
       out.push([r.rank ?? '', r.key, r.label, f(r.electors, 2),
         ...sides.flatMap((s) => [f(r.ballots?.[s], 2), f(r.by[s]?.electors, 2),
           f(r.by[s]?.apportioned, 2), f(r.t?.[s])]),
-        f(r.agg), f(r.min), f(r.delta), f(r.expected, 2), r.partial ? 'yes' : 'no']);
+        f(r.agg), f(r.min), f(r.delta), f(r.expected, 2), r.partial ? 'yes' : 'no',
+        ...(part ? [f(r.p?.adults, 2), f(r.p?.perFedElector), f(r.p?.perAdult), f(r.p?.spread)] : [])]);
     }
     return out;
   }
 
-  return { ballots, rate, cloneUnit, apportionUnmatched, rowsOnUnit, score, rank, cumulative,
-           basketSummary, toCsv };
+  return { ballots, rate, cloneUnit, apportionUnmatched, rowsOnUnit, score, participation, overOne,
+           rank, cumulative, basketSummary, toCsv };
 })();

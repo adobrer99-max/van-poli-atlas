@@ -112,6 +112,8 @@ const Census = (() => {
     { key: 'median_age', label: 'Median age', name: /^Median age of the population$/i, use: 'count' },
     { key: 'pct_65_plus', label: 'Aged 65 and over (%)', name: /^65 years and over$/i, use: 'ratio',
       over: /^Total - Age groups of the population/i },
+    { key: 'pop_15_plus', label: 'Population aged 15 and over', name: /^0 to 14 years$/i,
+      use: 'complement', over: /^Total - Age groups of the population/i },
     { key: 'avg_household_size', label: 'Average household size', name: /^Average household size$/i, use: 'count' },
     { key: 'pct_one_person_hh', label: 'One-person households (%)', name: /^1 person$/i, use: 'ratio',
       over: /^Total - Private households by household size/i },
@@ -159,6 +161,13 @@ const Census = (() => {
       else if (use === 'ratio') {
         const num = g.count[index], den = overIndex != null ? g.count[overIndex] : NaN;
         v = den > 0 && isFinite(num) ? (100 * num) / den : NaN;
+      } else if (use === 'complement') {
+        /* Everyone in the table except the named band. The profile carries
+           "0 to 14 years" but no "15 and over" line, and a denominator of
+           adult residents needs the second, so it is the total less the
+           first -- a count, and treated as one wherever it is carried. */
+        const part = g.count[index], whole = overIndex != null ? g.count[overIndex] : NaN;
+        v = isFinite(part) && isFinite(whole) ? whole - part : NaN;
       } else v = g.count[index];
       if (v != null && isFinite(v)) values.set(geo, v);
     }

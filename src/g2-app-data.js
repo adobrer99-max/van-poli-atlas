@@ -830,6 +830,12 @@ function refreshPartySelectors() {
       { value: 'turnout-agg', label: 'Aggregate turnout, both elections' },
       { value: 'turnout-fed', label: 'Federal (2025) turnout' },
       { value: 'turnout-prov', label: 'Provincial (2024) turnout' },
+      /* Offered only where the provincial results have ballots to divide: with
+         none loaded these would be an outcome with no numerator. */
+      ...(provParties.length ? [
+        { value: 'part-fed', label: 'Provincial ballots per federal elector' },
+        { value: 'part-adult', label: 'Provincial ballots per resident 15+' },
+      ] : []),
       ...fedParties.map(([name]) => ({ value: `fed:${name}`, label: `${name} share, federal 2025` })),
       ...provParties.map(([name]) => ({ value: `prov:${name}`, label: `${name} share, provincial 2024` })),
     ]);

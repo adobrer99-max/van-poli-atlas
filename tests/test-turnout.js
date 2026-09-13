@@ -58,6 +58,79 @@ for (const target of ['prov', 'fed', 'atom']) {
 const fedOnly = T.score(T.rowsOnUnit('fed', [{ id: 'fed', values: fedU, pairs: null }], labels), { weights: { fed: 1 } });
 ok(`federal-only rows: ${fedOnly.length} of ${fed.length}, none partial`, fedOnly.length === fed.length && fedOnly.every((r) => !r.partial && Math.abs(r.agg - 0.6) < 1e-12));
 
+console.log('\n== A target geography whose own source has no electors ==');
+/* The real case: 2024 provincial results arrive per voting place with no
+   elector column, and Elections BC publishes registered voters per electoral
+   district only. So a voting area has ballots and electors of zero, and a
+   reference count taken from the native source would be zero for every row --
+   and the "drop areas under 50 electors" default would then empty the table. */
+const noE = new Map();
+prov.forEach((f, i) => noE.set(i, unit(0.55 * (350 + 11 * i), 0, 0.05 * (350 + 11 * i))));
+const mixed = [{ id: 'fed', values: fedU, pairs }, { id: 'prov', values: noE, pairs }];
+const kept = T.score(T.rowsOnUnit('prov', mixed, labels, { minElectors: 50 }),
+                     { weights: { fed: 0.5, prov: 0.5 } });
+ok(`rows survive the default minimum: ${kept.length} of ${prov.length}`, kept.length > 0);
+ok('the reference count is the federal electors carried in, never zero',
+   kept.every((r) => r.electors > 0 && r.by.fed && Math.abs(r.electors - r.by.fed.electors) < 1e-9));
+ok('a provincial row with no electors still reports no provincial turnout',
+   kept.every((r) => r.t.prov === null && r.partial));
+ok('and expected ballots stop being zero', kept.every((r) => r.expected > 0));
+const strict = T.rowsOnUnit('prov', mixed, labels, { minElectors: 1e9 });
+ok('the minimum still filters, on a count that means something', strict.length === 0);
+
+console.log('\n== Two denominators, neither of them an electorate ==');
+/* Provincial ballots over the federal electors already on the row, and over a
+   census count supplied from outside. Never written to t, agg or expected. */
+const part = T.participation(kept.map((r) => ({ ...r })), {
+  side: 'prov',
+  adultsOf: (r) => r.by.fed.electors * 1.25,   // more residents than registrants
+});
+const one = part[0];
+near('ballots over the federal electors carried onto this row',
+     one.p.perFedElector, T.ballots(one.by.prov) / one.by.fed.electors);
+near('ballots over the supplied resident count',
+     one.p.perAdult, T.ballots(one.by.prov) / (one.by.fed.electors * 1.25));
+near('the spread is the difference between the two',
+     one.p.spread, one.p.perFedElector - one.p.perAdult);
+ok('a larger denominator always gives the smaller ratio',
+   part.every((r) => r.p.perAdult < r.p.perFedElector && r.p.spread > 0));
+ok('both denominators travel with the ratio, so a reader can recompute',
+   part.every((r) => r.p.fedElectors > 0 && r.p.adults > 0));
+ok('nothing here reaches turnout: t, agg and expected are untouched',
+   part.every((r, i) => r.t.prov === null && r.agg === kept[i].agg && r.expected === kept[i].expected));
+
+const edge = T.participation([
+  { by: { prov: unit(100, 0, 4), fed: { electors: 0 } } },
+  { by: { prov: unit(0, 0, 0), fed: { electors: 250 } } },
+  { by: { fed: { electors: 250 } } },
+], { side: 'prov', adultsOf: (r) => (r.by.prov ? null : 300) });
+ok('a denominator of zero gives null, never Infinity and never zero',
+   edge[0].p.perFedElector === null && edge[0].p.fedElectors === null);
+near('zero ballots over a real denominator is zero, not null', edge[1].p.perFedElector, 0);
+ok('and a missing resident count leaves only the spread absent',
+   edge[1].p.perAdult === null && edge[1].p.spread === null);
+ok('a row with no provincial ballots at all reports nothing',
+   edge[2].p.ballots === null && edge[2].p.perFedElector === null && edge[2].p.perAdult === null);
+ok('rows over 100% are counted rather than hidden',
+   T.overOne(T.participation([{ by: { prov: unit(400, 0, 0), fed: { electors: 100 } } }],
+                             { side: 'prov' }), 'perFedElector') === 1);
+
+console.log('\n== The two denominators reach the export ==');
+const pcsv = T.toCsv(T.rank(part, 'agg'));
+const ph = pcsv[0];
+ok('both ratios, the census denominator and the spread are columns',
+   ['residents_15_plus', 'prov_per_fed_elector', 'prov_per_resident_15_plus', 'denominator_spread']
+     .every((c) => ph.includes(c)), ph.join(','));
+ok('the federal denominator is already a column and is not repeated',
+   ph.filter((c) => c === 'fed_electors').length === 1);
+ok('every row is the same width', new Set(pcsv.map((r) => r.length)).size === 1);
+near('a ratio reaches the file as the number it is',
+     parseFloat(pcsv[1][ph.indexOf('prov_per_fed_elector')]),
+     T.rank(part, 'agg')[0].p.perFedElector, 1e-6);
+const plainCsv = T.toCsv(kept);
+ok('a ranking with no participation carries no participation columns',
+   !plainCsv[0].includes('prov_per_fed_elector'));
+
 console.log('\n== Apportionment of ballots that have no polygon ==');
 const vals = new Map();
 fed.forEach((f, i) => vals.set(i, unit(100 + 15 * i, 300 + 20 * i, 1 + (i % 4), { district: i < 8 ? '59035' : '59036' })));
