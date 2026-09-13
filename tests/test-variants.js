@@ -122,8 +122,22 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     ok(`poll stroke is visible against the dark ground (${colours.pollStroke})`,
        lum(colours.pollStroke) > 120, colours.pollStroke);
     ok('no errors in dark mode', errs.length === 0, errs.join('|'));
-    const darkTiles = await page.evaluate(() => [...document.querySelectorAll('.leaflet-tile-pane img.leaflet-tile')].map((i) => i.src));
-    ok(`auto basemap picks the dark tiles under a dark scheme (${darkTiles.length} tiles)`, darkTiles.length > 0 && darkTiles.every((u) => /dark_all/.test(u)), darkTiles[0]);
+    /* The default no longer follows the colour scheme, and that is deliberate:
+       it is OpenStreetMap, the one basemap that still needs no API key, on a
+       light page and a dark one alike. */
+    const tilesOf = () => page.evaluate(() =>
+      [...document.querySelectorAll('.leaflet-tile-pane img.leaflet-tile')].map((i) => i.src));
+    const defaultTiles = await tilesOf();
+    ok(`the default basemap is the keyless one under a dark scheme too (${defaultTiles.length} tiles)`,
+       defaultTiles.length > 0 && defaultTiles.every((u) => /tile\.openstreetmap\.org/.test(u)),
+       defaultTiles[0]);
+    /* Choosing "auto" still follows the scheme, which is the whole point of
+       keeping it -- it just has to be chosen now. */
+    await page.locator('#basemap').selectOption('auto');
+    await page.waitForTimeout(900);
+    const darkTiles = await tilesOf();
+    ok(`auto picks the dark tiles under a dark scheme (${darkTiles.length} tiles)`,
+       darkTiles.length > 0 && darkTiles.every((u) => /dark_all/.test(u)), darkTiles[0]);
     await page.screenshot({ path:'shot-dark.png' });
     await page.close();
   }
