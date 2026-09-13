@@ -36,9 +36,7 @@ function fillSelect(select, options, selected) {
 
 /* --- Provincial boundaries -------------------------------------------------- */
 
-$('file-prov-geo').addEventListener('change', async (event) => {
-  const file = event.target.files[0];
-  if (!file) return;
+async function loadProvincialBoundaries(file) {
   setStatus('status-prov-geo', 'busy', `Reading ${file.name}…`);
   try {
     /* The File goes in as is: a province-wide download is clipped to the
@@ -74,6 +72,11 @@ $('file-prov-geo').addEventListener('change', async (event) => {
     setStatus('status-prov-geo', 'error', [`Could not read ${file.name}.`, err.message]);
     clearInput('file-prov-geo');
   }
+}
+$('file-prov-geo').addEventListener('change', (event) => {
+  const file = event.target.files[0];
+  if (file) loadProvincialBoundaries(file);
+  event.target.value = '';
 });
 
 $('clear-prov-geo').addEventListener('click', () => {
@@ -201,9 +204,7 @@ $('da-key').addEventListener('change', () => {
   onCensusChanged();
 });
 
-$('file-geo-attr').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+async function loadGeoAttributes(file) {
   setStatus('status-geo-attr', 'busy', `Reading ${file.name}…`);
   try {
     const table = await Ingest.loadTable(file.name, await readFile(file));
@@ -221,6 +222,11 @@ $('file-geo-attr').addEventListener('change', async (e) => {
     setStatus('status-geo-attr', 'error', [`Could not read ${file.name}.`, err.message]);
     clearInput('file-geo-attr');
   }
+}
+$('file-geo-attr').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) loadGeoAttributes(file);
+  e.target.value = '';
 });
 $('clear-geo-attr').addEventListener('click', () => {
   state.geoAttr = null;
@@ -230,9 +236,7 @@ $('clear-geo-attr').addEventListener('click', () => {
   onCensusChanged();
 });
 
-$('file-census').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+async function loadCensusProfile(file) {
   setStatus('status-census', 'busy', `Reading ${file.name}…`);
   try {
     const table = await Ingest.loadTable(file.name, await readFile(file));
@@ -277,6 +281,10 @@ $('file-census').addEventListener('change', async (e) => {
     setStatus('status-census', 'error', [`Could not read ${file.name}.`, err.message]);
     clearInput('file-census');
   }
+}
+$('file-census').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) loadCensusProfile(file);
 });
 $('clear-census').addEventListener('click', () => {
   state.da.census = null;
@@ -637,9 +645,7 @@ function rejoinProvincialResults() {
 
 /* --- Registered voters, the denominator turnout needs ------------------------ */
 
-$('file-prov-electors').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+async function loadProvincialElectors(file) {
   setStatus('status-prov-electors', 'busy', `Reading ${file.name}…`);
   try {
     const table = await Ingest.loadTable(file.name, await readFile(file));
@@ -660,6 +666,11 @@ $('file-prov-electors').addEventListener('change', async (e) => {
     setStatus('status-prov-electors', 'error', [`Could not read ${file.name}.`, err.message]);
     clearInput('file-prov-electors');
   }
+}
+$('file-prov-electors').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) loadProvincialElectors(file);
+  e.target.value = '';
 });
 $('clear-prov-electors').addEventListener('click', () => {
   state.provElectors = null;

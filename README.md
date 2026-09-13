@@ -264,59 +264,77 @@ Profile download for the province at the dissemination-area level, and the
 zipped dissemination-area and dissemination-block boundary files; 5915022 is
 the City of Vancouver's census subdivision id.
 
-### Baking the census layer into the build
+### Baking the data into the build
 
-Preparing census data is four Statistics Canada downloads, a multi-gigabyte
-provincial profile and a command line. Reading the finished map should be
-opening a file. Those are different jobs for different people, so the build can
-bake the census layer in and everyone else opens one HTML file with nothing to
-load:
-
-```sh
-node tools/make-census-payload.js --in census/
-python3 build.py --census boundaries/
-```
-
-The first turns `filter_census.py`'s output into two small files — the
-dissemination-area boundaries as lon/lat GeoJSON, rounded to five decimal
-places (about a metre), and the starter variables. It refuses to write a
-payload whose variable rows do not join to its own boundaries, because that
-failure is invisible on someone else's machine: an empty map with no reason
-given. It is JavaScript rather than Python like the rest of `tools/` because
-the boundary files are Statistics Canada Lambert (EPSG:3347), and that
-projection is implemented and tested once, in `src/a-geo.js` — running it here
-means the coordinates in the build come from the same code that would have read
-the shapefile in the browser.
-
-`--census` and `--out` are both optional and independent, so you can build a
-copy for other people without disturbing your own:
+Preparing this atlas's data means downloads from four agencies, a
+multi-gigabyte census profile and a command line. Reading the finished map
+should mean opening a file. Those are different jobs for different people, so a
+build can carry its data inside it and a reader opens one HTML file with
+everything already loaded:
 
 ```sh
-python3 build.py --census boundaries/ --out share/vancouver-atlas.html
+node tools/make-payload.js --out payload \
+    --census census/ \
+    --fed-results pollresults/ \
+    --prov-geo BCGW_voting_areas.zip \
+    --prov-results provincial_2024_voting_places.csv \
+    --muni-results 2022MunicipalElectionResults.zip \
+    --muni-places voting-places-2022.csv
+python3 build.py --payload payload
 ```
 
-Vancouver's roughly 1,000 dissemination areas cost about 400–600 KB, taking the
-atlas from 1.5 MB to around 2 MB — still a file you can email, and it works
-offline. **Both halves are required**: a build given boundaries without
-variables, or the reverse, fails rather than producing an atlas that opens to an
-empty map. The full characteristic list is deliberately *not* baked in — it is
-20–30 MB — so it stays an optional load for whoever wants to go deeper, and a
-reader who loads their own boundaries or profile replaces the built-in layer.
+Every input is converted to the plainest text the atlas reads — a shapefile
+becomes lon/lat GeoJSON, an archive becomes the CSVs inside it — and written
+under a directory named for the loader that reads it. `build.py` inlines those,
+and at startup the app hands each one to **the very same function the Data tab's
+file input calls**, as a real `File` built from the inlined bytes. There is no
+second parsing path to drift out of step with the one people actually exercise:
+the payload is, literally, the file being chosen for you. Loading your own still
+replaces it.
 
-The payload is generated, not committed: `boundaries/census_da.geojson` and
-`boundaries/census_starter.csv` are in `.gitignore` alongside `fixtures/`,
-because they are derived from downloads this repository does not redistribute.
-A fresh clone therefore builds a working atlas with no census layer, which is
-what the committed `vancouver-boundary-atlas.html` is.
+Two things the tool does that matter for size, both measured on the real files:
 
-**What must never be baked in.** The same convenience applied to an electors
-roll would be a serious mistake. Census data is public and licensed for
-redistribution; a roll is names and home addresses, and the atlas's rules for it
-are that it is read in the browser tab on the campaign's own device, never
-committed, never bundled, and that what leaves that machine is aggregates with
+- **Boundaries are clipped properly, not just by bounding box.** A provincial
+  order covers all of British Columbia — 5,778 voting areas, about 49 MB of
+  GeoJSON. A bounding box round Vancouver still keeps 2,492 of them, because it
+  also contains Burnaby, Richmond and the North Shore. An area is kept only when
+  its own representative point lands inside a federal polling division, the same
+  hit test the map readout uses: **861 areas, 958 KB.**
+- **Only the properties the atlas reads are kept.** The provincial order also
+  carries `OBJECTID`, `SHAPE.AREA`, a CAD annotation blob and a gazette date,
+  which together came to 768 KB of nothing.
+
+A full build — all three elections, the census layer and the boundaries — comes
+to about **3.7 MB**. Still a file you can email, still works offline.
+
+`--payload` and `--out` are independent, so you can build a copy for other
+people without disturbing your own working tree:
+
+```sh
+python3 build.py --payload payload --out share/vancouver-atlas.html
+```
+
+Nothing baked in is committed: `payload/` and `boundaries/census_*` are in
+`.gitignore`, because none of this data belongs to this repository — it is
+Elections Canada's, Elections BC's, the City of Vancouver's and Statistics
+Canada's. A fresh clone builds a working atlas with nothing baked in, which is
+what the committed `vancouver-boundary-atlas.html` is, and every dataset loads
+from the Data tab as before. `NOTICE` section 6 stays accurate either way.
+
+**What must never be baked in.** There is deliberately no flag for section 5's
+point file, and a test asserts there never will be. An elector roll is names and
+home addresses; it is read in the browser tab on the campaign's own device,
+never committed, never bundled, and what leaves that machine is aggregates with
 the disclosure-threshold warning attached. Making the atlas easier to pass
 around is exactly the pressure that erodes this, so: bake in public data, never
 personal data.
+
+**One more caveat, on distribution rather than use.** Census, Elections Canada
+and City of Vancouver data are open-licensed and redistributable with
+attribution. The Elections BC voting-area boundaries are under
+[their own licence](https://www.elections.bc.ca/docs/EBC-Open-Data-Licence.pdf),
+which is worth reading before handing a build containing them to anyone outside
+the organisation that prepared it.
 
 **Two ways to fetch the wrong profile**, both of which look right until you
 open them. `98-401-X2021025` is *Census Subdivisions in British Columbia* —

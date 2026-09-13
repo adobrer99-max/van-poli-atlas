@@ -190,9 +190,12 @@ function updateMuniControls() {
 /* The results arrive as an archive of one sheet per race plus an Overview and
    a Totals sheet. Every race is kept so the selector can switch between them
    without re-reading the file. */
-async function loadMuniResults(file) {
-  setStatus('status-muni', 'busy', `Reading ${file.name}…`);
-  const bytes = await readFile(file);
+/* One archive, or the sheets from inside one already unpacked -- a payload
+   baked into the build carries them separately, because an archive would have
+   to be base64 to survive being inlined. */
+async function loadMuniResults(input) {
+  const files = Array.isArray(input) ? input : [input];
+  setStatus('status-muni', 'busy', `Reading ${files.map((f) => f.name).join(', ')}…`);
   const races = [], seen = new Set();
   let overview = null;
   const add = (name, bytesIn) => {
@@ -204,17 +207,20 @@ async function loadMuniResults(file) {
     seen.add(name);
     races.push({ name: label, table });
   };
-  if (/\.zip$/i.test(file.name)) {
-    const zip = BinaryFormats.readZip(bytes);
-    for (const [name, open] of zip) {
-      /* The archive carries the resource forks a Mac adds when it is rezipped;
-         they parse as empty tables and would appear as races. */
-      if (name.includes('__MACOSX') || /(^|\/)\./.test(name)) continue;
-      if (!/\.(csv|tsv|txt)$/i.test(name)) continue;
-      add(name, await open());
+  for (const file of files) {
+    const bytes = await readFile(file);
+    if (/\.zip$/i.test(file.name)) {
+      const zip = BinaryFormats.readZip(bytes);
+      for (const [name, open] of zip) {
+        /* The archive carries the resource forks a Mac adds when it is
+           rezipped; they parse as empty tables and would appear as races. */
+        if (name.includes('__MACOSX') || /(^|\/)\./.test(name)) continue;
+        if (!/\.(csv|tsv|txt)$/i.test(name)) continue;
+        add(name, await open());
+      }
+    } else {
+      add(file.name, bytes);
     }
-  } else {
-    add(file.name, bytes);
   }
   if (!races.length) {
     throw new Error('No race sheet was found. The 2022 archive holds Mayor, Councillor, '
@@ -232,7 +238,8 @@ async function loadMuniPlaces(file) {
 
 async function loadMuniFile(file, which) {
   try {
-    if (which === 'results') await loadMuniResults(file); else await loadMuniPlaces(file);
+    if (which === 'results') await loadMuniResults(file);
+    else await loadMuniPlaces(Array.isArray(file) ? file[0] : file);
     const files = state.muniFiles;
     if (!files.places) {
       setStatus('status-muni', 'busy', [
