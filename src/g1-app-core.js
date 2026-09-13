@@ -395,7 +395,9 @@ function styleLayer(layerKey, sel) {
     if (mode === 'type') return f.pollType === 'N' ? 0.28 : 0.75;
     /* An area with no catchment stays unfilled, so the two routes a ballot can
        take onto the map are told apart at a glance. */
-    if (mode === 'catchment') return catchmentOf(f) < 0 ? 0 : base * 0.5;
+    /* Stronger than the data ramps: this mode exists to make the partition
+       legible, and a pale wash of six cycling colours is not. */
+    if (mode === 'catchment') return catchmentOf(f) < 0 ? 0 : base * 0.8;
     const v = shadeValue(layerKey, f, mode, fedParty, provParty);
     if (v == null) return isOverlay ? 0.04 : 0.06;
     /* Capped below full opacity so the outlines stay readable underneath. */

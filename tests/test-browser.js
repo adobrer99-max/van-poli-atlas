@@ -370,6 +370,36 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.waitForTimeout(800);
   const texts2 = (await socioCells()).map((c) => c.join(' '));
   ok('switching the outcome recomputes every row', texts2.length === 14 && texts2.join('|') !== texts.join('|'));
+
+  // The same correlation on the provincial voting areas: the census is carried
+  // the other way, counts shared out and rates averaged by population. A
+  // planted relationship must survive the move, sign and all.
+  await page.locator('#socio-outcome').selectOption('turnout-agg');
+  await page.waitForTimeout(600);
+  const daRenter = rOf(rowFor(/Renter/));
+  const units = await page.locator('#socio-unit option').allTextContents();
+  ok('the voting areas are offered as a second geography',
+     units.some((t) => /voting areas/i.test(t)), units.join(' | '));
+  await page.locator('#socio-unit').selectOption('prov');
+  await page.waitForTimeout(1200);
+  const provStatus = await page.locator('#socio-status').innerText();
+  ok('the tab now reports voting areas', /provincial voting areas carry aggregate turnout/.test(provStatus),
+     provStatus.replace(/\s+/g, ' ').slice(0, 160));
+  cells = await socioCells();
+  const provRenter = rowFor(/Renter/);
+  ok(`the planted variable keeps its sign on the other geography (${rOf(provRenter)} vs ${daRenter})`,
+     rOf(provRenter) < -0.5 && daRenter < -0.5, `${rOf(provRenter)} / ${daRenter}`);
+  const picker = await page.locator('#socio-picker').innerText();
+  ok('the picker says how each variable was carried across',
+     /population-weighted mean/.test(picker), picker.replace(/\s+/g, ' ').slice(0, 200));
+  const provTiles = await page.locator('#socio-stats').innerText();
+  ok('and the tiles count voting areas, not dissemination areas',
+     /provincial voting areas/.test(provTiles), provTiles.replace(/\s+/g, ' ').slice(0, 160));
+  await page.locator('#socio-unit').selectOption('da');
+  await page.waitForTimeout(900);
+  cells = await socioCells();
+  ok('switching back restores the dissemination-area figures',
+     Math.abs(rOf(rowFor(/Renter/)) - daRenter) < 1e-9, `${rOf(rowFor(/Renter/))} vs ${daRenter}`);
   await page.locator('#socio-outcome').selectOption('turnout-agg');
   await page.waitForTimeout(600);
   await page.locator('#socio-search').fill('2 persons');
@@ -382,6 +412,8 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   const scsv = require('fs').readFileSync(await (await sdl).path(), 'utf8').split(/\r?\n/).filter(Boolean);
   ok(`DA table exported (${scsv.length - 1} rows) with turnout, party shares and variables`,
      scsv.length - 1 >= minAreas && /turnout_agg/.test(scsv[0]) && /pct_renter/.test(scsv[0]) && /fed_share_/.test(scsv[0]) && /population_2021/.test(scsv[0]), scsv[0]);
+  ok('the export carries the columns needed to cluster on the real source',
+     /(^|,)source_unit(,|$)/.test(scsv[0]) && /(^|,)catchment_share(,|$)/.test(scsv[0]), scsv[0]);
 
   console.log('\n== Census on the map ==');
   await page.locator('#tab-map').click();

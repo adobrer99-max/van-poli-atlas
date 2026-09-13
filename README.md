@@ -45,9 +45,15 @@ crosswalk. The **Correlation** tab builds the crosswalk and plots one vote share
 against the other. The **Turnout** tab ranks every area by turnout combined
 across both elections, draws the "top X % of areas hold Y % of electors" curve,
 pools any set of areas into a basket, and exports the ranking. The
-**Socioeconomic** tab moves both elections' results onto dissemination areas
-and correlates turnout, or any party's share, with census variables. The
-**Method** tab states the assumptions; read it before quoting a coefficient.
+**Socioeconomic** tab correlates turnout, or any party's share, with census
+variables, on either geography: dissemination areas, where the census lives and
+the election results are carried in, or provincial voting areas, where the
+provincial results live and the census is carried in instead — counts shared
+out, rates averaged by population, and the picker says which happened to each
+variable. Its export names the voting place behind every row and how much of
+that row came from it, so a clustered standard error can be computed
+elsewhere. The **Method** tab states the assumptions; read it before quoting a
+coefficient.
 
 ## Provincial voting areas
 
@@ -274,7 +280,7 @@ and so on. `tests/run.js` stops at the first failing suite. GitHub Actions (`.gi
 every pull request, plus a check that the committed
 `vancouver-boundary-atlas.html` matches a fresh build.
 
-557 assertions — 396 in the node suites, 161 in the browser ones — plus 13
+585 assertions — 409 in the node suites, 176 in the browser ones — plus 13
 Python tests over the tools in `tools/`. The browser suites drive the real page
 in Chromium through Playwright: loading each boundary format, loading a BC Data
 Catalogue order as delivered and clipped, joining results, reading results

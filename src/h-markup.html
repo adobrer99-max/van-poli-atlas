@@ -468,6 +468,9 @@
       neighbourhoods, not about people &mdash; read the <b>Method</b> tab before quoting one.
     </p>
     <div class="viz-controls">
+      <label class="form-label grow" for="socio-unit">Correlate on
+        <select class="form-select" id="socio-unit"></select>
+      </label>
       <label class="form-label grow" for="socio-outcome">Outcome (y)
         <select class="form-select" id="socio-outcome">
           <option value="turnout-agg">Aggregate turnout, both elections</option>
@@ -488,6 +491,7 @@
         <span class="form-check-label">Only areas with both elections</span>
       </label>
     </div>
+    <p class="text-small text-muted" id="socio-unit-note"></p>
     <div id="socio-status" class="status"></div>
     <div class="viz-grid" id="socio-stats"></div>
   </div>
@@ -659,6 +663,17 @@
       neighbourhood-sized and overlap polls the way voting areas do. Election results
       reach them through the same crosswalk, so each carries an estimated turnout and
       party share beside its census variables.</p>
+    <p><b>Which geography to correlate on.</b> Either side of the crosswalk can be the
+      unit, and the choice decides what is modelled and what is measured. On
+      <i>dissemination areas</i> the census is exact and both elections are estimates;
+      for the 2024 provincial results that is two estimates in a row, since those were
+      modelled from voting places onto voting areas first. On <i>provincial voting
+      areas</i> the provincial results are one step closer to as-reported and the census
+      is the estimate instead: a count is shared out across the overlaps, while a rate,
+      a percentage or a median is averaged over them weighted by population, because
+      those do not add. Neither is the right answer in general. Agreement between the
+      two is worth more than either alone, and a coefficient that appears on one
+      geography and vanishes on the other was probably the interpolation talking.</p>
     <ul>
       <li><b>Ecological inference.</b> A correlation between, say, renting and turnout
         across areas says that areas with more renters have lower turnout; it does not say
