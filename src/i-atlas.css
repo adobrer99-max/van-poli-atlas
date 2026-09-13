@@ -198,3 +198,11 @@
 .socio-table tr { cursor: pointer; }
 .socio-table tr.picked td { background: color-mix(in srgb, var(--viz-series-3) 14%, transparent); }
 .socio-table td.text-start { max-width: 44ch; }
+
+/* A switch that cannot do anything should not look as though it can. The label
+   carries the reason it is off, so it has to dim along with the control. */
+.form-check-input:disabled,
+.form-check-input:disabled + .form-check-label {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

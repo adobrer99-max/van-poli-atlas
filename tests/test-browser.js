@@ -454,7 +454,43 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.locator('#tab-socio').click();
   await page.waitForTimeout(800);
   const socioStatus = await page.locator('#socio-status').innerText();
-  ok('dissemination areas carry the aggregate turnout', /dissemination areas carry aggregate turnout/.test(socioStatus), socioStatus);
+  ok('dissemination areas are counted as available and as charted',
+     /\d+ dissemination areas in the study area, \d+ charted/.test(socioStatus), socioStatus);
+
+  /* The "only areas with both elections" switch used to ask whether both sides
+     produced a turnout RATE. Results reported by voting place carry no
+     electors, so that question emptied the tab for the very outcomes built to
+     survive a missing denominator. It now asks about ballots, and switches
+     itself off for an outcome that reads one election, because there is then
+     nothing for it to exclude. */
+  const bothBox = page.locator('#socio-both-only');
+  const bothLabel = page.locator('#socio-both-only-label');
+  ok('the both-elections switch is live for the aggregate',
+     !(await bothBox.isDisabled()), await bothLabel.innerText());
+  await page.locator('#socio-outcome').selectOption('turnout-fed');
+  await page.waitForTimeout(800);
+  const oneSided = await page.locator('#socio-status').innerText();
+  ok('a one-election outcome switches the filter off',
+     await bothBox.isDisabled(), await bothLabel.innerText());
+  ok('and says why in the label',
+     /not used by this outcome/i.test(await bothLabel.innerText()), await bothLabel.innerText());
+  ok('and still charts areas rather than emptying the tab',
+     /in the study area, [1-9]\d* charted/.test(oneSided), oneSided);
+  await page.locator('#socio-outcome').selectOption('turnout-agg');
+  await page.waitForTimeout(800);
+  ok('the filter comes back for an outcome that reads both',
+     !(await bothBox.isDisabled()), await bothLabel.innerText());
+  ok('every area is accounted for, charted or with a reason',
+     await page.evaluate(() => {
+       const t = document.getElementById('socio-status').innerText;
+       const m = /(\d[\d,]*) \S[^,]* in the study area, (\d[\d,]*) charted/.exec(t);
+       if (!m) return false;
+       const num = (v) => parseInt(v.replace(/,/g, ''), 10);
+       const total = num(m[1]), charted = num(m[2]);
+       if (total === charted) return !/Not charted/.test(t);
+       const drops = [...t.matchAll(/(\d[\d,]*) (?=under |carry one|no )/g)].map((d) => num(d[1]));
+       return drops.reduce((a, b) => a + b, 0) === total - charted;
+     }), await page.locator('#socio-status').innerText());
   const socioRows = page.locator('#socio-table tbody tr');
   const nVars = await socioRows.count();
   ok(`table lists the 15 starter variables (${nVars})`, nVars === 15);
@@ -498,7 +534,7 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.locator('#socio-unit').selectOption('prov');
   await page.waitForTimeout(1200);
   const provStatus = await page.locator('#socio-status').innerText();
-  ok('the tab now reports voting areas', /provincial voting areas carry aggregate turnout/.test(provStatus),
+  ok('the tab now reports voting areas', /\d+ provincial voting areas in the study area, \d+ charted/.test(provStatus),
      provStatus.replace(/\s+/g, ' ').slice(0, 160));
   cells = await socioCells();
   const provRenter = rowFor(/Renter/);
