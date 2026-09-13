@@ -2074,9 +2074,11 @@ html>body{padding:0}
       (<code>EBC_VOTING_AREAS_BS11_POLY_SVW</code>), ordered from the catalogue as GeoJSON;
       the order&rsquo;s <code>.zip</code> loads here as delivered, all 5,778 areas of the province,
       and is clipped to the study area while it is read. Districts are identified by
-      <code>ED_ABBREVIATION</code> and areas by <code>VA_CODE</code>; site-based voting areas
-      (codes ending in <code>S</code>, one care facility each) are not polygons in that file,
-      so their results stay unmatched and are listed in the results report.
+      <code>ED_ABBREVIATION</code> and areas by <code>VA_CODE</code>. The dataset is
+      <b>areal only</b> &mdash; every one of the 5,778 records is <code>VA_TYPE: Areal</code>
+      with a polygon &mdash; so voting at a care home or hospital has no geography here;
+      those ballots arrive as the district-level <b>Special voting</b> channel, 1.35% of
+      the city&rsquo;s 2024 vote, and are spread across their district.
       A zipped shapefile (<code>.shp</code> + <code>.dbf</code> + <code>.prj</code>),
       <code>.kml</code>, <code>.kmz</code> or <code>.geojson</code> all work.
       BC Albers, UTM zone 10N and lon/lat are converted automatically.

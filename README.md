@@ -96,12 +96,22 @@ The file identifies districts by `ED_ABBREVIATION` (`VHA`, `VKE`, …) and
 areas by the three-digit `VA_CODE`; `EDVA_CODE` joins the two. The atlas
 picks those fields itself and says so in the status line; the results file
 has to name districts the same way, or the district field can be set to
-"none" when the results carry the combined code. **Site-based voting areas**
-— codes ending in `S`, one care facility each, listed in a box on Elections
-BC's district maps with the facility's address — are not polygons in this
-file. Their results stay unmatched, are counted in the results report, and
-are left out of the turnout and crosswalk figures; they are the natural
-first use of the geocoding planned for the municipal electors file.
+"none" when the results carry the combined code.
+
+**The dataset is areal only.** All 5,778 records in the province are
+`VA_TYPE: Areal`, none has a null geometry, and no `VA_CODE` ends in a letter,
+so every voting area in it is a polygon. Whatever geography Elections BC uses
+for voting at a care home, a hospital or a correctional centre, this product
+does not carry it.
+
+What that leaves unplaced is the **Special voting** channel in the results:
+3,418 ballots city-wide, 1.35% of the 2024 vote, reported as **one row per
+electoral district** with no location. Those ballots are counted in the results
+report and spread across their district like the other channels that have no
+geography. Geocoding the facilities would not change that, because the
+numerator is published per district and not per facility — splitting it would
+be a model dressed as a measurement, which is the same reason per-area
+provincial turnout stays blank.
 
 ## Provincial results for 2024
 
