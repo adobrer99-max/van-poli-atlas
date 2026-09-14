@@ -3,6 +3,8 @@ const { Analysis: An, Results: R, Turnout: T } =
   load(['a-geo.js', 'e-analysis.js', 'f-results.js', 'f2-turnout.js'], ['Analysis', 'Results', 'Turnout']);
 let fails = 0;
 const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { console.log(`  FAIL  ${n} ${e}`); fails++; } };
+const eq = (n, a, b) => ok(n, JSON.stringify(a) === JSON.stringify(b),
+  `got ${JSON.stringify(a)} want ${JSON.stringify(b)}`);
 const near = (n, a, b, tol = 1e-12) =>
   ok(`${n} (${a == null ? 'null' : Number(a).toFixed(6)} ~ ${b})`, a != null && Math.abs(a - b) <= tol,
      `diff ${a == null ? 'null' : Math.abs(a - b)}`);
@@ -326,6 +328,34 @@ near('sum over every unmatched pool equals unmatchedVotes',
 ok('void poll counted and carries no ballots', joined.report.voidPolls === 1 && joined.values.get(3).total === 0 && joined.values.get(3).flags.void);
 near('electorsMatched sums matched units once', joined.report.electorsMatched, 1500, 1e-9);
 ok('electors column flagged present', joined.report.electorsColumn === true);
+
+/* --- Columns the application adds -----------------------------------------
+   A loaded file of places rides along in the export. toCsv must not need to
+   know what that is, and above all the header and the rows must stay the same
+   length: a header count that does not match its values shifts every column
+   after it, and a spreadsheet then says something false under a name that
+   looks right. */
+console.log('\n== Application columns in the export ==');
+const exRows = [
+  { rank: 1, key: '0', label: 'A', electors: 100, by: {}, ballots: {}, t: {}, agg: 0.5, partial: false },
+  { rank: 2, key: '1', label: 'B', electors: 200, by: {}, ballots: {}, t: {}, agg: 0.4, partial: false },
+];
+const bare = T.toCsv(exRows);
+const withExtra = T.toCsv(exRows, ['fed', 'prov'],
+  { headers: ['points_count', 'points_noun'], of: (r) => [r.key === '0' ? 7 : 0, 'electors'] });
+eq('no extra columns leaves the export exactly as it was',
+   [bare[0].length, bare.length], [T.toCsv(exRows)[0].length, 3]);
+eq('the headers are appended at the end', withExtra[0].slice(-2), ['points_count', 'points_noun']);
+eq('and each row carries its own values', [withExtra[1].slice(-2), withExtra[2].slice(-2)],
+   [[7, 'electors'], [0, 'electors']]);
+eq('the extra columns are exactly two wider', withExtra[0].length - bare[0].length, 2);
+
+let shifted = '';
+try {
+  T.toCsv(exRows, ['fed', 'prov'], { headers: ['a', 'b'], of: () => ['only one'] });
+} catch (e) { shifted = e.message; }
+ok('a header count that does not match its values is refused, not written',
+   /do not line up/.test(shifted), shifted);
 
 console.log(fails ? `\n${fails} FAILURE(S)\n` : '\nAll turnout tests passed.\n');
 process.exit(fails ? 1 : 0);

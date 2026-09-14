@@ -553,6 +553,10 @@ $('export-socio').addEventListener('click', () => {
   const U = SOCIO_UNITS[unit];
   const vars = socioVariables(unit).filter((v) => st.selected.has(v.key));
   const cFed = crossPair('fed', unit), cProv = crossPair('prov', unit);
+  /* A loaded file of places rides along here too, keyed the same way the map
+     and the readout key it, so a row's count is the same number wherever it is
+     read. Null when nothing is loaded, and the file keeps its old shape. */
+  const pointsExtra = pointsColumns(unit, (r) => r.feature);
   const covOf = (c, i) => (c ? c.coverage.b[i] : null);
   const k = U.keyProp();
   /* source_unit names the voting place a row's provincial numbers came from,
@@ -569,7 +573,8 @@ $('export-socio').addEventListener('click', () => {
     'apportion_fed', 'apportion_prov', 'coverage_fed', 'coverage_prov',
     'source_unit', 'catchment_share',
     ...fedParties.map((p) => `fed_share_${p}`), ...provParties.map((p) => `prov_share_${p}`),
-    ...vars.map((v) => v.key)];
+    ...vars.map((v) => v.key),
+    ...(pointsExtra ? pointsExtra.headers : [])];
   const f6 = (v) => (v == null || !isFinite(v) ? '' : Number(v).toFixed(6));
   const f2 = (v) => (v == null || !isFinite(v) ? '' : Number(v).toFixed(2));
   const rows = [header];
@@ -586,7 +591,8 @@ $('export-socio').addEventListener('click', () => {
       source || '', f6(share),
       ...fedParties.map((p) => f6(Analysis.shareOf(r.by.fed, p))),
       ...provParties.map((p) => f6(Analysis.shareOf(r.by.prov, p))),
-      ...vars.map((v) => { const x = v.byFeature.get(f.__idx); return x == null ? '' : String(x); })]);
+      ...vars.map((v) => { const x = v.byFeature.get(f.__idx); return x == null ? '' : String(x); }),
+      ...(pointsExtra ? pointsExtra.of(r) : [])]);
   }
   downloadCsv(U.file, rows);
   $('socio-note').textContent = `Saved ${U.file} (${fmtInt(rows.length - 1)} rows).`;

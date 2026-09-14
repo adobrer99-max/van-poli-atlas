@@ -56,6 +56,10 @@ async function adoptPayloads() {
     ['prov-electors', (f) => loadProvincialElectors(f[0])],
     ['muni-places', (f) => loadMuniFile(f[0], 'places')],
     ['muni-results', (f) => loadMuniFile(f, 'results')],
+    /* The city's civic addresses, so a roll that arrives on the day has
+       something to be geocoded against without a second file being found
+       first. The roll itself is never here and there is no key for it. */
+    ['points-ref', (f) => loadPointFile(f[0], { asReference: true, rethrow: true })],
   ];
   for (const [key, run] of steps) {
     if (!by[key]) continue;

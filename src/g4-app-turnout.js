@@ -433,7 +433,11 @@ $('turnout-weight').addEventListener('input', () => {
 $('export-turnout').addEventListener('click', () => {
   const rows = (state.turnout.rows || []).filter((r) => r.agg != null);
   if (!rows.length) { $('turnout-note').textContent = 'Nothing to export yet.'; return; }
-  downloadCsv(`vancouver-turnout-${state.turnout.unit}.csv`, Turnout.toCsv(rows));
+  /* r.key is the row's index into this unit's active features, which is what
+     the points lookup needs to find the feature its counts are keyed by. */
+  const unit = state.turnout.unit;
+  const extra = pointsColumns(unit, (r) => state[unit].active[+r.key]);
+  downloadCsv(`vancouver-turnout-${unit}.csv`, Turnout.toCsv(rows, ['fed', 'prov'], extra));
   $('turnout-note').textContent = `Saved vancouver-turnout-${state.turnout.unit}.csv (${fmtInt(rows.length)} rows).`;
 });
 $('basket-add-top').addEventListener('click', () => {

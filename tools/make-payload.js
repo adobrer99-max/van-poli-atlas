@@ -18,6 +18,7 @@
          [--prov-electors file]             registered voters by district
          [--muni-results file]              the city's results archive
          [--muni-places file]               the city's voting places
+         [--points-ref file]                civic addresses, to geocode a roll
          [--precision 5] [--no-clip]
 
    Each input is converted to the plainest text form the atlas reads -- a
@@ -28,6 +29,17 @@
 
    Boundaries are rounded to five decimal places, about a metre, which is well
    past what a city-scale map or a building-level hit test can use.
+
+   --points-ref takes the CITY'S PROPERTY ADDRESSES, which are open data and
+   carry no people: a civic number, a street and a coordinate. Baking it means
+   that on the day a roll arrives there is one file to load rather than two,
+   and the one that has to be right is the one somebody is holding. It is
+   trimmed to those three things and clipped to the study area, because the
+   whole extract is mostly columns this atlas never reads.
+
+   It is a snapshot, and Vancouver keeps building, so a later roll will carry
+   addresses that were not standing when it was taken. The atlas counts those
+   apart from the misses that mean the join is wrong.
 
    WHAT THIS WILL NOT TAKE: an elector roll, or anything else from section 5.
    That is names and home addresses. It is read in the browser tab on the
@@ -51,10 +63,11 @@ const fs = require('fs');
 const path = require('path');
 const { load } = require('../tests/harness');
 
-const { Ingest, TextFormats, BinaryFormats, Census, Geo } = load(
+const { Ingest, TextFormats, BinaryFormats, Census, Geo, Points } = load(
   ['a-geo.js', 'b-text.js', 'c-binary.js', 'd-ingest.js', 'e-analysis.js',
-   'f-results.js', 'f2-turnout.js', 'f3-census.js'],
-  ['Ingest', 'TextFormats', 'BinaryFormats', 'Census', 'Geo']);
+   'f-results.js', 'f2-turnout.js', 'f3-census.js', 'f4-places.js', 'f5-summary.js',
+   'f6-points.js'],
+  ['Ingest', 'TextFormats', 'BinaryFormats', 'Census', 'Geo', 'Points']);
 
 const argv = process.argv;
 const arg = (name, fallback = null) => {
@@ -208,6 +221,84 @@ async function tables(key, inputs) {
       await tables('geo-attr', [path.join(censusDir, gaf[0])]);
       console.log('geo-attr: block populations');
     }
+  }
+
+  /* --- the geocoding reference -------------------------------------------- */
+
+  const pointsRef = arg('points-ref');
+  if (pointsRef) {
+    const table = await Ingest.loadTable(path.basename(pointsRef), fs.readFileSync(pointsRef));
+    const layout = Points.detectPointLayout(table.header, table.rows.slice(0, 200),
+      { extent: studyBox });
+    if (layout.number < 0 || layout.street < 0) {
+      throw new Error(`${pointsRef} has no civic number and street columns to key on. `
+        + `Its columns are: ${table.header.join(', ')}`);
+    }
+    const read = Points.readPoints(table, { ...layout, weight: -1, label: -1 });
+    /* Written back as the plainest thing the atlas reads -- a number, a street
+       and two coordinates -- and loaded through the very same file input a
+       person would use. Everything else in the extract is columns this atlas
+       never looks at, and they are four fifths of the bytes. */
+    const cell = (r, i) => (i >= 0 && i < r.length ? String(r[i]).trim() : '');
+    const lines = ['CIVIC_NUMBER,STD_STREET,longitude,latitude'];
+    const noteColumn = table.header.findIndex((h) => /^note$/i.test(String(h).trim()));
+    let p = 0, outside = 0, noCoordinate = 0, noAddress = 0, translatedNames = 0;
+    for (const r of table.rows) {
+      const point = read.points[p];
+      if (!point) { noCoordinate++; continue; }
+      p++;
+      /* The same clip the boundaries get, and against the same index -- which
+         is EVERY poll in the boundary file, so the extent is Metro Vancouver
+         rather than the six Vancouver ridings. That is deliberate: the Map
+         tab's Area control offers "Everything in the file (Metro Vancouver)",
+         and an address layer clipped tighter than the boundaries would go
+         blank the moment somebody widened it. It does mean "outside" here
+         means outside Metro Vancouver, which is worth saying rather than
+         leaving to be inferred from a zero. */
+      if (studyIndex.hit(point.lon, point.lat) < 0) { outside++; continue; }
+      const number = cell(r, layout.number).replace(/[",]/g, '');
+      const street = cell(r, layout.street).replace(/[",]/g, '');
+      if (!number || !street) {
+        /* The city's address file carries Indigenous place names whose address
+           fields are deliberately empty -- its own note says "Translated name
+           until colonial systems support multi-lingual characters". They have
+           coordinates but no address key, so a reference built to turn an
+           address into a point has nothing to key them by, and a roll keyed by
+           civic address will never ask for one. Counted under their own name
+           rather than swept into a total, because 1,196 unexplained drops is
+           the shape of a bug and this is not one. */
+        if (/translated name/i.test(cell(r, noteColumn))) translatedNames++;
+        else noAddress++;
+        continue;
+      }
+      lines.push(`${number},${street},${round(point.lon)},${round(point.lat)}`);
+    }
+    if (lines.length < 2) {
+      /* Naming the column it read is the whole message. A file with a broken
+         geometry column alongside a good coordinate one detects as geometry
+         and then reads nothing, and "no usable addresses" sends somebody
+         looking at the wrong end of it. */
+      throw new Error(`${pointsRef} produced no usable addresses. Coordinates were read as `
+        + `"${layout.kind}", which located ${read.points.length.toLocaleString()} of `
+        + `${table.rows.length.toLocaleString()} rows`
+        + (outside ? `, and ${outside.toLocaleString()} of those fell outside the study area` : '')
+        + `. Its columns are: ${table.header.join(', ')}`);
+    }
+    put('points-ref', 'civic-addresses.csv', lines.join('\n') + '\n');
+    /* Every row accounted for. A count that does not add up to the file it came
+       from is the shape of a silent drop, and this tool has produced one
+       before. */
+    console.log(`points-ref: ${(lines.length - 1).toLocaleString()} of `
+      + `${table.rows.length.toLocaleString()} addresses kept `
+      + `(${(Buffer.byteLength(lines.join('\n')) / 1048576).toFixed(2)} MB). `
+      + `Dropped: ${noCoordinate.toLocaleString()} with no readable coordinate, `
+      + `${noAddress.toLocaleString()} with no civic number and street, `
+      + (translatedNames
+        ? `${translatedNames.toLocaleString()} translated place names the city stores without an `
+          + 'address, '
+        : '')
+      + `${outside.toLocaleString()} outside the boundary file's extent `
+      + '(which is Metro Vancouver, not the six Vancouver ridings).');
   }
 
   /* --- the three elections ------------------------------------------------ */

@@ -345,7 +345,13 @@ const Turnout = (() => {
     };
   }
 
-  function toCsv(rows, sides = ['fed', 'prov']) {
+  /* `extra` lets the application add columns this module has no business
+     knowing about -- a loaded file of places, for one -- without toCsv growing
+     a dependency on application state. It is { headers: [...], of: (row) =>
+     [...] }, and the two arrays must be the same length: a header count that
+     does not match its values shifts every column after it, which is the kind
+     of export bug nobody notices until a spreadsheet says something false. */
+  function toCsv(rows, sides = ['fed', 'prov'], extra = null) {
     const f = (v, dp = 6) => (v == null || !isFinite(v) ? '' : Number(v).toFixed(dp));
     /* The participation columns ride along only when they were computed. Both
        denominators go in the file beside their ratios -- `fed_electors` is
@@ -356,14 +362,23 @@ const Turnout = (() => {
       ...sides.flatMap((s) => [`${s}_ballots`, `${s}_electors`, `${s}_apportioned`, `turnout_${s}`]),
       'turnout_agg', 'turnout_min', 'turnout_delta', 'expected_ballots', 'partial',
       ...(part ? ['residents_15_plus', 'prov_per_fed_elector', 'prov_per_resident_15_plus',
-                  'denominator_spread'] : [])];
+                  'denominator_spread'] : []),
+      ...(extra ? extra.headers : [])];
     const out = [header];
     for (const r of rows) {
       out.push([r.rank ?? '', r.key, r.label, f(r.electors, 2),
         ...sides.flatMap((s) => [f(r.ballots?.[s], 2), f(r.by[s]?.electors, 2),
           f(r.by[s]?.apportioned, 2), f(r.t?.[s])]),
         f(r.agg), f(r.min), f(r.delta), f(r.expected, 2), r.partial ? 'yes' : 'no',
-        ...(part ? [f(r.p?.adults, 2), f(r.p?.perFedElector), f(r.p?.perAdult), f(r.p?.spread)] : [])]);
+        ...(part ? [f(r.p?.adults, 2), f(r.p?.perFedElector), f(r.p?.perAdult), f(r.p?.spread)] : []),
+        ...(extra ? extra.of(r) : [])]);
+    }
+    if (extra) {
+      const wrong = out.find((row) => row.length !== out[0].length);
+      if (wrong) {
+        throw new Error(`Export columns do not line up: the header has ${out[0].length} and a row `
+          + `has ${wrong.length}. Every column after the mismatch would be under the wrong name.`);
+      }
     }
     return out;
   }

@@ -69,6 +69,26 @@ function renderPointsReport() {
     lines.push(el('p', 'text-small' + (rate < 0.9 ? ' text-warning' : ' text-muted'),
       `${fmtPct(rate)} of rows matched the reference file`
       + (r.misses.length ? `. Unmatched keys include: ${r.misses.slice(0, 6).join('; ')}` : '.')));
+    /* Two kinds of miss, and they call for opposite things. A number missing
+       from a street the reference knows is a building that went up after the
+       extract was taken -- expected in a city that keeps building, and fixed
+       by a newer extract if it matters. A street the reference has never heard
+       of is usually a column picked wrong or a spelling the normaliser does
+       not cover, and one number covering both hides whichever is smaller. */
+    if (r.classified && (r.newOnKnownStreet.count || r.unknownStreet.count)) {
+      if (r.newOnKnownStreet.count) {
+        lines.push(el('p', 'text-small text-muted',
+          `${fmtInt(r.newOnKnownStreet.count)} are numbers the reference does not have on streets `
+          + 'it does know — almost always built since the property extract was taken. '
+          + `For example: ${r.newOnKnownStreet.sample.slice(0, 4).join('; ')}.`));
+      }
+      if (r.unknownStreet.count) {
+        lines.push(el('p', 'text-small text-warning',
+          `${fmtInt(r.unknownStreet.count)} are on streets the reference has never heard of, which `
+          + 'usually means a column was picked wrong or the street is spelled a way the normaliser '
+          + `does not cover. For example: ${r.unknownStreet.sample.slice(0, 4).join('; ')}.`));
+      }
+    }
   }
   if (r.unreadable) {
     lines.push(el('p', 'text-small text-muted',
@@ -79,7 +99,11 @@ function renderPointsReport() {
     const cov = p.coverage[t.key], out = p.outside[t.key];
     lines.push(el('p', 'text-small text-muted',
       `${LAYER_NAME[t.key]}: ${fmtInt(cov.areas - cov.empty)} of ${fmtInt(cov.areas)} carry at least one `
-      + `${noun.replace(/s$/, '')}, ${fmtInt(cov.empty)} carry none`
+      /* "addresses" minus a trailing s is "addresse". English plurals in -ses,
+         -shes and -ies need more than one character taken off, and the noun is
+         whatever the reader typed, so a rule that covers the common shapes and
+         leaves anything else alone beats a rule that is confidently wrong. */
+      + `${Points.singular(noun)}, ${fmtInt(cov.empty)} carry none`
       + (out ? `, and ${fmtInt(out)} rows fell outside every one of them` : '') + '.'));
     if (cov.sparse) {
       lines.push(el('p', 'text-small text-muted',
@@ -90,7 +114,13 @@ function renderPointsReport() {
   setStatus('status-points', 'ok', lines);
 }
 
-async function loadPointFile(file, { asReference } = {}) {
+/* rethrow is for the payload adopt step. This function handles its own errors
+   so that a person who picks the wrong file sees why beside the input -- which
+   is right for a file input and wrong for a baked dataset, because adoptPayloads
+   can only record what it is told. A build whose reference failed to load
+   reported "built into this file, with nothing to load" while the reason sat in
+   a drawer no reader has cause to open. */
+async function loadPointFile(file, { asReference, rethrow } = {}) {
   const id = asReference ? 'status-points-ref' : 'status-points';
   setStatus(id, 'busy', `Reading ${file.name}…`);
   try {
@@ -127,6 +157,7 @@ async function loadPointFile(file, { asReference } = {}) {
   } catch (err) {
     setStatus(id, 'error', [String(err.message || err)]);
     clearInput(asReference ? 'file-points-ref' : 'file-points');
+    if (rethrow) throw err;
   }
 }
 
@@ -144,7 +175,8 @@ function applyPointFile(table) {
       + 'against it.']);
     return;
   }
-  const read = Points.readPoints(table, layout, { reference: pointReference && pointReference.map });
+  const read = Points.readPoints(table, layout, { reference: pointReference && pointReference.map,
+     referenceStreets: pointReference && pointReference.streets });
   const assigned = assignPoints(read.points);
   state.points = {
     ...assigned,

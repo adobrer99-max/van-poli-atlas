@@ -2501,47 +2501,6 @@ html>body{padding:0}
   </div>
 
   <div class="card">
-    <h2>5. A file of places (addresses, an elector roll)</h2>
-    <p class="text-small text-muted">
-      Any list of locations, counted onto every layer that is loaded. Rows can carry
-      their own coordinates &mdash; longitude and latitude columns, a GeoJSON geometry
-      column, or one column holding both numbers &mdash; or they can carry a civic
-      number and a street, in which case load a reference file below and they are
-      joined against it. Nothing is uploaded: like every other file here, it is read
-      in this browser tab and stays on this machine.
-    </p>
-    <p class="text-small text-muted">
-      An elector roll is personal data. The atlas only ever writes counts per area,
-      never records, and the report says how many areas hold so few that the count
-      describes the people in it.
-    </p>
-    <div class="viz-controls">
-      <label class="form-label grow" for="file-points">Places to count
-        <input class="form-control" type="file" id="file-points" accept=".csv,.tsv,.txt,.zip,.geojson,.json">
-      </label>
-      <button type="button" class="btn" id="clear-points" hidden>Remove</button>
-    </div>
-    <div id="status-points" class="status"></div>
-    <div class="viz-controls" id="points-controls" hidden>
-      <label class="form-label grow" for="points-weight-col">Count by
-        <select class="form-select" id="points-weight-col">
-          <option value="">Count the rows</option>
-        </select>
-      </label>
-      <label class="form-label grow" for="points-noun">Call them
-        <input class="form-control" type="text" id="points-noun" value="addresses" maxlength="24">
-      </label>
-    </div>
-    <div class="viz-controls">
-      <label class="form-label grow" for="file-points-ref">Reference file, if the rows carry addresses rather than coordinates
-        <input class="form-control" type="file" id="file-points-ref" accept=".csv,.tsv,.txt,.zip">
-      </label>
-      <button type="button" class="btn" id="clear-points-ref" hidden>Remove</button>
-    </div>
-    <div id="status-points-ref" class="status"></div>
-  </div>
-
-  <div class="card">
     <h2>6. Vancouver&rsquo;s municipal election (2022)</h2>
     <p class="text-small text-muted">
       Two files from the City of Vancouver open data portal: the results archive
@@ -2584,6 +2543,50 @@ html>body{padding:0}
     <div id="status-muni" class="status"></div>
   </div>
   </details>
+
+  <div class="card">
+    <h2>A file of places (addresses, an elector roll)</h2>
+    <p class="text-small text-muted">
+      This one is outside <b>Advanced</b> on purpose: it is the only section that can never be
+      built into the file, so on the day a roll arrives this is the thing to load, not a
+      replacement for something already here.
+      Any list of locations, counted onto every layer that is loaded. Rows can carry
+      their own coordinates &mdash; longitude and latitude columns, a GeoJSON geometry
+      column, or one column holding both numbers &mdash; or they can carry a civic
+      number and a street, in which case load a reference file below and they are
+      joined against it. Nothing is uploaded: like every other file here, it is read
+      in this browser tab and stays on this machine.
+    </p>
+    <p class="text-small text-muted">
+      An elector roll is personal data. The atlas only ever writes counts per area,
+      never records, and the report says how many areas hold so few that the count
+      describes the people in it.
+    </p>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-points">Places to count
+        <input class="form-control" type="file" id="file-points" accept=".csv,.tsv,.txt,.zip,.geojson,.json">
+      </label>
+      <button type="button" class="btn" id="clear-points" hidden>Remove</button>
+    </div>
+    <div id="status-points" class="status"></div>
+    <div class="viz-controls" id="points-controls" hidden>
+      <label class="form-label grow" for="points-weight-col">Count by
+        <select class="form-select" id="points-weight-col">
+          <option value="">Count the rows</option>
+        </select>
+      </label>
+      <label class="form-label grow" for="points-noun">Call them
+        <input class="form-control" type="text" id="points-noun" value="addresses" maxlength="24">
+      </label>
+    </div>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-points-ref">Reference file, if the rows carry addresses rather than coordinates
+        <input class="form-control" type="file" id="file-points-ref" accept=".csv,.tsv,.txt,.zip">
+      </label>
+      <button type="button" class="btn" id="clear-points-ref" hidden>Remove</button>
+    </div>
+    <div id="status-points-ref" class="status"></div>
+  </div>
 </section>
 
 <!-- ---------------------------------------------------------- CORRELATION -->
@@ -6188,7 +6191,13 @@ const Turnout = (() => {
     };
   }
 
-  function toCsv(rows, sides = ['fed', 'prov']) {
+  /* `extra` lets the application add columns this module has no business
+     knowing about -- a loaded file of places, for one -- without toCsv growing
+     a dependency on application state. It is { headers: [...], of: (row) =>
+     [...] }, and the two arrays must be the same length: a header count that
+     does not match its values shifts every column after it, which is the kind
+     of export bug nobody notices until a spreadsheet says something false. */
+  function toCsv(rows, sides = ['fed', 'prov'], extra = null) {
     const f = (v, dp = 6) => (v == null || !isFinite(v) ? '' : Number(v).toFixed(dp));
     /* The participation columns ride along only when they were computed. Both
        denominators go in the file beside their ratios -- `fed_electors` is
@@ -6199,14 +6208,23 @@ const Turnout = (() => {
       ...sides.flatMap((s) => [`${s}_ballots`, `${s}_electors`, `${s}_apportioned`, `turnout_${s}`]),
       'turnout_agg', 'turnout_min', 'turnout_delta', 'expected_ballots', 'partial',
       ...(part ? ['residents_15_plus', 'prov_per_fed_elector', 'prov_per_resident_15_plus',
-                  'denominator_spread'] : [])];
+                  'denominator_spread'] : []),
+      ...(extra ? extra.headers : [])];
     const out = [header];
     for (const r of rows) {
       out.push([r.rank ?? '', r.key, r.label, f(r.electors, 2),
         ...sides.flatMap((s) => [f(r.ballots?.[s], 2), f(r.by[s]?.electors, 2),
           f(r.by[s]?.apportioned, 2), f(r.t?.[s])]),
         f(r.agg), f(r.min), f(r.delta), f(r.expected, 2), r.partial ? 'yes' : 'no',
-        ...(part ? [f(r.p?.adults, 2), f(r.p?.perFedElector), f(r.p?.perAdult), f(r.p?.spread)] : [])]);
+        ...(part ? [f(r.p?.adults, 2), f(r.p?.perFedElector), f(r.p?.perAdult), f(r.p?.spread)] : []),
+        ...(extra ? extra.of(r) : [])]);
+    }
+    if (extra) {
+      const wrong = out.find((row) => row.length !== out[0].length);
+      if (wrong) {
+        throw new Error(`Export columns do not line up: the header has ${out[0].length} and a row `
+          + `has ${wrong.length}. Every column after the mismatch would be under the wrong name.`);
+      }
     }
     return out;
   }
@@ -7626,9 +7644,28 @@ const Points = (() => {
       const i = h.findIndex((c) => c === options.weightColumn);
       base.weight = i;
     }
+    /* A column is chosen by its NAME, so the pick has to be checked against the
+       rows before it is returned. The city's property extract carries both a
+       Geom and a geo_point_2d; an export that empties one of them still has
+       the header, and the file then reads as geometry and locates nothing. A
+       column that cannot parse a single row out of the sample is not the
+       coordinate column, whatever it is called. */
+    const parses = (kind, idx) => rows.slice(0, 200).some((r) => {
+      const v = String(r[idx] == null ? '' : r[idx]);
+      if (!v.trim()) return false;
+      if (kind === 'geometry') {
+        try {
+          const g = JSON.parse(v);
+          return Boolean(g && g.coordinates && g.coordinates.length);
+        } catch (err) { return false; }
+      }
+      return /(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)/.test(v);
+    });
+    const usable = (kind, idx) => idx >= 0 && (!rows.length || parses(kind, idx));
+
     if (lon >= 0 && lat >= 0) return { ...base, kind: 'lonlat', lon, lat, order: { order: 'lon,lat', by: 'named columns' } };
-    if (geometry >= 0) return { ...base, kind: 'geometry', geometry, order: { order: 'lon,lat', by: 'GeoJSON' } };
-    if (pair >= 0) {
+    if (usable('geometry', geometry)) return { ...base, kind: 'geometry', geometry, order: { order: 'lon,lat', by: 'GeoJSON' } };
+    if (usable('pair', pair)) {
       const samples = [];
       for (const r of rows.slice(0, 200)) {
         const m = /(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)/.exec(String(r[pair] || ''));
@@ -7636,6 +7673,8 @@ const Points = (() => {
       }
       return { ...base, kind: 'pair', pair, order: detectPairOrder(samples, options.extent) };
     }
+    /* Both coordinate columns present and neither readable: fall through to the
+       address key rather than returning a layout that locates nothing. */
     if (number >= 0 && street >= 0) return { ...base, kind: 'address', number, street };
     if (address >= 0) return { ...base, kind: 'address1', address };
     if (postal >= 0) return { ...base, kind: 'postal' };
@@ -7653,6 +7692,12 @@ const Points = (() => {
     const reference = options.reference || null;
     const points = [];
     const misses = [];
+    /* A miss on a street the reference knows is a number the reference does not
+       -- new construction, in a city that keeps building. A miss on a street it
+       does not know is something else entirely. Kept apart, with their own
+       samples, because they call for different action. */
+    const knownStreets = options.referenceStreets || null;
+    const newOnKnownStreet = [], unknownStreet = [];
     let unreadable = 0, matched = 0;
     const cell = (r, i) => (i >= 0 && i < r.length ? r[i] : '');
 
@@ -7680,7 +7725,14 @@ const Points = (() => {
         } else key = postalKey(cell(r, layout.postal));
         const hit = key && reference ? reference.get(key) : null;
         if (hit) { lon = hit.lon; lat = hit.lat; matched++; }
-        else if (key) { if (misses.length < 25) misses.push(key); }
+        else if (key) {
+          if (misses.length < 25) misses.push(key);
+          const street = /^[0-9A-Z]+ (.+)$/.exec(key);
+          const bucket = knownStreets && street && knownStreets.has(street[1])
+            ? newOnKnownStreet : unknownStreet;
+          if (bucket.length < 25) bucket.push(key);
+          bucket.total = (bucket.total || 0) + 1;
+        }
       }
       if (lon == null || lat == null || !isFinite(lon) || !isFinite(lat)) { unreadable++; continue; }
       const w = layout.weight >= 0 ? num(cell(r, layout.weight)) : null;
@@ -7705,6 +7757,12 @@ const Points = (() => {
         missRate: NEEDS_REFERENCE.has(layout.kind) && rows.length
           ? (rows.length - matched) / rows.length : null,
         misses,
+        /* Counted whether or not the caller supplied the street set: with no
+           set every miss falls to unknownStreet, which is the honest answer
+           when there is nothing to tell them apart with. */
+        newOnKnownStreet: { count: newOnKnownStreet.total || 0, sample: newOnKnownStreet },
+        unknownStreet: { count: unknownStreet.total || 0, sample: unknownStreet },
+        classified: Boolean(knownStreets),
       },
     };
   }
@@ -7718,6 +7776,13 @@ const Points = (() => {
      cannot place anything precisely. */
   function buildReference(table, layout) {
     const map = new Map();
+    /* Which streets the reference knows at all, so a miss can be told apart
+       from a miss. A number that is absent from a street the file DOES know is
+       almost always a building that went up after the file was published; a
+       street the file has never heard of is almost always a spelling or a
+       column picked wrong. Those want opposite responses -- a newer property
+       extract, or a look at the join -- so they are counted apart. */
+    const streets = new Set();
     let duplicates = 0, unusable = 0;
     const read = readPoints(table, { ...layout, weight: -1, label: -1 });
     const rows = table.rows || [];
@@ -7745,11 +7810,14 @@ const Points = (() => {
       if (layout.postal >= 0) keys.push(postalKey(cell(r, layout.postal)));
       for (const k of keys) {
         if (!k) continue;
+        /* The street half of an address key: everything after the number. */
+        const street = /^[0-9A-Z]+ (.+)$/.exec(k);
+        if (street) streets.add(street[1]);
         if (map.has(k)) { duplicates++; continue; }
         map.set(k, { lon, lat });
       }
     }
-    return { map, duplicates, unusable, keys: map.size };
+    return { map, streets, duplicates, unusable, keys: map.size, streetCount: streets.size };
   }
 
   /* --- Putting them on a layer --------------------------------------------- */
@@ -7787,7 +7855,22 @@ const Points = (() => {
     return { areas: featureIds.length, empty, sparse, disclosureBelow };
   }
 
-  return { PATTERNS, detectPointLayout, readPoints, buildReference, assignToLayer,
+  /* The noun a reader typed, made singular for "carries at least one ___".
+     A bare .replace(/s$/) turned "addresses" into "addresse" in the line a
+     reader sees first. English plurals in -ses, -shes and -ies need more than
+     one character off, and -us and -is are not plurals at all, so this covers
+     the shapes that occur and leaves anything else alone -- being confidently
+     wrong about somebody's noun is worse than not inflecting it. */
+  function singular(noun) {
+  const w = String(noun || '').trim();
+  if (/(ss|sh|ch|x|z)es$/i.test(w)) return w.slice(0, -2);   // addresses -> address
+  if (/[^aeiou]ies$/i.test(w)) return `${w.slice(0, -3)}y`;  // properties -> property
+  /* -us and -is are not plural endings: census, status, analysis. */
+  if (/[^sui]s$/i.test(w)) return w.slice(0, -1);            // electors  -> elector
+  return w;                                                   // anything else, left alone
+  }
+
+  return { PATTERNS, detectPointLayout, readPoints, buildReference, assignToLayer, singular,
            coverage, normalizeStreet, addressKey, splitAddress, postalKey,
            detectPairOrder, NEEDS_REFERENCE };
 })();
@@ -8738,10 +8821,40 @@ function pointsValue(layerKey, f, mode) {
 }
 
 /* The same figure, for the readout, phrased for whichever file is loaded. */
+/* Which id a layer keys its points by: the federal features carry idx and the
+   others __idx. One copy of that choice, because the readout and both exports
+   have to agree on it and two copies is one too many. */
+function pointsFor(layerKey, feature) {
+  const p = state.points;
+  if (!p || !p.per || !p.per[layerKey] || !feature) return null;
+  return p.per[layerKey].get(layerKey === 'fed' ? feature.idx : feature.__idx) || null;
+}
+
+/* The columns a loaded file of places adds to an export, or null when none is
+   loaded -- in which case the export keeps exactly the shape it had.
+
+   The names are fixed rather than built from the noun. A schema that renames
+   its own columns depending on which file somebody loaded is one no script can
+   be written against; the noun rides along in its own column instead, so the
+   file still says whether those counts are electors or addresses. */
+function pointsColumns(layerKey, featureOf) {
+  const p = state.points;
+  if (!p || !p.per || !p.per[layerKey]) return null;
+  const weighted = Boolean(p.weighted);
+  return {
+    headers: ['points_count', ...(weighted ? ['points_weight'] : []), 'points_noun'],
+    of: (row) => {
+      const a = pointsFor(layerKey, featureOf(row));
+      return [a ? a.count : 0, ...(weighted ? [a ? a.weight : 0] : []),
+              weighted ? (p.weightNoun || p.noun || 'points') : (p.noun || 'points')];
+    },
+  };
+}
+
 function pointsLine(layerKey, f) {
   const p = state.points;
   if (!p || !p.per || !p.per[layerKey]) return null;
-  const a = p.per[layerKey].get(layerKey === 'fed' ? f.idx : f.__idx);
+  const a = pointsFor(layerKey, f);
   const noun = p.noun || 'points';
   if (!a) return `no ${noun} here`;
   return p.weighted
@@ -11503,7 +11616,11 @@ $('turnout-weight').addEventListener('input', () => {
 $('export-turnout').addEventListener('click', () => {
   const rows = (state.turnout.rows || []).filter((r) => r.agg != null);
   if (!rows.length) { $('turnout-note').textContent = 'Nothing to export yet.'; return; }
-  downloadCsv(`vancouver-turnout-${state.turnout.unit}.csv`, Turnout.toCsv(rows));
+  /* r.key is the row's index into this unit's active features, which is what
+     the points lookup needs to find the feature its counts are keyed by. */
+  const unit = state.turnout.unit;
+  const extra = pointsColumns(unit, (r) => state[unit].active[+r.key]);
+  downloadCsv(`vancouver-turnout-${unit}.csv`, Turnout.toCsv(rows, ['fed', 'prov'], extra));
   $('turnout-note').textContent = `Saved vancouver-turnout-${state.turnout.unit}.csv (${fmtInt(rows.length)} rows).`;
 });
 $('basket-add-top').addEventListener('click', () => {
@@ -12074,6 +12191,10 @@ $('export-socio').addEventListener('click', () => {
   const U = SOCIO_UNITS[unit];
   const vars = socioVariables(unit).filter((v) => st.selected.has(v.key));
   const cFed = crossPair('fed', unit), cProv = crossPair('prov', unit);
+  /* A loaded file of places rides along here too, keyed the same way the map
+     and the readout key it, so a row's count is the same number wherever it is
+     read. Null when nothing is loaded, and the file keeps its old shape. */
+  const pointsExtra = pointsColumns(unit, (r) => r.feature);
   const covOf = (c, i) => (c ? c.coverage.b[i] : null);
   const k = U.keyProp();
   /* source_unit names the voting place a row's provincial numbers came from,
@@ -12090,7 +12211,8 @@ $('export-socio').addEventListener('click', () => {
     'apportion_fed', 'apportion_prov', 'coverage_fed', 'coverage_prov',
     'source_unit', 'catchment_share',
     ...fedParties.map((p) => `fed_share_${p}`), ...provParties.map((p) => `prov_share_${p}`),
-    ...vars.map((v) => v.key)];
+    ...vars.map((v) => v.key),
+    ...(pointsExtra ? pointsExtra.headers : [])];
   const f6 = (v) => (v == null || !isFinite(v) ? '' : Number(v).toFixed(6));
   const f2 = (v) => (v == null || !isFinite(v) ? '' : Number(v).toFixed(2));
   const rows = [header];
@@ -12107,7 +12229,8 @@ $('export-socio').addEventListener('click', () => {
       source || '', f6(share),
       ...fedParties.map((p) => f6(Analysis.shareOf(r.by.fed, p))),
       ...provParties.map((p) => f6(Analysis.shareOf(r.by.prov, p))),
-      ...vars.map((v) => { const x = v.byFeature.get(f.__idx); return x == null ? '' : String(x); })]);
+      ...vars.map((v) => { const x = v.byFeature.get(f.__idx); return x == null ? '' : String(x); }),
+      ...(pointsExtra ? pointsExtra.of(r) : [])]);
   }
   downloadCsv(U.file, rows);
   $('socio-note').textContent = `Saved ${U.file} (${fmtInt(rows.length - 1)} rows).`;
@@ -12489,6 +12612,26 @@ function renderPointsReport() {
     lines.push(el('p', 'text-small' + (rate < 0.9 ? ' text-warning' : ' text-muted'),
       `${fmtPct(rate)} of rows matched the reference file`
       + (r.misses.length ? `. Unmatched keys include: ${r.misses.slice(0, 6).join('; ')}` : '.')));
+    /* Two kinds of miss, and they call for opposite things. A number missing
+       from a street the reference knows is a building that went up after the
+       extract was taken -- expected in a city that keeps building, and fixed
+       by a newer extract if it matters. A street the reference has never heard
+       of is usually a column picked wrong or a spelling the normaliser does
+       not cover, and one number covering both hides whichever is smaller. */
+    if (r.classified && (r.newOnKnownStreet.count || r.unknownStreet.count)) {
+      if (r.newOnKnownStreet.count) {
+        lines.push(el('p', 'text-small text-muted',
+          `${fmtInt(r.newOnKnownStreet.count)} are numbers the reference does not have on streets `
+          + 'it does know — almost always built since the property extract was taken. '
+          + `For example: ${r.newOnKnownStreet.sample.slice(0, 4).join('; ')}.`));
+      }
+      if (r.unknownStreet.count) {
+        lines.push(el('p', 'text-small text-warning',
+          `${fmtInt(r.unknownStreet.count)} are on streets the reference has never heard of, which `
+          + 'usually means a column was picked wrong or the street is spelled a way the normaliser '
+          + `does not cover. For example: ${r.unknownStreet.sample.slice(0, 4).join('; ')}.`));
+      }
+    }
   }
   if (r.unreadable) {
     lines.push(el('p', 'text-small text-muted',
@@ -12499,7 +12642,11 @@ function renderPointsReport() {
     const cov = p.coverage[t.key], out = p.outside[t.key];
     lines.push(el('p', 'text-small text-muted',
       `${LAYER_NAME[t.key]}: ${fmtInt(cov.areas - cov.empty)} of ${fmtInt(cov.areas)} carry at least one `
-      + `${noun.replace(/s$/, '')}, ${fmtInt(cov.empty)} carry none`
+      /* "addresses" minus a trailing s is "addresse". English plurals in -ses,
+         -shes and -ies need more than one character taken off, and the noun is
+         whatever the reader typed, so a rule that covers the common shapes and
+         leaves anything else alone beats a rule that is confidently wrong. */
+      + `${Points.singular(noun)}, ${fmtInt(cov.empty)} carry none`
       + (out ? `, and ${fmtInt(out)} rows fell outside every one of them` : '') + '.'));
     if (cov.sparse) {
       lines.push(el('p', 'text-small text-muted',
@@ -12510,7 +12657,13 @@ function renderPointsReport() {
   setStatus('status-points', 'ok', lines);
 }
 
-async function loadPointFile(file, { asReference } = {}) {
+/* rethrow is for the payload adopt step. This function handles its own errors
+   so that a person who picks the wrong file sees why beside the input -- which
+   is right for a file input and wrong for a baked dataset, because adoptPayloads
+   can only record what it is told. A build whose reference failed to load
+   reported "built into this file, with nothing to load" while the reason sat in
+   a drawer no reader has cause to open. */
+async function loadPointFile(file, { asReference, rethrow } = {}) {
   const id = asReference ? 'status-points-ref' : 'status-points';
   setStatus(id, 'busy', `Reading ${file.name}…`);
   try {
@@ -12547,6 +12700,7 @@ async function loadPointFile(file, { asReference } = {}) {
   } catch (err) {
     setStatus(id, 'error', [String(err.message || err)]);
     clearInput(asReference ? 'file-points-ref' : 'file-points');
+    if (rethrow) throw err;
   }
 }
 
@@ -12564,7 +12718,8 @@ function applyPointFile(table) {
       + 'against it.']);
     return;
   }
-  const read = Points.readPoints(table, layout, { reference: pointReference && pointReference.map });
+  const read = Points.readPoints(table, layout, { reference: pointReference && pointReference.map,
+     referenceStreets: pointReference && pointReference.streets });
   const assigned = assignPoints(read.points);
   state.points = {
     ...assigned,
@@ -13000,6 +13155,14 @@ function datasetInventory() {
         + (state.weightingShort ? `, weighted by ${state.weightingShort}` : '')
       : 'not built yet',
     'computed here');
+  /* The geocoding reference is a dataset like any other once it is baked in,
+     and on the day a roll arrives it is the one that has to already be there. */
+  if (pointReference || bakedIn()) {
+    add('Civic addresses, to place a roll', Boolean(pointReference),
+      pointReference ? `${fmtInt(pointReference.keys)} addresses on `
+        + `${fmtInt(pointReference.streetCount)} streets` : 'not loaded',
+      'City of Vancouver');
+  }
   if (state.points) {
     add('A file of places', true,
       `${fmtInt(n(state.points.report?.read))} of ${fmtInt(n(state.points.report?.rows))} `
@@ -13343,6 +13506,10 @@ async function adoptPayloads() {
     ['prov-electors', (f) => loadProvincialElectors(f[0])],
     ['muni-places', (f) => loadMuniFile(f[0], 'places')],
     ['muni-results', (f) => loadMuniFile(f, 'results')],
+    /* The city's civic addresses, so a roll that arrives on the day has
+       something to be geocoded against without a second file being found
+       first. The roll itself is never here and there is no key for it. */
+    ['points-ref', (f) => loadPointFile(f[0], { asReference: true, rethrow: true })],
   ];
   for (const [key, run] of steps) {
     if (!by[key]) continue;

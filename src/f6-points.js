@@ -206,9 +206,28 @@ const Points = (() => {
       const i = h.findIndex((c) => c === options.weightColumn);
       base.weight = i;
     }
+    /* A column is chosen by its NAME, so the pick has to be checked against the
+       rows before it is returned. The city's property extract carries both a
+       Geom and a geo_point_2d; an export that empties one of them still has
+       the header, and the file then reads as geometry and locates nothing. A
+       column that cannot parse a single row out of the sample is not the
+       coordinate column, whatever it is called. */
+    const parses = (kind, idx) => rows.slice(0, 200).some((r) => {
+      const v = String(r[idx] == null ? '' : r[idx]);
+      if (!v.trim()) return false;
+      if (kind === 'geometry') {
+        try {
+          const g = JSON.parse(v);
+          return Boolean(g && g.coordinates && g.coordinates.length);
+        } catch (err) { return false; }
+      }
+      return /(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)/.test(v);
+    });
+    const usable = (kind, idx) => idx >= 0 && (!rows.length || parses(kind, idx));
+
     if (lon >= 0 && lat >= 0) return { ...base, kind: 'lonlat', lon, lat, order: { order: 'lon,lat', by: 'named columns' } };
-    if (geometry >= 0) return { ...base, kind: 'geometry', geometry, order: { order: 'lon,lat', by: 'GeoJSON' } };
-    if (pair >= 0) {
+    if (usable('geometry', geometry)) return { ...base, kind: 'geometry', geometry, order: { order: 'lon,lat', by: 'GeoJSON' } };
+    if (usable('pair', pair)) {
       const samples = [];
       for (const r of rows.slice(0, 200)) {
         const m = /(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)/.exec(String(r[pair] || ''));
@@ -216,6 +235,8 @@ const Points = (() => {
       }
       return { ...base, kind: 'pair', pair, order: detectPairOrder(samples, options.extent) };
     }
+    /* Both coordinate columns present and neither readable: fall through to the
+       address key rather than returning a layout that locates nothing. */
     if (number >= 0 && street >= 0) return { ...base, kind: 'address', number, street };
     if (address >= 0) return { ...base, kind: 'address1', address };
     if (postal >= 0) return { ...base, kind: 'postal' };
@@ -233,6 +254,12 @@ const Points = (() => {
     const reference = options.reference || null;
     const points = [];
     const misses = [];
+    /* A miss on a street the reference knows is a number the reference does not
+       -- new construction, in a city that keeps building. A miss on a street it
+       does not know is something else entirely. Kept apart, with their own
+       samples, because they call for different action. */
+    const knownStreets = options.referenceStreets || null;
+    const newOnKnownStreet = [], unknownStreet = [];
     let unreadable = 0, matched = 0;
     const cell = (r, i) => (i >= 0 && i < r.length ? r[i] : '');
 
@@ -260,7 +287,14 @@ const Points = (() => {
         } else key = postalKey(cell(r, layout.postal));
         const hit = key && reference ? reference.get(key) : null;
         if (hit) { lon = hit.lon; lat = hit.lat; matched++; }
-        else if (key) { if (misses.length < 25) misses.push(key); }
+        else if (key) {
+          if (misses.length < 25) misses.push(key);
+          const street = /^[0-9A-Z]+ (.+)$/.exec(key);
+          const bucket = knownStreets && street && knownStreets.has(street[1])
+            ? newOnKnownStreet : unknownStreet;
+          if (bucket.length < 25) bucket.push(key);
+          bucket.total = (bucket.total || 0) + 1;
+        }
       }
       if (lon == null || lat == null || !isFinite(lon) || !isFinite(lat)) { unreadable++; continue; }
       const w = layout.weight >= 0 ? num(cell(r, layout.weight)) : null;
@@ -285,6 +319,12 @@ const Points = (() => {
         missRate: NEEDS_REFERENCE.has(layout.kind) && rows.length
           ? (rows.length - matched) / rows.length : null,
         misses,
+        /* Counted whether or not the caller supplied the street set: with no
+           set every miss falls to unknownStreet, which is the honest answer
+           when there is nothing to tell them apart with. */
+        newOnKnownStreet: { count: newOnKnownStreet.total || 0, sample: newOnKnownStreet },
+        unknownStreet: { count: unknownStreet.total || 0, sample: unknownStreet },
+        classified: Boolean(knownStreets),
       },
     };
   }
@@ -298,6 +338,13 @@ const Points = (() => {
      cannot place anything precisely. */
   function buildReference(table, layout) {
     const map = new Map();
+    /* Which streets the reference knows at all, so a miss can be told apart
+       from a miss. A number that is absent from a street the file DOES know is
+       almost always a building that went up after the file was published; a
+       street the file has never heard of is almost always a spelling or a
+       column picked wrong. Those want opposite responses -- a newer property
+       extract, or a look at the join -- so they are counted apart. */
+    const streets = new Set();
     let duplicates = 0, unusable = 0;
     const read = readPoints(table, { ...layout, weight: -1, label: -1 });
     const rows = table.rows || [];
@@ -325,11 +372,14 @@ const Points = (() => {
       if (layout.postal >= 0) keys.push(postalKey(cell(r, layout.postal)));
       for (const k of keys) {
         if (!k) continue;
+        /* The street half of an address key: everything after the number. */
+        const street = /^[0-9A-Z]+ (.+)$/.exec(k);
+        if (street) streets.add(street[1]);
         if (map.has(k)) { duplicates++; continue; }
         map.set(k, { lon, lat });
       }
     }
-    return { map, duplicates, unusable, keys: map.size };
+    return { map, streets, duplicates, unusable, keys: map.size, streetCount: streets.size };
   }
 
   /* --- Putting them on a layer --------------------------------------------- */
@@ -367,7 +417,22 @@ const Points = (() => {
     return { areas: featureIds.length, empty, sparse, disclosureBelow };
   }
 
-  return { PATTERNS, detectPointLayout, readPoints, buildReference, assignToLayer,
+  /* The noun a reader typed, made singular for "carries at least one ___".
+     A bare .replace(/s$/) turned "addresses" into "addresse" in the line a
+     reader sees first. English plurals in -ses, -shes and -ies need more than
+     one character off, and -us and -is are not plurals at all, so this covers
+     the shapes that occur and leaves anything else alone -- being confidently
+     wrong about somebody's noun is worse than not inflecting it. */
+  function singular(noun) {
+  const w = String(noun || '').trim();
+  if (/(ss|sh|ch|x|z)es$/i.test(w)) return w.slice(0, -2);   // addresses -> address
+  if (/[^aeiou]ies$/i.test(w)) return `${w.slice(0, -3)}y`;  // properties -> property
+  /* -us and -is are not plural endings: census, status, analysis. */
+  if (/[^sui]s$/i.test(w)) return w.slice(0, -1);            // electors  -> elector
+  return w;                                                   // anything else, left alone
+  }
+
+  return { PATTERNS, detectPointLayout, readPoints, buildReference, assignToLayer, singular,
            coverage, normalizeStreet, addressKey, splitAddress, postalKey,
            detectPairOrder, NEEDS_REFERENCE };
 })();
