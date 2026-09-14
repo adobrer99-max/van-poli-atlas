@@ -58,7 +58,7 @@ assert "</script" not in geo.lower()
 # route a file chosen by hand takes.
 PAYLOAD_KEYS = ("prov-geo", "da-geo", "db-geo", "geo-attr", "census",
                 "fed-results", "prov-results", "prov-electors",
-                "muni-places", "muni-results")
+                "muni-places", "muni-results", "points-ref")
 
 def esc(text, where):
     if "</script" in text.lower():

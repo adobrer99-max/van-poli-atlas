@@ -18,6 +18,7 @@
          [--prov-electors file]             registered voters by district
          [--muni-results file]              the city's results archive
          [--muni-places file]               the city's voting places
+         [--points-ref file]                civic addresses, to geocode a roll
          [--precision 5] [--no-clip]
 
    Each input is converted to the plainest text form the atlas reads -- a
@@ -28,6 +29,17 @@
 
    Boundaries are rounded to five decimal places, about a metre, which is well
    past what a city-scale map or a building-level hit test can use.
+
+   --points-ref takes the CITY'S PROPERTY ADDRESSES, which are open data and
+   carry no people: a civic number, a street and a coordinate. Baking it means
+   that on the day a roll arrives there is one file to load rather than two,
+   and the one that has to be right is the one somebody is holding. It is
+   trimmed to those three things and clipped to the study area, because the
+   whole extract is mostly columns this atlas never reads.
+
+   It is a snapshot, and Vancouver keeps building, so a later roll will carry
+   addresses that were not standing when it was taken. The atlas counts those
+   apart from the misses that mean the join is wrong.
 
    WHAT THIS WILL NOT TAKE: an elector roll, or anything else from section 5.
    That is names and home addresses. It is read in the browser tab on the
@@ -51,10 +63,11 @@ const fs = require('fs');
 const path = require('path');
 const { load } = require('../tests/harness');
 
-const { Ingest, TextFormats, BinaryFormats, Census, Geo } = load(
+const { Ingest, TextFormats, BinaryFormats, Census, Geo, Points } = load(
   ['a-geo.js', 'b-text.js', 'c-binary.js', 'd-ingest.js', 'e-analysis.js',
-   'f-results.js', 'f2-turnout.js', 'f3-census.js'],
-  ['Ingest', 'TextFormats', 'BinaryFormats', 'Census', 'Geo']);
+   'f-results.js', 'f2-turnout.js', 'f3-census.js', 'f4-places.js', 'f5-summary.js',
+   'f6-points.js'],
+  ['Ingest', 'TextFormats', 'BinaryFormats', 'Census', 'Geo', 'Points']);
 
 const argv = process.argv;
 const arg = (name, fallback = null) => {
@@ -208,6 +221,54 @@ async function tables(key, inputs) {
       await tables('geo-attr', [path.join(censusDir, gaf[0])]);
       console.log('geo-attr: block populations');
     }
+  }
+
+  /* --- the geocoding reference -------------------------------------------- */
+
+  const pointsRef = arg('points-ref');
+  if (pointsRef) {
+    const table = await Ingest.loadTable(path.basename(pointsRef), fs.readFileSync(pointsRef));
+    const layout = Points.detectPointLayout(table.header, table.rows.slice(0, 200),
+      { extent: studyBox });
+    if (layout.number < 0 || layout.street < 0) {
+      throw new Error(`${pointsRef} has no civic number and street columns to key on. `
+        + `Its columns are: ${table.header.join(', ')}`);
+    }
+    const read = Points.readPoints(table, { ...layout, weight: -1, label: -1 });
+    /* Written back as the plainest thing the atlas reads -- a number, a street
+       and two coordinates -- and loaded through the very same file input a
+       person would use. Everything else in the extract is columns this atlas
+       never looks at, and they are four fifths of the bytes. */
+    const cell = (r, i) => (i >= 0 && i < r.length ? String(r[i]).trim() : '');
+    const lines = ['CIVIC_NUMBER,STD_STREET,longitude,latitude'];
+    let p = 0, outside = 0;
+    for (const r of table.rows) {
+      const point = read.points[p];
+      if (!point) continue;
+      p++;
+      /* The same tight clip the boundaries get: an address outside the study
+         area can never place a row that this atlas would chart. */
+      if (studyIndex.hit(point.lon, point.lat) < 0) { outside++; continue; }
+      const number = cell(r, layout.number).replace(/[",]/g, '');
+      const street = cell(r, layout.street).replace(/[",]/g, '');
+      if (!number || !street) continue;
+      lines.push(`${number},${street},${round(point.lon)},${round(point.lat)}`);
+    }
+    if (lines.length < 2) {
+      /* Naming the column it read is the whole message. A file with a broken
+         geometry column alongside a good coordinate one detects as geometry
+         and then reads nothing, and "no usable addresses" sends somebody
+         looking at the wrong end of it. */
+      throw new Error(`${pointsRef} produced no usable addresses. Coordinates were read as `
+        + `"${layout.kind}", which located ${read.points.length.toLocaleString()} of `
+        + `${table.rows.length.toLocaleString()} rows`
+        + (outside ? `, and ${outside.toLocaleString()} of those fell outside the study area` : '')
+        + `. Its columns are: ${table.header.join(', ')}`);
+    }
+    put('points-ref', 'civic-addresses.csv', lines.join('\n') + '\n');
+    console.log(`points-ref: ${(lines.length - 1).toLocaleString()} addresses kept, `
+      + `${outside.toLocaleString()} outside the study area, `
+      + `${(Buffer.byteLength(lines.join('\n')) / 1048576).toFixed(2)} MB`);
   }
 
   /* --- the three elections ------------------------------------------------ */

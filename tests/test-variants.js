@@ -575,10 +575,30 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     ok('the payload tool runs', made.status === 0, (made.stderr || made.stdout || '').slice(0, 300));
     ok('it converts the boundaries and names what it wrote',
        /da-geo: 63 dissemination areas/.test(made.stdout), made.stdout.slice(0, 300));
-    /* An elector roll must have no way in. There is deliberately no flag for
-       it, and this is the assertion that keeps it that way. */
+    /* An elector roll must have no way in. There is deliberately no flag for it,
+       and this is the assertion that keeps it that way.
+
+       --points-ref is the one nearby flag that IS allowed, and the line between
+       them is what the flag carries rather than what it is called: the city's
+       property addresses are open data describing buildings, and a roll is
+       names and home addresses of people. So the pattern forbids a roll flag by
+       every name it might plausibly take while permitting that one explicitly,
+       and the checks below pin what it is for -- a guard that can be widened by
+       renaming a flag is not a guard. */
+    const payloadTool = fs.readFileSync('tools/make-payload.js', 'utf8');
     ok('there is no flag that would bake in a roll of people',
-       !/--points|--roll|--electors-roll/.test(fs.readFileSync('tools/make-payload.js', 'utf8')));
+       !/--points(?!-ref)|--roll|--elector(s)?-roll|--voters?\b/.test(payloadTool),
+       (payloadTool.match(/--[a-z-]+/g) || []).join(' '));
+    ok('and the one address flag there is says it takes buildings, not people',
+       /--points-ref/.test(payloadTool)
+       && /PROPERTY ADDRESSES, which are open data and\s*\*?\s*carry no people/.test(payloadTool),
+       'the --points-ref documentation must state what it carries');
+    ok('and the refusal is still written down where somebody adding a flag will read it',
+       /WHAT THIS WILL NOT TAKE: an elector roll/.test(payloadTool));
+    /* And the build must have no key for one either: a flag is only half of it. */
+    ok('no payload key would carry a roll',
+       !/"(points|roll|electors-roll)"/.test(fs.readFileSync('build.py', 'utf8')),
+       (fs.readFileSync('build.py', 'utf8').match(/PAYLOAD_KEYS[^)]*\)/) || [''])[0]);
     /* Half a payload must fail loudly: boundaries with no variables draw an
        empty map and variables with no boundaries have nothing to join to,
        and either would ship as a working build that shows nothing. */
@@ -635,6 +655,29 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     await page.waitForTimeout(200);
     ok('a baked-in build starts with the replace-data drawer shut',
        advancedShut === false, String(advancedShut));
+    /* A baked dataset that fails to load must say so where the reader looks.
+       loadPointFile handles its own errors, which is right beside a file input
+       and wrong for a payload: adoptPayloads can only record what it is told,
+       so a build whose reference failed reported "built into this file, with
+       nothing to load" while the reason sat in a collapsed drawer. */
+    const badDir = path.join(work, 'badref');
+    fs.mkdirSync(path.join(badDir, 'points-ref'), { recursive: true });
+    fs.writeFileSync(path.join(badDir, 'points-ref', 'civic-addresses.csv'),
+      'NAME,COLOUR\nfoo,red\nbar,blue\n');
+    const badOut = path.join(work, 'badref.html');
+    spawnSync('python3', ['build.py', '--payload', badDir, '--out', badOut], { encoding: 'utf8' });
+    const badPage = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    await stubTiles(badPage);
+    await badPage.goto('file://' + badOut);
+    await badPage.waitForTimeout(1500);
+    const badNote = (await badPage.locator('#status-payload').innerHTML()).replace(/<[^>]+>/g, ' ');
+    ok('a baked dataset that cannot be read is reported as failed, not as loaded',
+       /could not be read/i.test(badNote), badNote.replace(/\s+/g, ' ').slice(0, 200));
+    ok('and the reason names the dataset and what it wanted',
+       /points-ref/.test(badNote) && /longitude and latitude/.test(badNote),
+       badNote.replace(/\s+/g, ' ').slice(0, 260));
+    await badPage.close();
+
     ok('the checklist ticks what was baked in',
        /✓/.test(await page.locator('#readiness-list').innerText()),
        (await page.locator('#readiness-list').innerText()).replace(/\s+/g, ' ').slice(0, 200));

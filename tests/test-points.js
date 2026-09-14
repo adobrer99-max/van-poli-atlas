@@ -133,6 +133,60 @@ ok(`the miss rate is reported (${(roll.report.missRate * 100).toFixed(0)}%)`,
 eq('the weight column is summed, not just the rows counted',
    roll.points.reduce((a, p) => a + p.weight, 0), 10);
 
+/* --- New construction, told apart from a broken join ----------------------
+   The property extract baked into a build is a snapshot. Vancouver keeps
+   building, so a 2026 roll will carry addresses that were not standing when
+   the extract was taken, and those misses are expected and harmless. A miss on
+   a street the reference has never heard of is not harmless -- it is usually a
+   column picked wrong or a spelling the normaliser does not cover. One number
+   covering both hides whichever is the smaller. */
+/* A column is chosen by its name, so the pick has to survive contact with the
+   rows. The city's property extract carries both a Geom and a geo_point_2d,
+   and an export that empties one of them still has its header. */
+console.log('\n== A named column that holds nothing is not the one ==');
+const BOTH_H = ['CIVIC_NUMBER', 'STD_STREET', 'Geom', 'geo_point_2d'];
+const emptyGeom = [['100', 'Main St', '{}', '49.2522, -123.0296']];
+eq('an empty geometry column is passed over for the one that parses',
+   P.detectPointLayout(BOTH_H, emptyGeom, { extent: VAN }).kind, 'pair');
+const goodGeom = [['100', 'Main St', '{"type":"Point","coordinates":[-123.03,49.25]}',
+                   '49.2522, -123.0296']];
+eq('a geometry column that does parse still wins',
+   P.detectPointLayout(BOTH_H, goodGeom, { extent: VAN }).kind, 'geometry');
+eq('and with neither readable it falls back to the address key rather than to nothing',
+   P.detectPointLayout(BOTH_H, [['100', 'Main St', '{}', '']], { extent: VAN }).kind, 'address');
+/* With no rows to check against there is nothing to verify, and the header is
+   all there is to go on -- unchanged behaviour for a caller that passes none. */
+eq('with no sample rows the header still decides',
+   P.detectPointLayout(BOTH_H, [], { extent: VAN }).kind, 'geometry');
+
+console.log('\n== New construction against an unknown street ==');
+const NEW_H = ['House Number', 'Street Name'];
+const NEW_R = [
+  ['3449', 'Anzio Dr'],            // in the reference
+  ['3451', 'Anzio Dr'],            // street known, number not: built since
+  ['3453', 'ANZIO DRIVE'],         // same, spelled the long way
+  ['12', 'Nonesuch Close'],        // street the reference has never seen
+];
+const newLayout = P.detectPointLayout(NEW_H, NEW_R, {});
+const built = P.readPoints({ header: NEW_H, rows: NEW_R }, newLayout,
+  { reference: ref.map, referenceStreets: ref.streets });
+ok('the reference reports how many streets it knows', ref.streetCount >= 3, String(ref.streetCount));
+eq('a number missing from a known street is counted as new construction',
+   built.report.newOnKnownStreet.count, 2);
+eq('and the unknown street is counted apart', built.report.unknownStreet.count, 1);
+eq('both are sampled by key, not just totalled',
+   [built.report.newOnKnownStreet.sample.includes('3451 ANZIO DR'),
+    built.report.unknownStreet.sample.includes('12 NONESUCH CLOSE')], [true, true]);
+ok('and the split is marked as available', built.report.classified);
+
+/* Without the street set there is nothing to tell them apart with, and saying
+   so beats guessing: every miss falls to the unknown bucket and classified is
+   false, so a reader is not shown a new-construction count that means nothing. */
+const unsplit = P.readPoints({ header: NEW_H, rows: NEW_R }, newLayout, { reference: ref.map });
+eq('with no street set, nothing is claimed about which kind of miss it is',
+   [unsplit.report.newOnKnownStreet.count, unsplit.report.unknownStreet.count,
+    unsplit.report.classified], [0, 3, false]);
+
 console.log('\n== Putting them on a layer ==');
 const cell = (x0, y0, w, h, id) => ({ type: 'Feature', properties: { id }, geometry: { type: 'Polygon',
   coordinates: [[[x0, y0], [x0 + w, y0], [x0 + w, y0 + h], [x0, y0 + h], [x0, y0]]] } });

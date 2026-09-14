@@ -7641,9 +7641,28 @@ const Points = (() => {
       const i = h.findIndex((c) => c === options.weightColumn);
       base.weight = i;
     }
+    /* A column is chosen by its NAME, so the pick has to be checked against the
+       rows before it is returned. The city's property extract carries both a
+       Geom and a geo_point_2d; an export that empties one of them still has
+       the header, and the file then reads as geometry and locates nothing. A
+       column that cannot parse a single row out of the sample is not the
+       coordinate column, whatever it is called. */
+    const parses = (kind, idx) => rows.slice(0, 200).some((r) => {
+      const v = String(r[idx] == null ? '' : r[idx]);
+      if (!v.trim()) return false;
+      if (kind === 'geometry') {
+        try {
+          const g = JSON.parse(v);
+          return Boolean(g && g.coordinates && g.coordinates.length);
+        } catch (err) { return false; }
+      }
+      return /(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)/.test(v);
+    });
+    const usable = (kind, idx) => idx >= 0 && (!rows.length || parses(kind, idx));
+
     if (lon >= 0 && lat >= 0) return { ...base, kind: 'lonlat', lon, lat, order: { order: 'lon,lat', by: 'named columns' } };
-    if (geometry >= 0) return { ...base, kind: 'geometry', geometry, order: { order: 'lon,lat', by: 'GeoJSON' } };
-    if (pair >= 0) {
+    if (usable('geometry', geometry)) return { ...base, kind: 'geometry', geometry, order: { order: 'lon,lat', by: 'GeoJSON' } };
+    if (usable('pair', pair)) {
       const samples = [];
       for (const r of rows.slice(0, 200)) {
         const m = /(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)/.exec(String(r[pair] || ''));
@@ -7651,6 +7670,8 @@ const Points = (() => {
       }
       return { ...base, kind: 'pair', pair, order: detectPairOrder(samples, options.extent) };
     }
+    /* Both coordinate columns present and neither readable: fall through to the
+       address key rather than returning a layout that locates nothing. */
     if (number >= 0 && street >= 0) return { ...base, kind: 'address', number, street };
     if (address >= 0) return { ...base, kind: 'address1', address };
     if (postal >= 0) return { ...base, kind: 'postal' };
@@ -7668,6 +7689,12 @@ const Points = (() => {
     const reference = options.reference || null;
     const points = [];
     const misses = [];
+    /* A miss on a street the reference knows is a number the reference does not
+       -- new construction, in a city that keeps building. A miss on a street it
+       does not know is something else entirely. Kept apart, with their own
+       samples, because they call for different action. */
+    const knownStreets = options.referenceStreets || null;
+    const newOnKnownStreet = [], unknownStreet = [];
     let unreadable = 0, matched = 0;
     const cell = (r, i) => (i >= 0 && i < r.length ? r[i] : '');
 
@@ -7695,7 +7722,14 @@ const Points = (() => {
         } else key = postalKey(cell(r, layout.postal));
         const hit = key && reference ? reference.get(key) : null;
         if (hit) { lon = hit.lon; lat = hit.lat; matched++; }
-        else if (key) { if (misses.length < 25) misses.push(key); }
+        else if (key) {
+          if (misses.length < 25) misses.push(key);
+          const street = /^[0-9A-Z]+ (.+)$/.exec(key);
+          const bucket = knownStreets && street && knownStreets.has(street[1])
+            ? newOnKnownStreet : unknownStreet;
+          if (bucket.length < 25) bucket.push(key);
+          bucket.total = (bucket.total || 0) + 1;
+        }
       }
       if (lon == null || lat == null || !isFinite(lon) || !isFinite(lat)) { unreadable++; continue; }
       const w = layout.weight >= 0 ? num(cell(r, layout.weight)) : null;
@@ -7720,6 +7754,12 @@ const Points = (() => {
         missRate: NEEDS_REFERENCE.has(layout.kind) && rows.length
           ? (rows.length - matched) / rows.length : null,
         misses,
+        /* Counted whether or not the caller supplied the street set: with no
+           set every miss falls to unknownStreet, which is the honest answer
+           when there is nothing to tell them apart with. */
+        newOnKnownStreet: { count: newOnKnownStreet.total || 0, sample: newOnKnownStreet },
+        unknownStreet: { count: unknownStreet.total || 0, sample: unknownStreet },
+        classified: Boolean(knownStreets),
       },
     };
   }
@@ -7733,6 +7773,13 @@ const Points = (() => {
      cannot place anything precisely. */
   function buildReference(table, layout) {
     const map = new Map();
+    /* Which streets the reference knows at all, so a miss can be told apart
+       from a miss. A number that is absent from a street the file DOES know is
+       almost always a building that went up after the file was published; a
+       street the file has never heard of is almost always a spelling or a
+       column picked wrong. Those want opposite responses -- a newer property
+       extract, or a look at the join -- so they are counted apart. */
+    const streets = new Set();
     let duplicates = 0, unusable = 0;
     const read = readPoints(table, { ...layout, weight: -1, label: -1 });
     const rows = table.rows || [];
@@ -7760,11 +7807,14 @@ const Points = (() => {
       if (layout.postal >= 0) keys.push(postalKey(cell(r, layout.postal)));
       for (const k of keys) {
         if (!k) continue;
+        /* The street half of an address key: everything after the number. */
+        const street = /^[0-9A-Z]+ (.+)$/.exec(k);
+        if (street) streets.add(street[1]);
         if (map.has(k)) { duplicates++; continue; }
         map.set(k, { lon, lat });
       }
     }
-    return { map, duplicates, unusable, keys: map.size };
+    return { map, streets, duplicates, unusable, keys: map.size, streetCount: streets.size };
   }
 
   /* --- Putting them on a layer --------------------------------------------- */
@@ -12544,6 +12594,26 @@ function renderPointsReport() {
     lines.push(el('p', 'text-small' + (rate < 0.9 ? ' text-warning' : ' text-muted'),
       `${fmtPct(rate)} of rows matched the reference file`
       + (r.misses.length ? `. Unmatched keys include: ${r.misses.slice(0, 6).join('; ')}` : '.')));
+    /* Two kinds of miss, and they call for opposite things. A number missing
+       from a street the reference knows is a building that went up after the
+       extract was taken -- expected in a city that keeps building, and fixed
+       by a newer extract if it matters. A street the reference has never heard
+       of is usually a column picked wrong or a spelling the normaliser does
+       not cover, and one number covering both hides whichever is smaller. */
+    if (r.classified && (r.newOnKnownStreet.count || r.unknownStreet.count)) {
+      if (r.newOnKnownStreet.count) {
+        lines.push(el('p', 'text-small text-muted',
+          `${fmtInt(r.newOnKnownStreet.count)} are numbers the reference does not have on streets `
+          + 'it does know — almost always built since the property extract was taken. '
+          + `For example: ${r.newOnKnownStreet.sample.slice(0, 4).join('; ')}.`));
+      }
+      if (r.unknownStreet.count) {
+        lines.push(el('p', 'text-small text-warning',
+          `${fmtInt(r.unknownStreet.count)} are on streets the reference has never heard of, which `
+          + 'usually means a column was picked wrong or the street is spelled a way the normaliser '
+          + `does not cover. For example: ${r.unknownStreet.sample.slice(0, 4).join('; ')}.`));
+      }
+    }
   }
   if (r.unreadable) {
     lines.push(el('p', 'text-small text-muted',
@@ -12565,7 +12635,13 @@ function renderPointsReport() {
   setStatus('status-points', 'ok', lines);
 }
 
-async function loadPointFile(file, { asReference } = {}) {
+/* rethrow is for the payload adopt step. This function handles its own errors
+   so that a person who picks the wrong file sees why beside the input -- which
+   is right for a file input and wrong for a baked dataset, because adoptPayloads
+   can only record what it is told. A build whose reference failed to load
+   reported "built into this file, with nothing to load" while the reason sat in
+   a drawer no reader has cause to open. */
+async function loadPointFile(file, { asReference, rethrow } = {}) {
   const id = asReference ? 'status-points-ref' : 'status-points';
   setStatus(id, 'busy', `Reading ${file.name}…`);
   try {
@@ -12602,6 +12678,7 @@ async function loadPointFile(file, { asReference } = {}) {
   } catch (err) {
     setStatus(id, 'error', [String(err.message || err)]);
     clearInput(asReference ? 'file-points-ref' : 'file-points');
+    if (rethrow) throw err;
   }
 }
 
@@ -12619,7 +12696,8 @@ function applyPointFile(table) {
       + 'against it.']);
     return;
   }
-  const read = Points.readPoints(table, layout, { reference: pointReference && pointReference.map });
+  const read = Points.readPoints(table, layout, { reference: pointReference && pointReference.map,
+     referenceStreets: pointReference && pointReference.streets });
   const assigned = assignPoints(read.points);
   state.points = {
     ...assigned,
@@ -13055,6 +13133,14 @@ function datasetInventory() {
         + (state.weightingShort ? `, weighted by ${state.weightingShort}` : '')
       : 'not built yet',
     'computed here');
+  /* The geocoding reference is a dataset like any other once it is baked in,
+     and on the day a roll arrives it is the one that has to already be there. */
+  if (pointReference || bakedIn()) {
+    add('Civic addresses, to place a roll', Boolean(pointReference),
+      pointReference ? `${fmtInt(pointReference.keys)} addresses on `
+        + `${fmtInt(pointReference.streetCount)} streets` : 'not loaded',
+      'City of Vancouver');
+  }
   if (state.points) {
     add('A file of places', true,
       `${fmtInt(n(state.points.report?.read))} of ${fmtInt(n(state.points.report?.rows))} `
@@ -13398,6 +13484,10 @@ async function adoptPayloads() {
     ['prov-electors', (f) => loadProvincialElectors(f[0])],
     ['muni-places', (f) => loadMuniFile(f[0], 'places')],
     ['muni-results', (f) => loadMuniFile(f, 'results')],
+    /* The city's civic addresses, so a roll that arrives on the day has
+       something to be geocoded against without a second file being found
+       first. The roll itself is never here and there is no key for it. */
+    ['points-ref', (f) => loadPointFile(f[0], { asReference: true, rethrow: true })],
   ];
   for (const [key, run] of steps) {
     if (!by[key]) continue;

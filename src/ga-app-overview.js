@@ -60,6 +60,14 @@ function datasetInventory() {
         + (state.weightingShort ? `, weighted by ${state.weightingShort}` : '')
       : 'not built yet',
     'computed here');
+  /* The geocoding reference is a dataset like any other once it is baked in,
+     and on the day a roll arrives it is the one that has to already be there. */
+  if (pointReference || bakedIn()) {
+    add('Civic addresses, to place a roll', Boolean(pointReference),
+      pointReference ? `${fmtInt(pointReference.keys)} addresses on `
+        + `${fmtInt(pointReference.streetCount)} streets` : 'not loaded',
+      'City of Vancouver');
+  }
   if (state.points) {
     add('A file of places', true,
       `${fmtInt(n(state.points.report?.read))} of ${fmtInt(n(state.points.report?.rows))} `
