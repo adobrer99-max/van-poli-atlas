@@ -622,6 +622,51 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
        empty.status !== 0 && /holds nothing to bake in/.test(empty.stderr || empty.stdout),
        (empty.stderr || empty.stdout || '').slice(0, 160));
 
+    /* A payload half-written by a failed run must not build into something that
+       reports a full set of datasets.
+
+       This is the failure it comes from. make-payload converts datasets in an
+       order of its own and writes each as it finishes, so a missing input eight
+       datasets in leaves the directory carrying some keys from this run and the
+       rest from the last. The build then baked the mixture and printed
+       "baked in: ... fed-results (6 files) ..." with nothing to say four of
+       those datasets were written by an earlier command. The failure looked
+       exactly like success in the one line anybody reads. */
+    const stale = spawnSync('node', ['tools/make-payload.js', '--census', census,
+      '--fed-results', path.join(work, 'not-here.csv'), '--out', payload], { encoding: 'utf8' });
+    ok('a missing input fails before any work rather than part-way through',
+       stale.status !== 0 && /is not where the command says. Nothing was written/
+         .test(stale.stderr || stale.stdout),
+       (stale.stderr || stale.stdout || '').slice(0, 200));
+    ok('and it names the flag and the path it could not find',
+       /--fed-results .*not-here\.csv/.test(stale.stderr || stale.stdout),
+       (stale.stderr || stale.stdout || '').slice(0, 200));
+    ok('and it records the failure where the build will find it',
+       JSON.parse(fs.readFileSync(path.join(payload, 'manifest.json'), 'utf8')).status === 'failed',
+       fs.readFileSync(path.join(payload, 'manifest.json'), 'utf8').slice(0, 200));
+    const afterFail = spawnSync('python3', ['build.py', '--payload', payload,
+      '--out', path.join(work, 'stale.html')], { encoding: 'utf8' });
+    ok('the build refuses a payload left by a run that did not finish',
+       afterFail.status !== 0 && /did not finish/.test(afterFail.stderr || afterFail.stdout),
+       (afterFail.stderr || afterFail.stdout || '').slice(0, 200));
+    ok('and says which datasets the failed run had got to',
+       /Datasets it had written before it stopped/.test(afterFail.stderr || afterFail.stdout));
+    const forced = spawnSync('python3', ['build.py', '--payload', payload,
+      '--allow-partial-payload', '--out', path.join(work, 'stale.html')], { encoding: 'utf8' });
+    ok('a deliberate mixture can still be built, and says in the output that it is one',
+       forced.status === 0 && /PAYLOAD INCOMPLETE/.test(forced.stdout),
+       (forced.stderr || forced.stdout || '').slice(0, 240));
+
+    /* Put the directory back in a state one run produced, so what follows tests
+       the build rather than this. */
+    const remade = spawnSync('node', ['tools/make-payload.js', '--census', census,
+      '--fed-results', 'fixtures/e2e_federal_results.csv', '--out', payload], { encoding: 'utf8' });
+    ok('and a complete run marks it complete again',
+       remade.status === 0
+       && JSON.parse(fs.readFileSync(path.join(payload, 'manifest.json'), 'utf8'))
+            .status === 'complete',
+       (remade.stderr || remade.stdout || '').slice(0, 200));
+
     const built = path.join(work, 'atlas-census.html');
     const build = spawnSync('python3', ['build.py', '--payload', payload, '--out', built],
       { encoding: 'utf8' });
