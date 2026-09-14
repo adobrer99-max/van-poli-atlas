@@ -282,6 +282,17 @@ function refreshSocio() {
     if (note) box.append(el('div', 'text-small text-muted', note));
     return box;
   };
+  /* The same badge the Compare tab and the briefing carry, for the same reason:
+     these variables were moved onto a geography the elections do not use. */
+  const [socioBadge, socioWhy] = PROVENANCE.modelled;
+  const socioBadgeHost = $('socio-model-badge');
+  if (socioBadgeHost) {
+    socioBadgeHost.textContent = '';
+    const socioMark = el('span', 'badge badge-modelled', `${socioBadge} · read caveat`);
+    socioMark.title = socioWhy;
+    socioBadgeHost.append(socioMark);
+    socioBadgeHost.hidden = false;
+  }
   statsHost.append(
     stat(`${U.name} charted`, fmtInt(withOutcome.length),
       `of ${fmtInt(state[unit].active.length)} in the study area`),
@@ -412,7 +423,13 @@ function drawSocioScatter() {
   const node = $('socio-scatter');
   const caption = $('socio-scatter-caption');
   const t = (st.table || []).find((x) => x.key === st.picked);
-  if (!t) { d3.select(node).selectAll('*').remove(); caption.textContent = ''; return; }
+  if (!t) {
+    d3.select(node).selectAll('*').remove();
+    caption.textContent = '';
+    if ($('socio-plotted')) $('socio-plotted').hidden = true;
+    if ($('socio-summary')) $('socio-summary').hidden = true;
+    return;
+  }
   const outcome = socioOutcome(st.outcome);
   const xFormat = d3.format(Math.max(...t.points.map((p) => Math.abs(p.x))) >= 1000 ? ',.3~s' : ',.3~r');
   drawScatterXY(node, t.points, {
@@ -440,6 +457,16 @@ function drawSocioScatter() {
     })) socioSummary.append(el('p', null, line));
     socioSummary.hidden = !describedSocio;
   }
+  /* What is on the chart, named above it. "Click a row to plot it" is a
+     sentence in a paragraph; which row is plotted right now is a fact, and the
+     chart is where somebody looks for it. */
+  const plotted = $('socio-plotted');
+  if (plotted) {
+    plotted.textContent = '';
+    plotted.append(el('span', 'plotted-label', 'Plotted'),
+                   el('span', 'plotted-name', t.label));
+    plotted.hidden = false;
+  }
   caption.textContent = `${t.label} against ${outcome.label.toLowerCase()} across ${fmtInt(t.n)} ${unitName}`
     + (dropped > 0 ? ` (${fmtInt(dropped)} left out for missing values)` : '')
     + `; r = ${fmtNum(t.r, 3)}, electors-weighted r = ${fmtNum(t.rWeighted, 3)}. Dot size follows electors.`
@@ -455,10 +482,26 @@ function drawSocioScatter() {
 
 /* --- Variable picker and search ------------------------------------------ */
 
+/* The six a reader would name if asked what a neighbourhood is like: who rents,
+   how old, how well off, who has moved here, who has moved recently, who
+   studied. They start ticked and the other nine sit behind "Add more
+   measures", because fifteen abbreviated variables all ticked at once is a
+   wall rather than a starting point -- and a starting point is what somebody
+   opening this tab for the first time needs.
+
+   Anything a reader adds by name joins the visible group: they asked for it,
+   so hiding it behind a drawer would be perverse. */
+const HEADLINE_VARIABLES = ['pct_renter', 'median_age', 'median_hh_income',
+                            'pct_immigrant', 'pct_movers_5yr', 'pct_bachelor_plus'];
+
 function renderSocioPicker() {
   const host = $('socio-picker');
   host.textContent = '';
   const st = state.socio;
+  const headline = el('div', 'socio-picker-group');
+  const more = el('details', 'disclosure socio-more');
+  const moreBody = el('div', 'socio-picker-group');
+  let moreCount = 0;
   for (const v of socioVariables(st.unit || 'da')) {
     const lab = el('label');
     const cb = el('input'); cb.type = 'checkbox'; cb.checked = st.selected.has(v.key);
@@ -475,7 +518,17 @@ function renderSocioPicker() {
       rm.addEventListener('click', () => { st.extra.delete(v.key); st.selected.delete(v.key); rejoinCensus(); refreshSocio(); });
       lab.append(rm);
     }
-    host.append(lab);
+    if (HEADLINE_VARIABLES.includes(v.key) || v.extra) headline.append(lab);
+    else { moreBody.append(lab); moreCount++; }
+  }
+  host.append(headline);
+  if (moreCount) {
+    more.append(el('summary', null, `Add more measures (${fmtInt(moreCount)})`), moreBody);
+    /* Left open once somebody has opened it, so ticking two in a row does not
+       shut the drawer between them. */
+    more.open = Boolean(st.moreOpen);
+    more.addEventListener('toggle', () => { st.moreOpen = more.open; });
+    host.append(more);
   }
 }
 

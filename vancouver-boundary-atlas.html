@@ -2050,21 +2050,32 @@ html>body{padding:0}
 .sources li { text-wrap: pretty; }
 
 /* A named choice rather than a switch: two options, both labelled, so neither
-   state has to be inferred from the other. */
-.choice {
-  border: 0;
-  margin: 0;
-  padding: 0;
-  min-width: 0;
+   state has to be inferred from the other.
+
+   It is a div with role="radiogroup", not a fieldset and not a .form-label.
+   A fieldset carries an intrinsic min-width that browsers apply ahead of the
+   author's, so as a flex item it collapsed to the width of its longest WORD.
+   .form-label is worse here: design.css lays every .viz-controls > .form-label
+   out as `grid-template-columns: minmax(0, 1fr) auto`, which is right for a
+   caption over a select and wrong for three stacked children -- the nowrap
+   radio labels claimed the auto column and squeezed the legend in the 1fr
+   column down to one character per line. So it sits in the control row as a
+   plain block that sizes itself. */
+#atlas .viz-controls > .choice {
+  display: block;
+  flex: 1 1 16rem;
+  min-width: 14rem;
+  margin-bottom: 0;
 }
-.choice > legend {
-  padding: 0;
+.choice > .choice-legend {
+  display: block;
   margin-bottom: .25rem;
   color: var(--muted-foreground);
   font-size: var(--font-size-small, .85rem);
 }
-.choice .form-check { display: flex; align-items: center; gap: .4rem; }
+.choice .form-check { display: flex; align-items: center; gap: .4rem; white-space: nowrap; }
 .choice .form-check + .form-check { margin-top: .15rem; }
+.choice .form-check-label { line-height: 1.35; }
 
 /* The plain-language summary. Set at reading width and a notch larger than the
    caption above it: it is the part somebody quotes, so it should not look like
@@ -2080,6 +2091,75 @@ html>body{padding:0}
 .summary p { margin: 0; text-wrap: pretty; }
 .summary p:first-child { font-weight: var(--font-weight-medium, 500); }
 .summary p:not(:first-child) { color: var(--muted-foreground); font-size: var(--font-size-small, .9rem); }
+
+/* The census picker: six to start with, the rest one drawer down. */
+.socio-picker-group { display: flex; flex-wrap: wrap; gap: .4rem 1rem; }
+.socio-more { margin-top: .6rem; }
+.socio-more > summary { padding: .4rem .6rem; font-weight: var(--font-weight-normal, 400); }
+
+/* --- Legibility ------------------------------------------------------------
+
+   Nearly every explanatory line in this atlas is .text-small.text-muted, which
+   stacks a size reduction on a contrast reduction. That pairing is right for a
+   footnote and wrong for the sentence telling somebody what a number means --
+   and most of the sentences here are the second kind. So inside the atlas the
+   muted foreground is lifted towards the body colour, and the small size is
+   raised a notch; the genuinely peripheral text keeps the old treatment by
+   asking for it. */
+#atlas {
+  --muted-foreground: color-mix(in srgb, var(--foreground) 72%, var(--background));
+}
+#atlas .text-small,
+#atlas small {
+  font-size: calc(var(--font-size-small, .85rem) * 1.06);
+  line-height: 1.5;
+}
+/* Attribution, licence lines and the source note under a chart: the places
+   where faint really is the right answer. */
+#atlas .footnote,
+#atlas .atlas-header p,
+#atlas .sources li,
+#atlas .map-wrap + .text-small {
+  color: color-mix(in srgb, var(--foreground) 55%, var(--background));
+}
+/* Chart furniture was a step below even the muted body text. An axis label
+   nobody can read is a chart with no units. */
+.scatter .axis text,
+.curve .axis text { fill: color-mix(in srgb, var(--foreground) 70%, var(--background)); }
+.scatter .axis-label,
+.curve .axis-label {
+  fill: var(--foreground);
+  font-size: var(--font-size-base, 1rem);
+}
+
+/* Which variable the chart is showing, said above the chart. */
+.plotted {
+  display: flex;
+  align-items: baseline;
+  gap: .5rem;
+  margin: .75rem 0 .25rem;
+}
+.plotted-label {
+  font-size: var(--font-size-small, .85rem);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.plotted-name { font-weight: var(--font-weight-medium, 500); }
+
+/* A row you can click should look like one, and the row being plotted should
+   be unmistakable -- it is the link between the table and the chart under it. */
+.socio-table tbody tr { cursor: pointer; }
+.socio-table tbody tr:hover td { background: color-mix(in srgb, var(--foreground) 6%, transparent); }
+.socio-table tr.picked td {
+  background: color-mix(in srgb, var(--viz-series-3) 20%, transparent);
+  font-weight: var(--font-weight-medium, 500);
+}
+.socio-table tr.picked td:first-child { box-shadow: inset 3px 0 0 var(--viz-series-3); }
+
+/* The model-status badge sits above the tiles, not among them: appended into
+   the grid it took a cell of its own and was clipped by it. */
+.model-badge { margin: .5rem 0 .25rem; }
 
 </style>
 </head>
@@ -2686,20 +2766,24 @@ html>body{padding:0}
   <div class="card" id="corr-controls" hidden>
     <h2>Compare</h2>
     <div class="viz-controls">
-      <label class="form-label grow" for="corr-unit">Common geography
+      <label class="form-label grow" for="corr-unit"
+             title="The common geography both elections are moved onto before they are compared.">Compare by area type
         <select class="form-select" id="corr-unit">
           <option value="prov">Provincial voting areas</option>
           <option value="fed">Federal polling divisions</option>
           <option value="atom">Overlap pieces (finest)</option>
         </select>
       </label>
-      <label class="form-label grow" for="corr-fed-party">Federal party (x)
+      <label class="form-label grow" for="corr-fed-party"
+             title="Plotted along the bottom of the chart (x).">Federal party
         <select class="form-select" id="corr-fed-party"></select>
       </label>
-      <label class="form-label grow" for="corr-prov-party">Provincial party (y)
+      <label class="form-label grow" for="corr-prov-party"
+             title="Plotted up the side of the chart (y).">Provincial party
         <select class="form-select" id="corr-prov-party"></select>
       </label>
-      <label class="form-label grow" for="corr-min-votes">Drop units under
+      <label class="form-label grow" for="corr-min-votes"
+             title="Areas with very few votes swing wildly on a handful of ballots, so they are left out.">Exclude very small areas
         <select class="form-select" id="corr-min-votes">
           <option value="0">No minimum</option>
           <option value="25">25 votes</option>
@@ -2708,6 +2792,7 @@ html>body{padding:0}
         </select>
       </label>
     </div>
+    <p class="model-badge" id="corr-model-badge" hidden></p>
     <div class="viz-grid" id="corr-stats"></div>
     <svg class="scatter" id="scatter" role="img" aria-label="Scatter plot of federal party vote share against provincial party vote share"></svg>
     <div id="scatter-caption" class="text-small text-muted"></div>
@@ -2736,7 +2821,8 @@ html>body{padding:0}
       the size of that choice. Read the <b>How to read this</b> tab before quoting a figure.
     </p>
     <div class="viz-controls">
-      <label class="form-label grow" for="turnout-unit">Common geography
+      <label class="form-label grow" for="turnout-unit"
+             title="The common geography both elections are moved onto before they are ranked.">Compare by area type
         <select class="form-select" id="turnout-unit">
           <option value="fed">Federal (2025) polling divisions</option>
           <option value="prov">Provincial (2024) voting areas</option>
@@ -2746,7 +2832,8 @@ html>body{padding:0}
       <label class="form-label grow" for="turnout-weight">Weight <span id="turnout-weight-label">50% federal · 50% provincial</span>
         <input class="form-range" type="range" id="turnout-weight" min="0" max="1" step="0.05" value="0.5">
       </label>
-      <label class="form-label grow" for="turnout-min-electors">Drop areas under
+      <label class="form-label grow" for="turnout-min-electors"
+             title="Areas with very few electors give unstable rates, so they are left out.">Exclude very small areas
         <select class="form-select" id="turnout-min-electors">
           <option value="0">No minimum</option>
           <option value="25">25 electors</option>
@@ -2811,17 +2898,20 @@ html>body{padding:0}
       neighbourhoods, not about people &mdash; read the <b>How to read this</b> tab before quoting one.
     </p>
     <div class="viz-controls">
-      <label class="form-label grow" for="socio-unit">Correlate on
+      <label class="form-label grow" for="socio-unit"
+             title="The geography the correlation is computed on.">Show areas as
         <select class="form-select" id="socio-unit"></select>
       </label>
-      <label class="form-label grow" for="socio-outcome">Outcome (y)
+      <label class="form-label grow" for="socio-outcome"
+             title="The outcome (y) each census variable is compared against.">Measure to compare
         <select class="form-select" id="socio-outcome">
           <option value="turnout-agg">Aggregate turnout, both elections</option>
           <option value="turnout-fed">Federal (2025) turnout</option>
           <option value="turnout-prov">Provincial (2024) turnout</option>
         </select>
       </label>
-      <label class="form-label grow" for="socio-min-electors">Drop areas under
+      <label class="form-label grow" for="socio-min-electors"
+             title="Areas with very few electors give unstable rates, so they are left out.">Exclude very small areas
         <select class="form-select" id="socio-min-electors">
           <option value="0">No minimum</option>
           <option value="25">25 electors</option>
@@ -2833,8 +2923,9 @@ html>body{padding:0}
            state it is in; the other one is left implicit, and that is where the
            confusion sat: "Only areas with both elections" said nothing about
            what unticking it would give you. -->
-      <fieldset class="form-label grow choice" id="socio-areas">
-        <legend>Areas to chart</legend>
+      <div class="choice" id="socio-areas" role="radiogroup"
+           aria-labelledby="socio-areas-legend">
+        <span class="choice-legend" id="socio-areas-legend">Areas to chart</span>
         <label class="form-check">
           <input class="form-check-input" type="radio" name="socio-areas" id="socio-areas-all" value="all" checked>
           <span class="form-check-label">All areas this measure can use</span>
@@ -2843,16 +2934,17 @@ html>body{padding:0}
           <input class="form-check-input" type="radio" name="socio-areas" id="socio-areas-both" value="both">
           <span class="form-check-label">Only areas with both elections</span>
         </label>
-      </fieldset>
+      </div>
     </div>
     <p class="text-small text-muted" id="socio-unit-note"></p>
     <div id="socio-status" class="status"></div>
+    <p class="model-badge" id="socio-model-badge" hidden></p>
     <div class="viz-grid" id="socio-stats"></div>
   </div>
 
   <div class="card" id="socio-results" hidden>
     <h2>Correlations</h2>
-    <p class="text-small text-muted">Tick the variables to compare; add any of the census characteristics by name. Click a column heading to sort, a row to plot it.
+    <p class="text-small text-muted">Tick the variables to compare; add any of the census characteristics by name. Click a column heading to sort, or any row to plot it below.
       Names here are the plain ones &mdash; hover any variable for the statistical definition behind it, which is also what the exported column keys
       (<code>pct_renter</code>, <code>median_hh_income</code>) refer to.</p>
     <div class="socio-picker" id="socio-picker"></div>
@@ -2863,6 +2955,7 @@ html>body{padding:0}
     </div>
     <div class="socio-search-results" id="socio-search-results"></div>
     <div class="turnout-wrap"><table class="turnout-table socio-table" id="socio-table"></table></div>
+    <p class="plotted" id="socio-plotted" hidden></p>
     <svg class="scatter" id="socio-scatter" role="img" aria-label="Scatter plot of a census variable against the chosen outcome, one dot per dissemination area"></svg>
     <div id="socio-scatter-caption" class="text-small text-muted"></div>
     <div id="socio-summary" class="summary" hidden></div>
@@ -3076,9 +3169,9 @@ html>body{padding:0}
       and a worse one where a district is long or a hall sits at one end. And
       <b>spreading one place's result over five areas does not make five
       observations.</b> The Compare and Neighbourhood profile tabs therefore report the number
-      of independent sources beside the number of units, and compute the confidence
-      interval on the sources; quote a coefficient with that figure, not with the count
-      of polygons.
+      of original reporting units beside the number of areas charted, and compute the
+      confidence interval on those reporting units; quote a coefficient with that figure,
+      not with the count of polygons.
     </p>
     <p>
       Provincial <b>turnout</b> is a separate matter, and a question of which denominator
@@ -8656,6 +8749,23 @@ function setBasemap(mode) {
 }
 darkScheme.addEventListener('change', () => { if ($('basemap').value === 'auto') setBasemap('auto'); });
 
+/* How a figure was arrived at, in three words, shared by every surface that
+   shows one -- the briefing's finding cards, the Compare tiles, the
+   Neighbourhood profile tiles. It lives here rather than beside the briefing
+   because those two tabs are built before it, and a vocabulary that only some
+   surfaces can reach is how two of them end up disagreeing.
+
+   Counted: the agency reported this number for this area. Modelled: it was
+   moved onto a geography its source does not use. Smoothed: municipal ballots,
+   which are spread by distance because you may vote anywhere in the city. */
+const PROVENANCE = {
+  counted: ['Counted', 'Reported for these areas by the agency that ran the election.'],
+  modelled: ['Modelled geography', 'Moved between geographies that share no boundaries; read '
+    + '“How to read this” before quoting it.'],
+  smoothed: ['Smoothed, not assigned', 'Municipal ballots are spread by distance because you '
+    + 'may vote at any place in the city.'],
+};
+
 /* What the turnout figures anywhere in this atlas actually divide by what.
 
    Electors are registered to a polling division whatever they later do, so the
@@ -9968,7 +10078,18 @@ function rejoinCensus() {
       }
     }
     for (const v of defs) da.variables.push({ ...v, byFeature: Census.joinToFeatures(da.all, da.keyProp, v.values) });
-    if (!state.socio.selected.size) for (const v of da.census.variables) state.socio.selected.add(v.key);
+    /* Six to begin with, not all fifteen. The rest are one drawer away and
+       ticking them is the reader's choice; opening on everything is what made
+       this tab a wall. */
+    if (!state.socio.selected.size) {
+      for (const v of da.census.variables) {
+        if (HEADLINE_VARIABLES.includes(v.key)) state.socio.selected.add(v.key);
+      }
+      /* A profile carrying none of the six still has to show something. */
+      if (!state.socio.selected.size) {
+        for (const v of da.census.variables.slice(0, 6)) state.socio.selected.add(v.key);
+      }
+    }
   }
   da.pop = null;
   if (da.all.length) {
@@ -10844,7 +10965,7 @@ function correlationSummary(d, { x, y, unitNoun, perTen = null }) {
         + 'so the direction is probably real.');
   }
   if (d.sources != null) {
-    out.push(`That range reflects ${fmtInt(d.sources)} independent source`
+    out.push(`That range reflects ${fmtInt(d.sources)} original reporting unit`
       + `${d.sources === 1 ? '' : 's'}`
       + (d.shared ? `, not the ${fmtInt(d.units)} map ${unitNoun} they are spread across.` : '.'));
   }
@@ -10935,12 +11056,26 @@ function refreshCorrelation() {
     if (note) t.append(el('div', 'text-small text-muted', note));
     return t;
   };
+  /* The caveat, beside the number rather than a paragraph below it and a tab
+     away. Every figure on this tab sits on a geography at least one of the two
+     elections does not use, and a stakeholder reading five tiles of decimals
+     has no other signal that says so. Same three words the briefing uses, so
+     the vocabulary is one vocabulary. */
+  const [badgeLabel, badgeWhy] = PROVENANCE.modelled;
+  const badgeHost = $('corr-model-badge');
+  if (badgeHost) {
+    badgeHost.textContent = '';
+    const modelBadge = el('span', 'badge badge-modelled', `${badgeLabel} · read caveat`);
+    modelBadge.title = badgeWhy;
+    badgeHost.append(modelBadge);
+    badgeHost.hidden = false;
+  }
   host.append(
     stat('units compared', fmtInt(result.n),
-      result.grouped ? `${fmtInt(result.nEffective)} independent sources` : null),
+      result.grouped ? `${fmtInt(result.nEffective)} original reporting units` : null),
     stat('Pearson r', fmtNum(result.r),
       result.ci ? `95% CI ${fmtNum(result.ci[0], 2)} to ${fmtNum(result.ci[1], 2)}`
-        + (result.grouped ? ', on the sources' : '') : null),
+        + (result.grouped ? ', on those reporting units' : '') : null),
     stat('vote-weighted r', fmtNum(result.rWeighted)),
     stat("Spearman's rho", fmtNum(result.rho)),
     stat('slope', result.fit ? fmtNum(result.fit.slope, 2) : '--',
@@ -11920,6 +12055,17 @@ function refreshSocio() {
     if (note) box.append(el('div', 'text-small text-muted', note));
     return box;
   };
+  /* The same badge the Compare tab and the briefing carry, for the same reason:
+     these variables were moved onto a geography the elections do not use. */
+  const [socioBadge, socioWhy] = PROVENANCE.modelled;
+  const socioBadgeHost = $('socio-model-badge');
+  if (socioBadgeHost) {
+    socioBadgeHost.textContent = '';
+    const socioMark = el('span', 'badge badge-modelled', `${socioBadge} · read caveat`);
+    socioMark.title = socioWhy;
+    socioBadgeHost.append(socioMark);
+    socioBadgeHost.hidden = false;
+  }
   statsHost.append(
     stat(`${U.name} charted`, fmtInt(withOutcome.length),
       `of ${fmtInt(state[unit].active.length)} in the study area`),
@@ -12050,7 +12196,13 @@ function drawSocioScatter() {
   const node = $('socio-scatter');
   const caption = $('socio-scatter-caption');
   const t = (st.table || []).find((x) => x.key === st.picked);
-  if (!t) { d3.select(node).selectAll('*').remove(); caption.textContent = ''; return; }
+  if (!t) {
+    d3.select(node).selectAll('*').remove();
+    caption.textContent = '';
+    if ($('socio-plotted')) $('socio-plotted').hidden = true;
+    if ($('socio-summary')) $('socio-summary').hidden = true;
+    return;
+  }
   const outcome = socioOutcome(st.outcome);
   const xFormat = d3.format(Math.max(...t.points.map((p) => Math.abs(p.x))) >= 1000 ? ',.3~s' : ',.3~r');
   drawScatterXY(node, t.points, {
@@ -12078,6 +12230,16 @@ function drawSocioScatter() {
     })) socioSummary.append(el('p', null, line));
     socioSummary.hidden = !describedSocio;
   }
+  /* What is on the chart, named above it. "Click a row to plot it" is a
+     sentence in a paragraph; which row is plotted right now is a fact, and the
+     chart is where somebody looks for it. */
+  const plotted = $('socio-plotted');
+  if (plotted) {
+    plotted.textContent = '';
+    plotted.append(el('span', 'plotted-label', 'Plotted'),
+                   el('span', 'plotted-name', t.label));
+    plotted.hidden = false;
+  }
   caption.textContent = `${t.label} against ${outcome.label.toLowerCase()} across ${fmtInt(t.n)} ${unitName}`
     + (dropped > 0 ? ` (${fmtInt(dropped)} left out for missing values)` : '')
     + `; r = ${fmtNum(t.r, 3)}, electors-weighted r = ${fmtNum(t.rWeighted, 3)}. Dot size follows electors.`
@@ -12093,10 +12255,26 @@ function drawSocioScatter() {
 
 /* --- Variable picker and search ------------------------------------------ */
 
+/* The six a reader would name if asked what a neighbourhood is like: who rents,
+   how old, how well off, who has moved here, who has moved recently, who
+   studied. They start ticked and the other nine sit behind "Add more
+   measures", because fifteen abbreviated variables all ticked at once is a
+   wall rather than a starting point -- and a starting point is what somebody
+   opening this tab for the first time needs.
+
+   Anything a reader adds by name joins the visible group: they asked for it,
+   so hiding it behind a drawer would be perverse. */
+const HEADLINE_VARIABLES = ['pct_renter', 'median_age', 'median_hh_income',
+                            'pct_immigrant', 'pct_movers_5yr', 'pct_bachelor_plus'];
+
 function renderSocioPicker() {
   const host = $('socio-picker');
   host.textContent = '';
   const st = state.socio;
+  const headline = el('div', 'socio-picker-group');
+  const more = el('details', 'disclosure socio-more');
+  const moreBody = el('div', 'socio-picker-group');
+  let moreCount = 0;
   for (const v of socioVariables(st.unit || 'da')) {
     const lab = el('label');
     const cb = el('input'); cb.type = 'checkbox'; cb.checked = st.selected.has(v.key);
@@ -12113,7 +12291,17 @@ function renderSocioPicker() {
       rm.addEventListener('click', () => { st.extra.delete(v.key); st.selected.delete(v.key); rejoinCensus(); refreshSocio(); });
       lab.append(rm);
     }
-    host.append(lab);
+    if (HEADLINE_VARIABLES.includes(v.key) || v.extra) headline.append(lab);
+    else { moreBody.append(lab); moreCount++; }
+  }
+  host.append(headline);
+  if (moreCount) {
+    more.append(el('summary', null, `Add more measures (${fmtInt(moreCount)})`), moreBody);
+    /* Left open once somebody has opened it, so ticking two in a row does not
+       shut the drawer between them. */
+    more.open = Boolean(st.moreOpen);
+    more.addEventListener('toggle', () => { st.moreOpen = more.open; });
+    host.append(more);
   }
 }
 
@@ -13234,17 +13422,6 @@ function bakedIn() {
 const fmtPts = (v) => (v == null || !isFinite(v) ? '--' : `${(v * 100).toFixed(1)} pts`);
 
 
-/* Counted: the agency reported this number for this area. Modelled: it was
-   moved onto a geography its source does not use. Smoothed: municipal ballots,
-   which are spread by distance because you may vote anywhere in the city. */
-const PROVENANCE = {
-  counted: ['Counted', 'Reported for these areas by the agency that ran the election.'],
-  modelled: ['Modelled geography', 'Moved between geographies that share no boundaries; read '
-    + '“How to read this” before quoting it.'],
-  smoothed: ['Smoothed, not assigned', 'Municipal ballots are spread by distance because you '
-    + 'may vote at any place in the city.'],
-};
-
 function headlineFindings() {
   const out = [];
   const push = (headline, figure, detail, badge) => out.push({ headline, figure, detail, badge });
@@ -13283,7 +13460,7 @@ function headlineFindings() {
     push(`${c.fedParty} and ${c.provParty} `
       + (c.result.r < 0 ? 'move against each other' : 'track each other'), fmtNum(c.result.r, 2),
       `Pearson r across ${fmtInt(c.result.nEffective ?? c.result.n ?? (c.rows || []).length)} `
-      + 'independent sources'
+      + 'original reporting units'
       /* Party shares move with apportionment too, so an r between two of them
          does. It is a weaker effect than on turnout and it is still a different
          number, and this is a headline. */
@@ -13297,7 +13474,7 @@ function headlineFindings() {
     const outcome = socioOutcome(state.socio.outcome).label.toLowerCase();
     push(`Strongest census association with ${outcome}`, fmtNum(best.r, 2),
       `${best.label} — ${outcome} ${best.r < 0 ? 'falls' : 'rises'} as it rises, `
-      + `across ${fmtInt(best.nEffective ?? best.n)} independent sources`
+      + `across ${fmtInt(best.nEffective ?? best.n)} original reporting units`
       + (turnoutBasis().short ? `, on ${turnoutBasis().short}` : ''),
       'modelled');
   }
@@ -13320,8 +13497,8 @@ const CAVEATS = [
    + 'with the first did the second, and the difference is not a technicality.'],
   ['Spreading one measurement over five areas does not make five observations.',
    'The 2024 provincial results are reported by voting place and shared out over the areas each '
-   + 'one served, so every r reports the number of independent sources beside the number of areas '
-   + 'and widens its confidence interval to match.'],
+   + 'one served, so every r reports the number of original reporting units beside the number '
+   + 'of areas, and widens its confidence interval to match.'],
   ['There is no municipal turnout by area, anywhere in this atlas.',
    'You may vote at any place in Vancouver and in 2022 most people did, so ballots are smoothed by '
    + 'distance rather than assigned. Measured against the federal turnout surface any municipal '

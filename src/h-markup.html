@@ -600,20 +600,24 @@
   <div class="card" id="corr-controls" hidden>
     <h2>Compare</h2>
     <div class="viz-controls">
-      <label class="form-label grow" for="corr-unit">Common geography
+      <label class="form-label grow" for="corr-unit"
+             title="The common geography both elections are moved onto before they are compared.">Compare by area type
         <select class="form-select" id="corr-unit">
           <option value="prov">Provincial voting areas</option>
           <option value="fed">Federal polling divisions</option>
           <option value="atom">Overlap pieces (finest)</option>
         </select>
       </label>
-      <label class="form-label grow" for="corr-fed-party">Federal party (x)
+      <label class="form-label grow" for="corr-fed-party"
+             title="Plotted along the bottom of the chart (x).">Federal party
         <select class="form-select" id="corr-fed-party"></select>
       </label>
-      <label class="form-label grow" for="corr-prov-party">Provincial party (y)
+      <label class="form-label grow" for="corr-prov-party"
+             title="Plotted up the side of the chart (y).">Provincial party
         <select class="form-select" id="corr-prov-party"></select>
       </label>
-      <label class="form-label grow" for="corr-min-votes">Drop units under
+      <label class="form-label grow" for="corr-min-votes"
+             title="Areas with very few votes swing wildly on a handful of ballots, so they are left out.">Exclude very small areas
         <select class="form-select" id="corr-min-votes">
           <option value="0">No minimum</option>
           <option value="25">25 votes</option>
@@ -622,6 +626,7 @@
         </select>
       </label>
     </div>
+    <p class="model-badge" id="corr-model-badge" hidden></p>
     <div class="viz-grid" id="corr-stats"></div>
     <svg class="scatter" id="scatter" role="img" aria-label="Scatter plot of federal party vote share against provincial party vote share"></svg>
     <div id="scatter-caption" class="text-small text-muted"></div>
@@ -650,7 +655,8 @@
       the size of that choice. Read the <b>How to read this</b> tab before quoting a figure.
     </p>
     <div class="viz-controls">
-      <label class="form-label grow" for="turnout-unit">Common geography
+      <label class="form-label grow" for="turnout-unit"
+             title="The common geography both elections are moved onto before they are ranked.">Compare by area type
         <select class="form-select" id="turnout-unit">
           <option value="fed">Federal (2025) polling divisions</option>
           <option value="prov">Provincial (2024) voting areas</option>
@@ -660,7 +666,8 @@
       <label class="form-label grow" for="turnout-weight">Weight <span id="turnout-weight-label">50% federal · 50% provincial</span>
         <input class="form-range" type="range" id="turnout-weight" min="0" max="1" step="0.05" value="0.5">
       </label>
-      <label class="form-label grow" for="turnout-min-electors">Drop areas under
+      <label class="form-label grow" for="turnout-min-electors"
+             title="Areas with very few electors give unstable rates, so they are left out.">Exclude very small areas
         <select class="form-select" id="turnout-min-electors">
           <option value="0">No minimum</option>
           <option value="25">25 electors</option>
@@ -725,17 +732,20 @@
       neighbourhoods, not about people &mdash; read the <b>How to read this</b> tab before quoting one.
     </p>
     <div class="viz-controls">
-      <label class="form-label grow" for="socio-unit">Correlate on
+      <label class="form-label grow" for="socio-unit"
+             title="The geography the correlation is computed on.">Show areas as
         <select class="form-select" id="socio-unit"></select>
       </label>
-      <label class="form-label grow" for="socio-outcome">Outcome (y)
+      <label class="form-label grow" for="socio-outcome"
+             title="The outcome (y) each census variable is compared against.">Measure to compare
         <select class="form-select" id="socio-outcome">
           <option value="turnout-agg">Aggregate turnout, both elections</option>
           <option value="turnout-fed">Federal (2025) turnout</option>
           <option value="turnout-prov">Provincial (2024) turnout</option>
         </select>
       </label>
-      <label class="form-label grow" for="socio-min-electors">Drop areas under
+      <label class="form-label grow" for="socio-min-electors"
+             title="Areas with very few electors give unstable rates, so they are left out.">Exclude very small areas
         <select class="form-select" id="socio-min-electors">
           <option value="0">No minimum</option>
           <option value="25">25 electors</option>
@@ -747,8 +757,9 @@
            state it is in; the other one is left implicit, and that is where the
            confusion sat: "Only areas with both elections" said nothing about
            what unticking it would give you. -->
-      <fieldset class="form-label grow choice" id="socio-areas">
-        <legend>Areas to chart</legend>
+      <div class="choice" id="socio-areas" role="radiogroup"
+           aria-labelledby="socio-areas-legend">
+        <span class="choice-legend" id="socio-areas-legend">Areas to chart</span>
         <label class="form-check">
           <input class="form-check-input" type="radio" name="socio-areas" id="socio-areas-all" value="all" checked>
           <span class="form-check-label">All areas this measure can use</span>
@@ -757,16 +768,17 @@
           <input class="form-check-input" type="radio" name="socio-areas" id="socio-areas-both" value="both">
           <span class="form-check-label">Only areas with both elections</span>
         </label>
-      </fieldset>
+      </div>
     </div>
     <p class="text-small text-muted" id="socio-unit-note"></p>
     <div id="socio-status" class="status"></div>
+    <p class="model-badge" id="socio-model-badge" hidden></p>
     <div class="viz-grid" id="socio-stats"></div>
   </div>
 
   <div class="card" id="socio-results" hidden>
     <h2>Correlations</h2>
-    <p class="text-small text-muted">Tick the variables to compare; add any of the census characteristics by name. Click a column heading to sort, a row to plot it.
+    <p class="text-small text-muted">Tick the variables to compare; add any of the census characteristics by name. Click a column heading to sort, or any row to plot it below.
       Names here are the plain ones &mdash; hover any variable for the statistical definition behind it, which is also what the exported column keys
       (<code>pct_renter</code>, <code>median_hh_income</code>) refer to.</p>
     <div class="socio-picker" id="socio-picker"></div>
@@ -777,6 +789,7 @@
     </div>
     <div class="socio-search-results" id="socio-search-results"></div>
     <div class="turnout-wrap"><table class="turnout-table socio-table" id="socio-table"></table></div>
+    <p class="plotted" id="socio-plotted" hidden></p>
     <svg class="scatter" id="socio-scatter" role="img" aria-label="Scatter plot of a census variable against the chosen outcome, one dot per dissemination area"></svg>
     <div id="socio-scatter-caption" class="text-small text-muted"></div>
     <div id="socio-summary" class="summary" hidden></div>
@@ -990,9 +1003,9 @@
       and a worse one where a district is long or a hall sits at one end. And
       <b>spreading one place's result over five areas does not make five
       observations.</b> The Compare and Neighbourhood profile tabs therefore report the number
-      of independent sources beside the number of units, and compute the confidence
-      interval on the sources; quote a coefficient with that figure, not with the count
-      of polygons.
+      of original reporting units beside the number of areas charted, and compute the
+      confidence interval on those reporting units; quote a coefficient with that figure,
+      not with the count of polygons.
     </p>
     <p>
       Provincial <b>turnout</b> is a separate matter, and a question of which denominator

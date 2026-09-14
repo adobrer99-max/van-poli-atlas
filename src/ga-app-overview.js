@@ -139,17 +139,6 @@ function bakedIn() {
 const fmtPts = (v) => (v == null || !isFinite(v) ? '--' : `${(v * 100).toFixed(1)} pts`);
 
 
-/* Counted: the agency reported this number for this area. Modelled: it was
-   moved onto a geography its source does not use. Smoothed: municipal ballots,
-   which are spread by distance because you may vote anywhere in the city. */
-const PROVENANCE = {
-  counted: ['Counted', 'Reported for these areas by the agency that ran the election.'],
-  modelled: ['Modelled geography', 'Moved between geographies that share no boundaries; read '
-    + '“How to read this” before quoting it.'],
-  smoothed: ['Smoothed, not assigned', 'Municipal ballots are spread by distance because you '
-    + 'may vote at any place in the city.'],
-};
-
 function headlineFindings() {
   const out = [];
   const push = (headline, figure, detail, badge) => out.push({ headline, figure, detail, badge });
@@ -188,7 +177,7 @@ function headlineFindings() {
     push(`${c.fedParty} and ${c.provParty} `
       + (c.result.r < 0 ? 'move against each other' : 'track each other'), fmtNum(c.result.r, 2),
       `Pearson r across ${fmtInt(c.result.nEffective ?? c.result.n ?? (c.rows || []).length)} `
-      + 'independent sources'
+      + 'original reporting units'
       /* Party shares move with apportionment too, so an r between two of them
          does. It is a weaker effect than on turnout and it is still a different
          number, and this is a headline. */
@@ -202,7 +191,7 @@ function headlineFindings() {
     const outcome = socioOutcome(state.socio.outcome).label.toLowerCase();
     push(`Strongest census association with ${outcome}`, fmtNum(best.r, 2),
       `${best.label} — ${outcome} ${best.r < 0 ? 'falls' : 'rises'} as it rises, `
-      + `across ${fmtInt(best.nEffective ?? best.n)} independent sources`
+      + `across ${fmtInt(best.nEffective ?? best.n)} original reporting units`
       + (turnoutBasis().short ? `, on ${turnoutBasis().short}` : ''),
       'modelled');
   }
@@ -225,8 +214,8 @@ const CAVEATS = [
    + 'with the first did the second, and the difference is not a technicality.'],
   ['Spreading one measurement over five areas does not make five observations.',
    'The 2024 provincial results are reported by voting place and shared out over the areas each '
-   + 'one served, so every r reports the number of independent sources beside the number of areas '
-   + 'and widens its confidence interval to match.'],
+   + 'one served, so every r reports the number of original reporting units beside the number '
+   + 'of areas, and widens its confidence interval to match.'],
   ['There is no municipal turnout by area, anywhere in this atlas.',
    'You may vote at any place in Vancouver and in 2022 most people did, so ballots are smoothed by '
    + 'distance rather than assigned. Measured against the federal turnout surface any municipal '

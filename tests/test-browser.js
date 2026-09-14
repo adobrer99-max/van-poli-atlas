@@ -521,6 +521,36 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   ok('the default is every area the measure can use, not a quietly narrowed set',
      await allAreas.isChecked() && !(await bothAreas.isChecked()));
 
+  /* And that the group is READABLE, which is a separate failure. It carried
+     .form-label for a while, and design.css lays every .viz-controls >
+     .form-label out as `grid-template-columns: minmax(0, 1fr) auto` -- right
+     for a caption above a select, wrong for three stacked children. The nowrap
+     option labels took the auto column and squeezed the legend in the 1fr
+     column to one character per line: "Are / as / to / cha / rt", with both
+     options shoved off to the side. Nothing about the behaviour above changes
+     when that happens, which is why it needs its own assertion: every line of
+     text in the group must occupy the number of lines its content needs. */
+  const lineCounts = await page.locator('#socio-areas').evaluate((group) => {
+    const out = [];
+    for (const el of [group.querySelector('.choice-legend'),
+                      ...group.querySelectorAll('.form-check-label')]) {
+      const cs = getComputedStyle(el);
+      const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2;
+      out.push({ text: el.textContent.trim(),
+                 lines: Math.round(el.getBoundingClientRect().height / lh) });
+    }
+    return out;
+  });
+  for (const { text, lines } of lineCounts) {
+    ok(`"${text}" sits on one line (${lines})`, lines === 1, JSON.stringify(lineCounts));
+  }
+  ok('and the group is wide enough for its longest option',
+     await page.locator('#socio-areas').evaluate((group) => {
+       const longest = [...group.querySelectorAll('.form-check')]
+         .reduce((a, b) => (a.scrollWidth > b.scrollWidth ? a : b));
+       return group.getBoundingClientRect().width >= longest.scrollWidth;
+     }));
+
   /* The regression this guards. The ballots test once read
      sources.map(s => s.key); socioSources sets id, so every lookup was
      ballots[undefined] and the filter took every row. Checked on the two kinds
@@ -611,7 +641,23 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
      }), await page.locator('#socio-status').innerText());
   const socioRows = page.locator('#socio-table tbody tr');
   const nVars = await socioRows.count();
-  ok(`table lists the 15 starter variables (${nVars})`, nVars === 15);
+  /* Six named measures to begin with, not all fifteen ticked at once. The rest
+     are behind "Add more measures" and ticking one brings it into the table --
+     a starting point that can be widened, rather than a wall. */
+  ok(`the table starts with six named measures, not fifteen (${nVars})`, nVars === 6, String(nVars));
+  const moreSummary = page.locator('#socio-picker details.socio-more summary');
+  ok('the rest are offered behind "Add more measures"',
+     /Add more measures \(9\)/.test(await moreSummary.innerText()), await moreSummary.innerText());
+  ok('and that drawer starts shut', !(await page.locator('#socio-picker details.socio-more')
+     .evaluate((d) => d.open)));
+  await moreSummary.click();
+  await page.locator('#socio-picker details.socio-more input[type=checkbox]').first().check();
+  await page.waitForTimeout(800);
+  ok(`ticking one from the drawer adds it (${await socioRows.count()})`,
+     (await socioRows.count()) === 7, String(await socioRows.count()));
+  await page.locator('#socio-picker details.socio-more input[type=checkbox]').first().uncheck();
+  await page.waitForTimeout(800);
+  ok('and unticking takes it away again', (await socioRows.count()) === 6);
   // Rows as cells: [variable, n, r, electors-weighted r, rho, |r|, CI].
   const socioCells = async () => socioRows.evaluateAll((trs) => trs.map((tr) => [...tr.children].map((td) => td.innerText.trim())));
   let cells = await socioCells();
@@ -638,7 +684,8 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.locator('#socio-outcome').selectOption({ label: /Liberal share, federal 2025/.test(await page.locator('#socio-outcome').innerText()) ? 'Liberal share, federal 2025' : 'Federal (2025) turnout' });
   await page.waitForTimeout(800);
   const texts2 = (await socioCells()).map((c) => c.join(' '));
-  ok('switching the outcome recomputes every row', texts2.length === 15 && texts2.join('|') !== texts.join('|'));
+  ok('switching the outcome recomputes every row', texts2.length === 6 && texts2.join('|') !== texts.join('|'),
+     `${texts2.length} rows`);
 
   // The same correlation on the provincial voting areas: the census is carried
   // the other way, counts shared out and rates averaged by population. A
@@ -694,7 +741,15 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.waitForTimeout(300);
   await page.locator('#socio-search-results button').first().click();
   await page.waitForTimeout(800);
-  ok('a characteristic added by name joins the table', (await socioRows.count()) === 16 && /2 persons/.test((await socioCells()).map((c) => c[0]).join(' ')));
+  /* Added by name, so it belongs with the six a reader chose rather than in
+     the drawer of ones they did not. */
+  ok('a characteristic added by name joins the table', (await socioRows.count()) === 7 && /2 persons/.test((await socioCells()).map((c) => c[0]).join(' ')),
+     String(await socioRows.count()));
+  ok('and sits with the visible measures, not in the drawer',
+     await page.evaluate(() => {
+       const g = document.querySelector('#socio-picker .socio-picker-group');
+       return /2 persons/i.test(g ? g.innerText : '');
+     }));
   const sdl = page.waitForEvent('download', { timeout: 15000 });
   await page.locator('#export-socio').click();
   const scsv = require('fs').readFileSync(await (await sdl).path(), 'utf8').split(/\r?\n/).filter(Boolean);
@@ -1238,8 +1293,9 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   ok('and says how firmly to hold it, from the interval',
      /plausible range runs from -?[\d.]+ to -?[\d.]+/.test(corrSummary),
      corrSummary.replace(/\s+/g, ' ').slice(0, 240));
-  ok('and counts independent sources, not map pieces',
-     /independent sources/.test(corrSummary));
+  ok('and counts original reporting units, not map pieces',
+     /original reporting units/.test(corrSummary)
+     && !/independent sources/.test(corrSummary), corrSummary.replace(/\s+/g, ' ').slice(0, 200));
   /* The one sentence that must always be there. */
   ok('and refuses the step from areas to individuals',
      /not people\./.test(corrSummary) && /cannot tell you how anybody voted/.test(corrSummary),

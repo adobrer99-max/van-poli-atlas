@@ -296,7 +296,7 @@ function correlationSummary(d, { x, y, unitNoun, perTen = null }) {
         + 'so the direction is probably real.');
   }
   if (d.sources != null) {
-    out.push(`That range reflects ${fmtInt(d.sources)} independent source`
+    out.push(`That range reflects ${fmtInt(d.sources)} original reporting unit`
       + `${d.sources === 1 ? '' : 's'}`
       + (d.shared ? `, not the ${fmtInt(d.units)} map ${unitNoun} they are spread across.` : '.'));
   }
@@ -387,12 +387,26 @@ function refreshCorrelation() {
     if (note) t.append(el('div', 'text-small text-muted', note));
     return t;
   };
+  /* The caveat, beside the number rather than a paragraph below it and a tab
+     away. Every figure on this tab sits on a geography at least one of the two
+     elections does not use, and a stakeholder reading five tiles of decimals
+     has no other signal that says so. Same three words the briefing uses, so
+     the vocabulary is one vocabulary. */
+  const [badgeLabel, badgeWhy] = PROVENANCE.modelled;
+  const badgeHost = $('corr-model-badge');
+  if (badgeHost) {
+    badgeHost.textContent = '';
+    const modelBadge = el('span', 'badge badge-modelled', `${badgeLabel} · read caveat`);
+    modelBadge.title = badgeWhy;
+    badgeHost.append(modelBadge);
+    badgeHost.hidden = false;
+  }
   host.append(
     stat('units compared', fmtInt(result.n),
-      result.grouped ? `${fmtInt(result.nEffective)} independent sources` : null),
+      result.grouped ? `${fmtInt(result.nEffective)} original reporting units` : null),
     stat('Pearson r', fmtNum(result.r),
       result.ci ? `95% CI ${fmtNum(result.ci[0], 2)} to ${fmtNum(result.ci[1], 2)}`
-        + (result.grouped ? ', on the sources' : '') : null),
+        + (result.grouped ? ', on those reporting units' : '') : null),
     stat('vote-weighted r', fmtNum(result.rWeighted)),
     stat("Spearman's rho", fmtNum(result.rho)),
     stat('slope', result.fit ? fmtNum(result.fit.slope, 2) : '--',

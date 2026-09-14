@@ -353,21 +353,32 @@
 .sources li { text-wrap: pretty; }
 
 /* A named choice rather than a switch: two options, both labelled, so neither
-   state has to be inferred from the other. */
-.choice {
-  border: 0;
-  margin: 0;
-  padding: 0;
-  min-width: 0;
+   state has to be inferred from the other.
+
+   It is a div with role="radiogroup", not a fieldset and not a .form-label.
+   A fieldset carries an intrinsic min-width that browsers apply ahead of the
+   author's, so as a flex item it collapsed to the width of its longest WORD.
+   .form-label is worse here: design.css lays every .viz-controls > .form-label
+   out as `grid-template-columns: minmax(0, 1fr) auto`, which is right for a
+   caption over a select and wrong for three stacked children -- the nowrap
+   radio labels claimed the auto column and squeezed the legend in the 1fr
+   column down to one character per line. So it sits in the control row as a
+   plain block that sizes itself. */
+#atlas .viz-controls > .choice {
+  display: block;
+  flex: 1 1 16rem;
+  min-width: 14rem;
+  margin-bottom: 0;
 }
-.choice > legend {
-  padding: 0;
+.choice > .choice-legend {
+  display: block;
   margin-bottom: .25rem;
   color: var(--muted-foreground);
   font-size: var(--font-size-small, .85rem);
 }
-.choice .form-check { display: flex; align-items: center; gap: .4rem; }
+.choice .form-check { display: flex; align-items: center; gap: .4rem; white-space: nowrap; }
 .choice .form-check + .form-check { margin-top: .15rem; }
+.choice .form-check-label { line-height: 1.35; }
 
 /* The plain-language summary. Set at reading width and a notch larger than the
    caption above it: it is the part somebody quotes, so it should not look like
@@ -383,3 +394,72 @@
 .summary p { margin: 0; text-wrap: pretty; }
 .summary p:first-child { font-weight: var(--font-weight-medium, 500); }
 .summary p:not(:first-child) { color: var(--muted-foreground); font-size: var(--font-size-small, .9rem); }
+
+/* The census picker: six to start with, the rest one drawer down. */
+.socio-picker-group { display: flex; flex-wrap: wrap; gap: .4rem 1rem; }
+.socio-more { margin-top: .6rem; }
+.socio-more > summary { padding: .4rem .6rem; font-weight: var(--font-weight-normal, 400); }
+
+/* --- Legibility ------------------------------------------------------------
+
+   Nearly every explanatory line in this atlas is .text-small.text-muted, which
+   stacks a size reduction on a contrast reduction. That pairing is right for a
+   footnote and wrong for the sentence telling somebody what a number means --
+   and most of the sentences here are the second kind. So inside the atlas the
+   muted foreground is lifted towards the body colour, and the small size is
+   raised a notch; the genuinely peripheral text keeps the old treatment by
+   asking for it. */
+#atlas {
+  --muted-foreground: color-mix(in srgb, var(--foreground) 72%, var(--background));
+}
+#atlas .text-small,
+#atlas small {
+  font-size: calc(var(--font-size-small, .85rem) * 1.06);
+  line-height: 1.5;
+}
+/* Attribution, licence lines and the source note under a chart: the places
+   where faint really is the right answer. */
+#atlas .footnote,
+#atlas .atlas-header p,
+#atlas .sources li,
+#atlas .map-wrap + .text-small {
+  color: color-mix(in srgb, var(--foreground) 55%, var(--background));
+}
+/* Chart furniture was a step below even the muted body text. An axis label
+   nobody can read is a chart with no units. */
+.scatter .axis text,
+.curve .axis text { fill: color-mix(in srgb, var(--foreground) 70%, var(--background)); }
+.scatter .axis-label,
+.curve .axis-label {
+  fill: var(--foreground);
+  font-size: var(--font-size-base, 1rem);
+}
+
+/* Which variable the chart is showing, said above the chart. */
+.plotted {
+  display: flex;
+  align-items: baseline;
+  gap: .5rem;
+  margin: .75rem 0 .25rem;
+}
+.plotted-label {
+  font-size: var(--font-size-small, .85rem);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.plotted-name { font-weight: var(--font-weight-medium, 500); }
+
+/* A row you can click should look like one, and the row being plotted should
+   be unmistakable -- it is the link between the table and the chart under it. */
+.socio-table tbody tr { cursor: pointer; }
+.socio-table tbody tr:hover td { background: color-mix(in srgb, var(--foreground) 6%, transparent); }
+.socio-table tr.picked td {
+  background: color-mix(in srgb, var(--viz-series-3) 20%, transparent);
+  font-weight: var(--font-weight-medium, 500);
+}
+.socio-table tr.picked td:first-child { box-shadow: inset 3px 0 0 var(--viz-series-3); }
+
+/* The model-status badge sits above the tiles, not among them: appended into
+   the grid it took a cell of its own and was clipped by it. */
+.model-badge { margin: .5rem 0 .25rem; }

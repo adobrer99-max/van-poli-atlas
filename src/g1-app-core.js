@@ -368,6 +368,23 @@ function setBasemap(mode) {
 }
 darkScheme.addEventListener('change', () => { if ($('basemap').value === 'auto') setBasemap('auto'); });
 
+/* How a figure was arrived at, in three words, shared by every surface that
+   shows one -- the briefing's finding cards, the Compare tiles, the
+   Neighbourhood profile tiles. It lives here rather than beside the briefing
+   because those two tabs are built before it, and a vocabulary that only some
+   surfaces can reach is how two of them end up disagreeing.
+
+   Counted: the agency reported this number for this area. Modelled: it was
+   moved onto a geography its source does not use. Smoothed: municipal ballots,
+   which are spread by distance because you may vote anywhere in the city. */
+const PROVENANCE = {
+  counted: ['Counted', 'Reported for these areas by the agency that ran the election.'],
+  modelled: ['Modelled geography', 'Moved between geographies that share no boundaries; read '
+    + '“How to read this” before quoting it.'],
+  smoothed: ['Smoothed, not assigned', 'Municipal ballots are spread by distance because you '
+    + 'may vote at any place in the city.'],
+};
+
 /* What the turnout figures anywhere in this atlas actually divide by what.
 
    Electors are registered to a polling division whatever they later do, so the
