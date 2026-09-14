@@ -1179,6 +1179,50 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.waitForTimeout(600);
   ok('and switching back restores the original figures', (await corrStats()) === corrOff);
 
+  /* An r and a confidence interval are precise and, to most of the people this
+     file is for, mute. These say the same thing in a sentence somebody can
+     quote -- which is exactly why the third sentence has to refuse the step
+     from "areas with more X had more Y" to "people with X did Y". */
+  console.log('\n== Plain-language summaries ==');
+  await page.locator('#tab-corr').click();
+  await page.waitForTimeout(700);
+  const corrSummary = await page.locator('#corr-summary').innerText();
+  ok('the Compare tab says the strength and direction in words',
+     /(weak|moderate|strong) (negative|positive) relationship/i.test(corrSummary),
+     corrSummary.replace(/\s+/g, ' ').slice(0, 160));
+  ok('and puts the slope in points a reader can picture',
+     /points (lower|higher) for every 10 points of/.test(corrSummary),
+     corrSummary.replace(/\s+/g, ' ').slice(0, 200));
+  ok('and says how firmly to hold it, from the interval',
+     /plausible range runs from -?[\d.]+ to -?[\d.]+/.test(corrSummary),
+     corrSummary.replace(/\s+/g, ' ').slice(0, 240));
+  ok('and counts independent sources, not map pieces',
+     /independent sources/.test(corrSummary));
+  /* The one sentence that must always be there. */
+  ok('and refuses the step from areas to individuals',
+     /not people\./.test(corrSummary) && /cannot tell you how anybody voted/.test(corrSummary),
+     corrSummary.replace(/\s+/g, ' ').slice(-200));
+  ok('and never claims cause',
+     !/\b(caused?|causes|drove|drives|led to|leads to|because of)\b/i.test(corrSummary),
+     corrSummary.replace(/\s+/g, ' '));
+
+  await page.locator('#tab-socio').click();
+  await page.waitForTimeout(700);
+  const socioSummary = await page.locator('#socio-summary').innerText();
+  ok('the Neighbourhood profile summarises its own correlation too',
+     /(weak|moderate|strong) (negative|positive) relationship/i.test(socioSummary),
+     socioSummary.replace(/\s+/g, ' ').slice(0, 160));
+  /* The census variables are percentages 0-100 and turnout is a share 0-1, so
+     the fitted slope is not in comparable units and no points-per-points
+     sentence may appear here. */
+  ok('but states no points-per-points figure, whose units do not line up there',
+     !/for every 10 points of/.test(socioSummary),
+     socioSummary.replace(/\s+/g, ' ').slice(0, 200));
+  ok('and names the geography it is running on',
+     /dissemination areas/i.test(socioSummary),
+     socioSummary.replace(/\s+/g, ' ').slice(0, 160));
+  ok('and refuses the same step', /cannot tell you how anybody voted/.test(socioSummary));
+
   console.log('\n== The briefing ==');
   await page.locator('#tab-overview').click();
   await page.waitForTimeout(500);

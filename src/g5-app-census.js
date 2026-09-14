@@ -424,6 +424,22 @@ function drawSocioScatter() {
   /* The unit is whatever the tab is running on; saying "dissemination areas"
      under a voting-area correlation names the wrong geography. */
   const unitName = SOCIO_UNITS[st.unit || 'da'].name;
+  /* No "points per ten points" here. The census variables are percentages on a
+     0-100 scale while turnout is a share on 0-1, so the fitted slope is not in
+     comparable units and a sentence claiming otherwise would be worse than no
+     sentence. Direction, strength and how firmly to hold it all still apply. */
+  const describedSocio = Analysis.describeCorrelation(t);
+  const socioSummary = $('socio-summary');
+  if (socioSummary) {
+    socioSummary.textContent = '';
+    for (const line of correlationSummary(describedSocio, {
+      /* "Aggregate turnout, both elections" is a fine tile label and a poor
+         one mid-sentence; the qualifier after the comma is on the tile above. */
+      x: t.label.toLowerCase(), y: outcome.label.toLowerCase().split(',')[0],
+      unitNoun: unitName,
+    })) socioSummary.append(el('p', null, line));
+    socioSummary.hidden = !describedSocio;
+  }
   caption.textContent = `${t.label} against ${outcome.label.toLowerCase()} across ${fmtInt(t.n)} ${unitName}`
     + (dropped > 0 ? ` (${fmtInt(dropped)} left out for missing values)` : '')
     + `; r = ${fmtNum(t.r, 3)}, electors-weighted r = ${fmtNum(t.rWeighted, 3)}. Dot size follows electors.`

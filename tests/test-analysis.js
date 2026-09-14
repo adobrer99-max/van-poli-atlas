@@ -2,6 +2,8 @@ const { load } = require('./harness');
 const { Analysis: An, Geo } = load(['a-geo.js','e-analysis.js'], ['Analysis','Geo']);
 let fails = 0;
 const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { console.log(`  FAIL  ${n} ${e}`); fails++; } };
+const eq = (n, a, b) => ok(n, JSON.stringify(a) === JSON.stringify(b),
+  `got ${JSON.stringify(a)} want ${JSON.stringify(b)}`);
 const near = (n, a, b, tol) => ok(`${n} (${a == null ? 'null' : a.toFixed(5)} ~ ${b})`, a != null && Math.abs(a - b) <= tol, `diff ${a == null ? 'null' : Math.abs(a-b)}`);
 
 const drain = (gen) => { let r = gen.next(); while (!r.done) r = gen.next(); return r.value; };
@@ -152,6 +154,39 @@ ok('a target with no source value at all is absent, not zero',
 const reversed = An.moveVariable(mvPairs, new Map([[0, 3], [1, 3], [2, 3]]), { from:'b' });
 ok('it moves the other way too', [...reversed.values()].every((v) => Math.abs(v - 3) < 1e-12),
    JSON.stringify([...reversed]));
+
+/* --- Putting a correlation into words -------------------------------------
+   The bands are a judgement, so they are pinned: a reader who sees "weak"
+   twice must be seeing the same thing twice. */
+console.log('\n== Describing a correlation in words ==');
+const desc = (over) => An.describeCorrelation({ r: 0, ci: [-0.1, 0.1], fit: { slope: 0 },
+  nEffective: 100, n: 100, grouped: false, ...over });
+
+eq('under 0.1 is essentially none', desc({ r: 0.05 }).strength, 'essentially no');
+eq('and has no direction to report', desc({ r: 0.05 }).direction, 'flat');
+eq('0.1 to 0.3 is weak', desc({ r: 0.225 }).strength, 'a weak');
+eq('0.3 to 0.5 is moderate', desc({ r: 0.4 }).strength, 'a moderate');
+eq('0.5 to 0.7 is strong', desc({ r: 0.6 }).strength, 'a strong');
+eq('above 0.7 is very strong', desc({ r: 0.9 }).strength, 'a very strong');
+eq('the bands read the magnitude, not the sign', desc({ r: -0.9 }).strength, 'a very strong');
+eq('a negative r sends y the other way', desc({ r: -0.4 }).direction, 'lower');
+eq('and a positive one up', desc({ r: 0.4 }).direction, 'higher');
+
+/* An interval that straddles zero does not rule out no relationship at all,
+   which is the whole reason for showing one. */
+ok('an interval across zero is marked as such', desc({ r: 0.2, ci: [-0.05, 0.44] }).spansZero);
+ok('one that stays on one side is not', !desc({ r: 0.4, ci: [0.12, 0.61] }).spansZero);
+
+eq('the slope is handed back raw, for the caller to put in its own units',
+   desc({ fit: { slope: -0.16 } }).slope, -0.16);
+ok('sources and units are kept apart',
+   desc({ nEffective: 114, n: 1173, grouped: true }).sources === 114
+   && desc({ nEffective: 114, n: 1173, grouped: true }).units === 1173);
+ok('and a measurement shared over several units is flagged',
+   desc({ nEffective: 114, n: 1173, grouped: true }).shared);
+ok('while one measurement per unit is not',
+   !desc({ nEffective: 100, n: 100, grouped: false }).shared);
+eq('nothing to describe returns nothing', An.describeCorrelation({ r: null }), null);
 
 console.log(fails ? `\n${fails} FAILURE(S)\n` : '\nAll analysis tests passed.\n');
 process.exit(fails ? 1 : 0);

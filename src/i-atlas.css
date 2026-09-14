@@ -368,3 +368,18 @@
 }
 .choice .form-check { display: flex; align-items: center; gap: .4rem; }
 .choice .form-check + .form-check { margin-top: .15rem; }
+
+/* The plain-language summary. Set at reading width and a notch larger than the
+   caption above it: it is the part somebody quotes, so it should not look like
+   a footnote. */
+.summary {
+  margin-top: .75rem;
+  padding: .75rem .9rem;
+  border-left: 3px solid var(--border);
+  display: grid;
+  gap: .4rem;
+  max-width: 62ch;
+}
+.summary p { margin: 0; text-wrap: pretty; }
+.summary p:first-child { font-weight: var(--font-weight-medium, 500); }
+.summary p:not(:first-child) { color: var(--muted-foreground); font-size: var(--font-size-small, .9rem); }

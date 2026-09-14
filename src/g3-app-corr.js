@@ -260,6 +260,56 @@ function recomputeProvincialParticipation() {
   state.provPart = new Map(rows.map((r) => [r.f.__idx, r.p]));
 }
 
+/* --- Saying what a correlation means, in a sentence a reader can quote ------
+
+   Three sentences, in this order, because that is the order the questions come
+   in: what is the relationship, how firmly should it be held, and what does it
+   not say.
+
+   The third is not decoration. Every figure on this tab and the next is an
+   AREA-level association, and the step from "areas with more X had more Y" to
+   "people with X did Y" is the ecological fallacy -- which is exactly the step
+   a plain-language summary invites, so the summary is where it has to be
+   refused. No verb of cause appears in any of these strings. */
+function correlationSummary(d, { x, y, unitNoun, perTen = null }) {
+  if (!d) return [];
+  const out = [];
+  if (d.direction === 'flat') {
+    out.push(`Essentially no relationship between ${x} and ${y} across these ${unitNoun}.`);
+  } else {
+    const step = perTen == null ? ''
+      : ` — about ${Math.abs(perTen).toFixed(1)} points ${d.direction} for every 10 points of ${x}`;
+    /* "Areas higher in X tended to be lower in Y" rather than "Where X was
+       higher": x is a noun phrase supplied by the caller and can be singular or
+       plural, so any verb agreeing with it gets one of the two wrong -- "where
+       renter households was higher". This frame agrees with "areas" instead. */
+    out.push(`${d.strength.replace(/^a /, '').replace(/^./, (c) => c.toUpperCase())} `
+      + `${d.r < 0 ? 'negative' : 'positive'} relationship. ${unitNoun.replace(/^./, (c) => c.toUpperCase())} `
+      + `higher in ${x} tended to be ${d.direction} in ${y}${step}.`);
+  }
+  if (d.ci) {
+    const range = `${fmtNum(d.ci[0], 2)} to ${fmtNum(d.ci[1], 2)}`;
+    out.push(d.spansZero
+      ? `Hold it loosely: the plausible range runs from ${range}, which includes no relationship `
+        + 'at all, so the direction is not settled.'
+      : `Hold it loosely: the plausible range runs from ${range}. It stays on one side of zero, `
+        + 'so the direction is probably real.');
+  }
+  if (d.sources != null) {
+    out.push(`That range reflects ${fmtInt(d.sources)} independent source`
+      + `${d.sources === 1 ? '' : 's'}`
+      + (d.shared ? `, not the ${fmtInt(d.units)} map ${unitNoun} they are spread across.` : '.'));
+  }
+  /* Fixed wording, interpolating nothing but the noun: the earlier version
+     dropped x and y into the sentence and produced "the people who make up the
+     higher the Liberal share federally", because those phrases already carry
+     their own articles. The caveat is the one line that must read cleanly. */
+  out.push(`This is about ${unitNoun}, not people. A pattern across whole ${unitNoun} cannot tell `
+    + `you how anybody voted, and two ${unitNoun} with identical figures can be made of very `
+    + 'different people.');
+  return out;
+}
+
 /* --- Correlation view -------------------------------------------------------- */
 
 function correlationInputs() {
@@ -381,6 +431,20 @@ function refreshCorrelation() {
       + 'on the Turnout tab to include them.');
   }
   caption.textContent = parts.join(' ');
+  /* Both axes here are shares in the same units, so the fitted slope times ten
+     is "points of y per ten points of x" directly. That is not true on the
+     Neighbourhood profile tab, which is why the conversion is done here rather
+     than inside describeCorrelation. */
+  const described = Analysis.describeCorrelation(result);
+  const summary = $('corr-summary');
+  if (summary) {
+    summary.textContent = '';
+    for (const line of correlationSummary(described, {
+      x: `the ${fedParty} share federally`, y: `the ${provParty} share provincially`,
+      unitNoun: 'areas', perTen: described && described.slope != null ? described.slope * 10 : null,
+    })) summary.append(el('p', null, line));
+    summary.hidden = !described;
+  }
 }
 
 for (const id of ['corr-unit', 'corr-fed-party', 'corr-prov-party', 'corr-min-votes']) {
