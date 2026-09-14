@@ -417,7 +417,22 @@ const Points = (() => {
     return { areas: featureIds.length, empty, sparse, disclosureBelow };
   }
 
-  return { PATTERNS, detectPointLayout, readPoints, buildReference, assignToLayer,
+  /* The noun a reader typed, made singular for "carries at least one ___".
+     A bare .replace(/s$/) turned "addresses" into "addresse" in the line a
+     reader sees first. English plurals in -ses, -shes and -ies need more than
+     one character off, and -us and -is are not plurals at all, so this covers
+     the shapes that occur and leaves anything else alone -- being confidently
+     wrong about somebody's noun is worse than not inflecting it. */
+  function singular(noun) {
+  const w = String(noun || '').trim();
+  if (/(ss|sh|ch|x|z)es$/i.test(w)) return w.slice(0, -2);   // addresses -> address
+  if (/[^aeiou]ies$/i.test(w)) return `${w.slice(0, -3)}y`;  // properties -> property
+  /* -us and -is are not plural endings: census, status, analysis. */
+  if (/[^sui]s$/i.test(w)) return w.slice(0, -1);            // electors  -> elector
+  return w;                                                   // anything else, left alone
+  }
+
+  return { PATTERNS, detectPointLayout, readPoints, buildReference, assignToLayer, singular,
            coverage, normalizeStreet, addressKey, splitAddress, postalKey,
            detectPairOrder, NEEDS_REFERENCE };
 })();

@@ -627,6 +627,17 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
        inputs, so the replace-data drawer starts shut here -- the opposite of the
        keyless build in test-browser, where loading files is the whole job. */
     const advancedShut = await page.evaluate(() => document.getElementById('advanced-data').open);
+    /* On the day a roll arrives, loading it is the whole job -- and it is the
+       one section that can never be baked in, so it must not sit inside a
+       drawer labelled "replace or add data" that a baked build keeps shut.
+       Read here, before openDrawers forces every disclosure open, or it proves
+       nothing. */
+    await page.locator('#tab-data').click();
+    await page.waitForTimeout(300);
+    const rollReachable = await page.evaluate(() => {
+      const r = document.getElementById('file-points').getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    });
     await openDrawers(page);
     await page.waitForTimeout(1000);
     await page.waitForTimeout(1500);
@@ -655,6 +666,8 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     await page.waitForTimeout(200);
     ok('a baked-in build starts with the replace-data drawer shut',
        advancedShut === false, String(advancedShut));
+    ok('and the roll input is still reachable without opening it',
+       rollReachable === true, String(rollReachable));
     /* A baked dataset that fails to load must say so where the reader looks.
        loadPointFile handles its own errors, which is right beside a file input
        and wrong for a payload: adoptPayloads can only record what it is told,

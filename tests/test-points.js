@@ -187,6 +187,19 @@ eq('with no street set, nothing is claimed about which kind of miss it is',
    [unsplit.report.newOnKnownStreet.count, unsplit.report.unknownStreet.count,
     unsplit.report.classified], [0, 3, false]);
 
+/* The noun in "carries at least one ___" is whatever the reader typed, and a
+   bare .replace(/s$/) put "addresse" in the line they see first. */
+console.log('\n== Making the reader\'s own noun singular ==');
+for (const [plural, one] of [['addresses', 'address'], ['electors', 'elector'],
+                             ['properties', 'property'], ['households', 'household'],
+                             ['rows', 'row'], ['voters', 'voter']]) {
+  eq(`${plural} -> ${one}`, P.singular(plural), one);
+}
+eq('a word with no plural is left as it is', P.singular('people'), 'people');
+eq('and -us is not a plural ending', P.singular('census'), 'census');
+eq('nor is -is', P.singular('analysis'), 'analysis');
+eq('an empty noun does not throw', P.singular(''), '');
+
 console.log('\n== Putting them on a layer ==');
 const cell = (x0, y0, w, h, id) => ({ type: 'Feature', properties: { id }, geometry: { type: 'Polygon',
   coordinates: [[[x0, y0], [x0 + w, y0], [x0 + w, y0 + h], [x0, y0 + h], [x0, y0]]] } });

@@ -2501,47 +2501,6 @@ html>body{padding:0}
   </div>
 
   <div class="card">
-    <h2>5. A file of places (addresses, an elector roll)</h2>
-    <p class="text-small text-muted">
-      Any list of locations, counted onto every layer that is loaded. Rows can carry
-      their own coordinates &mdash; longitude and latitude columns, a GeoJSON geometry
-      column, or one column holding both numbers &mdash; or they can carry a civic
-      number and a street, in which case load a reference file below and they are
-      joined against it. Nothing is uploaded: like every other file here, it is read
-      in this browser tab and stays on this machine.
-    </p>
-    <p class="text-small text-muted">
-      An elector roll is personal data. The atlas only ever writes counts per area,
-      never records, and the report says how many areas hold so few that the count
-      describes the people in it.
-    </p>
-    <div class="viz-controls">
-      <label class="form-label grow" for="file-points">Places to count
-        <input class="form-control" type="file" id="file-points" accept=".csv,.tsv,.txt,.zip,.geojson,.json">
-      </label>
-      <button type="button" class="btn" id="clear-points" hidden>Remove</button>
-    </div>
-    <div id="status-points" class="status"></div>
-    <div class="viz-controls" id="points-controls" hidden>
-      <label class="form-label grow" for="points-weight-col">Count by
-        <select class="form-select" id="points-weight-col">
-          <option value="">Count the rows</option>
-        </select>
-      </label>
-      <label class="form-label grow" for="points-noun">Call them
-        <input class="form-control" type="text" id="points-noun" value="addresses" maxlength="24">
-      </label>
-    </div>
-    <div class="viz-controls">
-      <label class="form-label grow" for="file-points-ref">Reference file, if the rows carry addresses rather than coordinates
-        <input class="form-control" type="file" id="file-points-ref" accept=".csv,.tsv,.txt,.zip">
-      </label>
-      <button type="button" class="btn" id="clear-points-ref" hidden>Remove</button>
-    </div>
-    <div id="status-points-ref" class="status"></div>
-  </div>
-
-  <div class="card">
     <h2>6. Vancouver&rsquo;s municipal election (2022)</h2>
     <p class="text-small text-muted">
       Two files from the City of Vancouver open data portal: the results archive
@@ -2584,6 +2543,50 @@ html>body{padding:0}
     <div id="status-muni" class="status"></div>
   </div>
   </details>
+
+  <div class="card">
+    <h2>A file of places (addresses, an elector roll)</h2>
+    <p class="text-small text-muted">
+      This one is outside <b>Advanced</b> on purpose: it is the only section that can never be
+      built into the file, so on the day a roll arrives this is the thing to load, not a
+      replacement for something already here.
+      Any list of locations, counted onto every layer that is loaded. Rows can carry
+      their own coordinates &mdash; longitude and latitude columns, a GeoJSON geometry
+      column, or one column holding both numbers &mdash; or they can carry a civic
+      number and a street, in which case load a reference file below and they are
+      joined against it. Nothing is uploaded: like every other file here, it is read
+      in this browser tab and stays on this machine.
+    </p>
+    <p class="text-small text-muted">
+      An elector roll is personal data. The atlas only ever writes counts per area,
+      never records, and the report says how many areas hold so few that the count
+      describes the people in it.
+    </p>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-points">Places to count
+        <input class="form-control" type="file" id="file-points" accept=".csv,.tsv,.txt,.zip,.geojson,.json">
+      </label>
+      <button type="button" class="btn" id="clear-points" hidden>Remove</button>
+    </div>
+    <div id="status-points" class="status"></div>
+    <div class="viz-controls" id="points-controls" hidden>
+      <label class="form-label grow" for="points-weight-col">Count by
+        <select class="form-select" id="points-weight-col">
+          <option value="">Count the rows</option>
+        </select>
+      </label>
+      <label class="form-label grow" for="points-noun">Call them
+        <input class="form-control" type="text" id="points-noun" value="addresses" maxlength="24">
+      </label>
+    </div>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-points-ref">Reference file, if the rows carry addresses rather than coordinates
+        <input class="form-control" type="file" id="file-points-ref" accept=".csv,.tsv,.txt,.zip">
+      </label>
+      <button type="button" class="btn" id="clear-points-ref" hidden>Remove</button>
+    </div>
+    <div id="status-points-ref" class="status"></div>
+  </div>
 </section>
 
 <!-- ---------------------------------------------------------- CORRELATION -->
@@ -7852,7 +7855,22 @@ const Points = (() => {
     return { areas: featureIds.length, empty, sparse, disclosureBelow };
   }
 
-  return { PATTERNS, detectPointLayout, readPoints, buildReference, assignToLayer,
+  /* The noun a reader typed, made singular for "carries at least one ___".
+     A bare .replace(/s$/) turned "addresses" into "addresse" in the line a
+     reader sees first. English plurals in -ses, -shes and -ies need more than
+     one character off, and -us and -is are not plurals at all, so this covers
+     the shapes that occur and leaves anything else alone -- being confidently
+     wrong about somebody's noun is worse than not inflecting it. */
+  function singular(noun) {
+  const w = String(noun || '').trim();
+  if (/(ss|sh|ch|x|z)es$/i.test(w)) return w.slice(0, -2);   // addresses -> address
+  if (/[^aeiou]ies$/i.test(w)) return `${w.slice(0, -3)}y`;  // properties -> property
+  /* -us and -is are not plural endings: census, status, analysis. */
+  if (/[^sui]s$/i.test(w)) return w.slice(0, -1);            // electors  -> elector
+  return w;                                                   // anything else, left alone
+  }
+
+  return { PATTERNS, detectPointLayout, readPoints, buildReference, assignToLayer, singular,
            coverage, normalizeStreet, addressKey, splitAddress, postalKey,
            detectPairOrder, NEEDS_REFERENCE };
 })();
@@ -12624,7 +12642,11 @@ function renderPointsReport() {
     const cov = p.coverage[t.key], out = p.outside[t.key];
     lines.push(el('p', 'text-small text-muted',
       `${LAYER_NAME[t.key]}: ${fmtInt(cov.areas - cov.empty)} of ${fmtInt(cov.areas)} carry at least one `
-      + `${noun.replace(/s$/, '')}, ${fmtInt(cov.empty)} carry none`
+      /* "addresses" minus a trailing s is "addresse". English plurals in -ses,
+         -shes and -ies need more than one character taken off, and the noun is
+         whatever the reader typed, so a rule that covers the common shapes and
+         leaves anything else alone beats a rule that is confidently wrong. */
+      + `${Points.singular(noun)}, ${fmtInt(cov.empty)} carry none`
       + (out ? `, and ${fmtInt(out)} rows fell outside every one of them` : '') + '.'));
     if (cov.sparse) {
       lines.push(el('p', 'text-small text-muted',

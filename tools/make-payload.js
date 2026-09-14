@@ -241,17 +241,36 @@ async function tables(key, inputs) {
        never looks at, and they are four fifths of the bytes. */
     const cell = (r, i) => (i >= 0 && i < r.length ? String(r[i]).trim() : '');
     const lines = ['CIVIC_NUMBER,STD_STREET,longitude,latitude'];
-    let p = 0, outside = 0;
+    const noteColumn = table.header.findIndex((h) => /^note$/i.test(String(h).trim()));
+    let p = 0, outside = 0, noCoordinate = 0, noAddress = 0, translatedNames = 0;
     for (const r of table.rows) {
       const point = read.points[p];
-      if (!point) continue;
+      if (!point) { noCoordinate++; continue; }
       p++;
-      /* The same tight clip the boundaries get: an address outside the study
-         area can never place a row that this atlas would chart. */
+      /* The same clip the boundaries get, and against the same index -- which
+         is EVERY poll in the boundary file, so the extent is Metro Vancouver
+         rather than the six Vancouver ridings. That is deliberate: the Map
+         tab's Area control offers "Everything in the file (Metro Vancouver)",
+         and an address layer clipped tighter than the boundaries would go
+         blank the moment somebody widened it. It does mean "outside" here
+         means outside Metro Vancouver, which is worth saying rather than
+         leaving to be inferred from a zero. */
       if (studyIndex.hit(point.lon, point.lat) < 0) { outside++; continue; }
       const number = cell(r, layout.number).replace(/[",]/g, '');
       const street = cell(r, layout.street).replace(/[",]/g, '');
-      if (!number || !street) continue;
+      if (!number || !street) {
+        /* The city's address file carries Indigenous place names whose address
+           fields are deliberately empty -- its own note says "Translated name
+           until colonial systems support multi-lingual characters". They have
+           coordinates but no address key, so a reference built to turn an
+           address into a point has nothing to key them by, and a roll keyed by
+           civic address will never ask for one. Counted under their own name
+           rather than swept into a total, because 1,196 unexplained drops is
+           the shape of a bug and this is not one. */
+        if (/translated name/i.test(cell(r, noteColumn))) translatedNames++;
+        else noAddress++;
+        continue;
+      }
       lines.push(`${number},${street},${round(point.lon)},${round(point.lat)}`);
     }
     if (lines.length < 2) {
@@ -266,9 +285,20 @@ async function tables(key, inputs) {
         + `. Its columns are: ${table.header.join(', ')}`);
     }
     put('points-ref', 'civic-addresses.csv', lines.join('\n') + '\n');
-    console.log(`points-ref: ${(lines.length - 1).toLocaleString()} addresses kept, `
-      + `${outside.toLocaleString()} outside the study area, `
-      + `${(Buffer.byteLength(lines.join('\n')) / 1048576).toFixed(2)} MB`);
+    /* Every row accounted for. A count that does not add up to the file it came
+       from is the shape of a silent drop, and this tool has produced one
+       before. */
+    console.log(`points-ref: ${(lines.length - 1).toLocaleString()} of `
+      + `${table.rows.length.toLocaleString()} addresses kept `
+      + `(${(Buffer.byteLength(lines.join('\n')) / 1048576).toFixed(2)} MB). `
+      + `Dropped: ${noCoordinate.toLocaleString()} with no readable coordinate, `
+      + `${noAddress.toLocaleString()} with no civic number and street, `
+      + (translatedNames
+        ? `${translatedNames.toLocaleString()} translated place names the city stores without an `
+          + 'address, '
+        : '')
+      + `${outside.toLocaleString()} outside the boundary file's extent `
+      + '(which is Metro Vancouver, not the six Vancouver ridings).');
   }
 
   /* --- the three elections ------------------------------------------------ */

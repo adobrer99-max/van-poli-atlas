@@ -99,7 +99,11 @@ function renderPointsReport() {
     const cov = p.coverage[t.key], out = p.outside[t.key];
     lines.push(el('p', 'text-small text-muted',
       `${LAYER_NAME[t.key]}: ${fmtInt(cov.areas - cov.empty)} of ${fmtInt(cov.areas)} carry at least one `
-      + `${noun.replace(/s$/, '')}, ${fmtInt(cov.empty)} carry none`
+      /* "addresses" minus a trailing s is "addresse". English plurals in -ses,
+         -shes and -ies need more than one character taken off, and the noun is
+         whatever the reader typed, so a rule that covers the common shapes and
+         leaves anything else alone beats a rule that is confidently wrong. */
+      + `${Points.singular(noun)}, ${fmtInt(cov.empty)} carry none`
       + (out ? `, and ${fmtInt(out)} rows fell outside every one of them` : '') + '.'));
     if (cov.sparse) {
       lines.push(el('p', 'text-small text-muted',
