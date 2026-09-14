@@ -657,6 +657,45 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
        forced.status === 0 && /PAYLOAD INCOMPLETE/.test(forced.stdout),
        (forced.stderr || forced.stdout || '').slice(0, 240));
 
+    /* One probe, not two.
+
+       This came out of a real run: six datasets converted, then "ENOENT: no
+       such file or directory" naming a CSV that was sitting in the folder,
+       readable, listed by ls. Every input that succeeded had reached the disk
+       through readFileSync; the only one that failed was gatekept by a
+       separate fs.statSync used to ask "directory or file?". Two probes
+       answering one question is the bug, whatever makes them disagree on a
+       given machine -- so a stat that cannot answer now means "not a
+       directory", and the read is the authority on whether a path works.
+
+       Asserted on the source rather than by simulating a filesystem that does
+       that, because the property is "nothing decides a path is unusable before
+       trying to open it", and that is a statement about the code. */
+    const tool = fs.readFileSync('tools/make-payload.js', 'utf8')
+      /* The comments explain the bug and therefore quote it; they are not the
+         code, and a test that cannot tell the difference fails on its own
+         documentation. This one did. */
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    const stats = tool.match(/fs\.statSync/g) || [];
+    ok(`the tool stats a path in exactly one place (${stats.length})`, stats.length === 1,
+       (tool.match(/.*statSync.*/g) || []).join(' | '));
+    ok('and that one place cannot throw an input away before it is opened',
+       /try \{ return fs\.statSync\(p\)\.isDirectory\(\); \} catch \{ return false; \}/
+         .test(tool),
+       (tool.match(/.*statSync.*/g) || []).join(' | '));
+    ok('and the pre-flight accepts a file it can open, not just one it can stat',
+       /fs\.openSync\(value, 'r'\)/.test(tool) && !/fs\.existsSync/.test(tool),
+       (tool.match(/.*existsSync.*|.*openSync.*/g) || []).join(' | '));
+    /* And end to end: a path that is genuinely unreachable still fails, so the
+       loosened check did not loosen into uselessness. */
+    const stillFails = spawnSync('node', ['tools/make-payload.js', '--census', census,
+      '--muni-places', path.join(work, 'nope', 'deeper', 'absent.csv'), '--out', payload],
+      { encoding: 'utf8' });
+    ok('an unreachable path is still caught before any work',
+       stillFails.status !== 0
+       && /is not where the command says/.test(stillFails.stderr || stillFails.stdout),
+       (stillFails.stderr || stillFails.stdout || '').slice(0, 200));
+
     /* Put the directory back in a state one run produced, so what follows tests
        the build rather than this. */
     const remade = spawnSync('node', ['tools/make-payload.js', '--census', census,

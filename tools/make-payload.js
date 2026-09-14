@@ -172,11 +172,28 @@ async function boundaries(key, file, keep) {
 /* Files as they are, for anything the atlas already reads as text. A .zip is
    unpacked, because an archive would have to be base64 to survive inlining and
    that is a third of its size again for nothing. */
+/* "Is this a directory?", asked so that only a directory answers yes.
+
+   This used to be a bare fs.statSync(input).isDirectory(), and a stat that
+   threw took the whole run down before the file was ever opened -- reported as
+   "ENOENT: no such file or directory" for a file that was sitting right
+   there, readable, and which readFileSync a few lines later would have read
+   without complaint. Every input that worked in that run reached the disk
+   through readFileSync; the one that failed was gatekept by a stat.
+
+   Two probes answering one question is the bug, whatever makes them disagree
+   on a given machine. There is one authority now: whether the file opens. A
+   stat that cannot answer means "not a directory", and the read below reports
+   what is actually wrong with the path, with the errno the filesystem gave. */
+const isDirectory = (p) => {
+  try { return fs.statSync(p).isDirectory(); } catch { return false; }
+};
+
 async function tables(key, inputs) {
   let count = 0;
   const take = (name, text) => { put(key, safeName(name), text); count++; };
   for (const input of inputs) {
-    const paths = fs.statSync(input).isDirectory()
+    const paths = isDirectory(input)
       ? fs.readdirSync(input).map((f) => path.join(input, f)) : [input];
     for (const file of paths) {
       if (/\.zip$/i.test(file)) {
@@ -214,7 +231,16 @@ function checkInputs() {
                       'prov-electors', 'muni-results', 'muni-places']) {
     for (const value of args(flag)) named.push([flag, value]);
   }
-  const missing = named.filter(([, value]) => !fs.existsSync(value));
+  /* Reachable, by the same standard the work itself uses: a directory this can
+     list, or a file this can open. fs.existsSync alone is a stat, and a stat is
+     exactly the probe that disagreed with readFileSync in the run this check
+     exists because of -- a pre-flight that rejects a file the tool could read
+     is worse than no pre-flight at all. */
+  const reachable = (value) => {
+    if (isDirectory(value)) return true;
+    try { fs.closeSync(fs.openSync(value, 'r')); return true; } catch { return false; }
+  };
+  const missing = named.filter(([, value]) => !reachable(value));
   if (missing.length) {
     throw new Error(`${missing.length} input${missing.length > 1 ? 's are' : ' is'} `
       + 'not where the command says. Nothing was written.\n'
