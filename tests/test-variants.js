@@ -378,8 +378,18 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
        /in proportion to population/.test(said), said.slice(-260));
 
     const stats = (await page.locator('#corr-stats').innerText()).replace(/\s+/g, ' ');
-    ok('the correlation reports independent sources beside the unit count',
-       /independent sources/.test(stats), stats.slice(0, 240));
+    ok('the correlation reports original reporting units beside the unit count',
+       /original reporting units/.test(stats), stats.slice(0, 240));
+    /* Every figure on this tab sits on a geography at least one election does
+       not use. The caveat goes above the tiles rather than a tab away -- and in
+       its own element, because appended INTO the grid it took a cell of its own
+       and was clipped by it. */
+    ok('and the modelled-geography badge sits above the tiles',
+       /Modelled geography · read caveat/.test(
+         await page.locator('#corr-model-badge').innerText()),
+       await page.locator('#corr-model-badge').innerText());
+    ok('and not inside the grid, where it would take a tile of its own',
+       !/Modelled geography/.test(stats), stats.slice(0, 120));
     const nEff = await page.evaluate(() => {
       const r = window.vanPoliAtlas.state.lastCorrelation.result;
       return [r.n, r.nEffective, r.grouped];

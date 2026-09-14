@@ -312,7 +312,18 @@ function rejoinCensus() {
       }
     }
     for (const v of defs) da.variables.push({ ...v, byFeature: Census.joinToFeatures(da.all, da.keyProp, v.values) });
-    if (!state.socio.selected.size) for (const v of da.census.variables) state.socio.selected.add(v.key);
+    /* Six to begin with, not all fifteen. The rest are one drawer away and
+       ticking them is the reader's choice; opening on everything is what made
+       this tab a wall. */
+    if (!state.socio.selected.size) {
+      for (const v of da.census.variables) {
+        if (HEADLINE_VARIABLES.includes(v.key)) state.socio.selected.add(v.key);
+      }
+      /* A profile carrying none of the six still has to show something. */
+      if (!state.socio.selected.size) {
+        for (const v of da.census.variables.slice(0, 6)) state.socio.selected.add(v.key);
+      }
+    }
   }
   da.pop = null;
   if (da.all.length) {
