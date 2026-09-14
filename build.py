@@ -110,6 +110,42 @@ if payload_dir:
     if not os.path.isdir(payload_dir):
         raise SystemExit(f"--payload {payload_dir} is not a directory. Run "
                          "tools/make-payload.js first; its --out is what this wants.")
+    # Whether one run of make-payload.js produced all of this, or a failure left
+    # a mixture of two.
+    #
+    # make-payload.js converts datasets in an order of its own and writes each
+    # as it finishes, so a missing input part-way through leaves some keys from
+    # this run and the rest from the last. Baking that reports a complete set of
+    # datasets and is quietly carrying older ones -- the failure looks exactly
+    # like success, in the output line a person actually reads. It has happened.
+    #
+    # So the tool records how its last run ended and this refuses anything but a
+    # finished one. --allow-partial-payload is for the person who knows the
+    # mixture is what they want; it says so in the build output rather than
+    # letting the build stay silent about it.
+    manifest, partial_ok = {}, "--allow-partial-payload" in sys.argv
+    manifest_at = os.path.join(payload_dir, "manifest.json")
+    if os.path.isfile(manifest_at):
+        try:
+            manifest = json.loads(read(manifest_at))
+        except ValueError:
+            manifest = {"status": "unreadable"}
+    status = manifest.get("status", "unknown")
+    if manifest and status != "complete" and not partial_ok:
+        raise SystemExit(
+            f"{payload_dir} was left by a run of tools/make-payload.js that did not finish "
+            f"(status: {status}).\n"
+            + (f"  It failed with: {manifest['error']}\n" if manifest.get("error") else "")
+            + f"  Datasets it had written before it stopped: "
+            f"{', '.join(manifest.get('keys') or ['none'])}\n"
+            "  Anything else in there is from an earlier run, and baking the mixture would "
+            "report a full set of datasets while carrying stale ones.\n\n"
+            "Fix the input it named and run the make-payload command again, or pass "
+            "--allow-partial-payload if the mixture is deliberate.")
+    # A mixture waved through is still a mixture, and the build output is where
+    # somebody would look for that. So --allow-partial-payload keeps the
+    # per-key annotation working off whatever the failed run managed to write.
+    fresh = set(manifest.get("keys") or []) if manifest else set()
     for key in PAYLOAD_KEYS:
         folder = os.path.join(payload_dir, key)
         if not os.path.isdir(folder):
@@ -120,7 +156,15 @@ if payload_dir:
             payload_blocks += (f'\n<script type="application/json" data-payload="{key}" '
                                f'data-filename="{name}">{body}</script>')
         if names:
-            payload_report.append(f"{key} ({len(names)} file{'s' if len(names) > 1 else ''})")
+            # A key the last completed run did not write came from an earlier
+            # one. Often that is deliberate -- the census is slow, so it gets
+            # prepared once and later runs add to it -- so this says so rather
+            # than warning, but it never lets carried-over data read as fresh.
+            carried = "" if not fresh or key in fresh else ", from an earlier run"
+            payload_report.append(
+                f"{key} ({len(names)} file{'s' if len(names) > 1 else ''}{carried})")
+    if payload_blocks and status != "complete":
+        payload_report.append("PAYLOAD INCOMPLETE, allowed by --allow-partial-payload")
     if not payload_blocks:
         raise SystemExit(
             f"{payload_dir} holds nothing to bake in. It should contain a subdirectory "

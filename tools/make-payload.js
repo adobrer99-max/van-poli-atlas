@@ -172,11 +172,28 @@ async function boundaries(key, file, keep) {
 /* Files as they are, for anything the atlas already reads as text. A .zip is
    unpacked, because an archive would have to be base64 to survive inlining and
    that is a third of its size again for nothing. */
+/* "Is this a directory?", asked so that only a directory answers yes.
+
+   This used to be a bare fs.statSync(input).isDirectory(), and a stat that
+   threw took the whole run down before the file was ever opened -- reported as
+   "ENOENT: no such file or directory" for a file that was sitting right
+   there, readable, and which readFileSync a few lines later would have read
+   without complaint. Every input that worked in that run reached the disk
+   through readFileSync; the one that failed was gatekept by a stat.
+
+   Two probes answering one question is the bug, whatever makes them disagree
+   on a given machine. There is one authority now: whether the file opens. A
+   stat that cannot answer means "not a directory", and the read below reports
+   what is actually wrong with the path, with the errno the filesystem gave. */
+const isDirectory = (p) => {
+  try { return fs.statSync(p).isDirectory(); } catch { return false; }
+};
+
 async function tables(key, inputs) {
   let count = 0;
   const take = (name, text) => { put(key, safeName(name), text); count++; };
   for (const input of inputs) {
-    const paths = fs.statSync(input).isDirectory()
+    const paths = isDirectory(input)
       ? fs.readdirSync(input).map((f) => path.join(input, f)) : [input];
     for (const file of paths) {
       if (/\.zip$/i.test(file)) {
@@ -194,8 +211,69 @@ async function tables(key, inputs) {
   if (!count) throw new Error(`Nothing usable for --${key} in: ${inputs.join(', ')}`);
   return count;
 }
+/* Every input named on the command line, checked before a single byte of work
+   is done.
+
+   This tool converts datasets in an order of its own, writing each into the
+   payload directory as it finishes. Discovering a missing file eight datasets
+   in therefore leaves that directory HALF UPDATED -- some keys from this run,
+   the rest still from the last one -- and the next build happily bakes the
+   mixture and reports it as though one run had produced it. That has happened:
+   a cleared Downloads folder took out the federal results, the tool died after
+   writing six datasets, and the build that followed carried four datasets from
+   an earlier run with nothing in its output to say so.
+
+   So: stat everything first, name every missing path at once rather than one
+   per re-run, and fail having written nothing. */
+function checkInputs() {
+  const named = [];
+  for (const flag of ['census', 'points-ref', 'prov-geo', 'fed-results', 'prov-results',
+                      'prov-electors', 'muni-results', 'muni-places']) {
+    for (const value of args(flag)) named.push([flag, value]);
+  }
+  /* Reachable, by the same standard the work itself uses: a directory this can
+     list, or a file this can open. fs.existsSync alone is a stat, and a stat is
+     exactly the probe that disagreed with readFileSync in the run this check
+     exists because of -- a pre-flight that rejects a file the tool could read
+     is worse than no pre-flight at all. */
+  const reachable = (value) => {
+    if (isDirectory(value)) return true;
+    try { fs.closeSync(fs.openSync(value, 'r')); return true; } catch { return false; }
+  };
+  const missing = named.filter(([, value]) => !reachable(value));
+  if (missing.length) {
+    throw new Error(`${missing.length} input${missing.length > 1 ? 's are' : ' is'} `
+      + 'not where the command says. Nothing was written.\n'
+      + missing.map(([flag, value]) => `  --${flag} ${value}`).join('\n')
+      + '\n\nFix the path and run the whole command again: a payload directory is only '
+      + 'consistent if one run wrote all of it.');
+  }
+  return named;
+}
+
+/* What the last run of this tool did, so the build can tell a payload one run
+   produced from one left half-finished by a failure. Written at the end, and
+   on the way out of a failure too -- a directory whose manifest says "failed"
+   is the whole point. */
+function manifest(state, extra = {}) {
+  try {
+    fs.mkdirSync(outDir, { recursive: true });
+    fs.writeFileSync(path.join(outDir, 'manifest.json'), JSON.stringify({
+      tool: 'tools/make-payload.js',
+      status: state,
+      at: new Date().toISOString(),
+      keys: [...new Set(written.map((w) => w.key))],
+      ...extra,
+    }, null, 2) + '\n');
+  } catch { /* the manifest must never be the thing that fails a good run */ }
+}
+
 (async () => {
   fs.mkdirSync(outDir, { recursive: true });
+  checkInputs();
+  /* Marked in progress before any work, so a run killed outright -- Ctrl-C, a
+     crash, a full disk -- leaves the same evidence a caught failure does. */
+  manifest('running');
 
   /* --- census, from filter_census.py's output ----------------------------- */
   const censusDir = arg('census');
@@ -327,6 +405,13 @@ async function tables(key, inputs) {
     process.exit(1);
   }
   const total = written.reduce((a, w) => a + w.bytes, 0);
+  manifest('complete');
   console.log(`\n${outDir}: ${written.length} files, ${(total / 1024).toFixed(0)} KB total`);
   console.log(`Now build:  python3 build.py --payload ${outDir}`);
-})().catch((err) => { console.error(String(err.message || err)); process.exit(1); });
+})().catch((err) => {
+  manifest('failed', { error: String(err.message || err) });
+  console.error(String(err.message || err));
+  console.error(`\n${outDir} is now a mixture of this run and the last one. `
+    + 'build.py will refuse it until this command completes.');
+  process.exit(1);
+});
