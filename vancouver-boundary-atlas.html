@@ -6188,7 +6188,13 @@ const Turnout = (() => {
     };
   }
 
-  function toCsv(rows, sides = ['fed', 'prov']) {
+  /* `extra` lets the application add columns this module has no business
+     knowing about -- a loaded file of places, for one -- without toCsv growing
+     a dependency on application state. It is { headers: [...], of: (row) =>
+     [...] }, and the two arrays must be the same length: a header count that
+     does not match its values shifts every column after it, which is the kind
+     of export bug nobody notices until a spreadsheet says something false. */
+  function toCsv(rows, sides = ['fed', 'prov'], extra = null) {
     const f = (v, dp = 6) => (v == null || !isFinite(v) ? '' : Number(v).toFixed(dp));
     /* The participation columns ride along only when they were computed. Both
        denominators go in the file beside their ratios -- `fed_electors` is
@@ -6199,14 +6205,23 @@ const Turnout = (() => {
       ...sides.flatMap((s) => [`${s}_ballots`, `${s}_electors`, `${s}_apportioned`, `turnout_${s}`]),
       'turnout_agg', 'turnout_min', 'turnout_delta', 'expected_ballots', 'partial',
       ...(part ? ['residents_15_plus', 'prov_per_fed_elector', 'prov_per_resident_15_plus',
-                  'denominator_spread'] : [])];
+                  'denominator_spread'] : []),
+      ...(extra ? extra.headers : [])];
     const out = [header];
     for (const r of rows) {
       out.push([r.rank ?? '', r.key, r.label, f(r.electors, 2),
         ...sides.flatMap((s) => [f(r.ballots?.[s], 2), f(r.by[s]?.electors, 2),
           f(r.by[s]?.apportioned, 2), f(r.t?.[s])]),
         f(r.agg), f(r.min), f(r.delta), f(r.expected, 2), r.partial ? 'yes' : 'no',
-        ...(part ? [f(r.p?.adults, 2), f(r.p?.perFedElector), f(r.p?.perAdult), f(r.p?.spread)] : [])]);
+        ...(part ? [f(r.p?.adults, 2), f(r.p?.perFedElector), f(r.p?.perAdult), f(r.p?.spread)] : []),
+        ...(extra ? extra.of(r) : [])]);
+    }
+    if (extra) {
+      const wrong = out.find((row) => row.length !== out[0].length);
+      if (wrong) {
+        throw new Error(`Export columns do not line up: the header has ${out[0].length} and a row `
+          + `has ${wrong.length}. Every column after the mismatch would be under the wrong name.`);
+      }
     }
     return out;
   }
@@ -8738,10 +8753,40 @@ function pointsValue(layerKey, f, mode) {
 }
 
 /* The same figure, for the readout, phrased for whichever file is loaded. */
+/* Which id a layer keys its points by: the federal features carry idx and the
+   others __idx. One copy of that choice, because the readout and both exports
+   have to agree on it and two copies is one too many. */
+function pointsFor(layerKey, feature) {
+  const p = state.points;
+  if (!p || !p.per || !p.per[layerKey] || !feature) return null;
+  return p.per[layerKey].get(layerKey === 'fed' ? feature.idx : feature.__idx) || null;
+}
+
+/* The columns a loaded file of places adds to an export, or null when none is
+   loaded -- in which case the export keeps exactly the shape it had.
+
+   The names are fixed rather than built from the noun. A schema that renames
+   its own columns depending on which file somebody loaded is one no script can
+   be written against; the noun rides along in its own column instead, so the
+   file still says whether those counts are electors or addresses. */
+function pointsColumns(layerKey, featureOf) {
+  const p = state.points;
+  if (!p || !p.per || !p.per[layerKey]) return null;
+  const weighted = Boolean(p.weighted);
+  return {
+    headers: ['points_count', ...(weighted ? ['points_weight'] : []), 'points_noun'],
+    of: (row) => {
+      const a = pointsFor(layerKey, featureOf(row));
+      return [a ? a.count : 0, ...(weighted ? [a ? a.weight : 0] : []),
+              weighted ? (p.weightNoun || p.noun || 'points') : (p.noun || 'points')];
+    },
+  };
+}
+
 function pointsLine(layerKey, f) {
   const p = state.points;
   if (!p || !p.per || !p.per[layerKey]) return null;
-  const a = p.per[layerKey].get(layerKey === 'fed' ? f.idx : f.__idx);
+  const a = pointsFor(layerKey, f);
   const noun = p.noun || 'points';
   if (!a) return `no ${noun} here`;
   return p.weighted
@@ -11503,7 +11548,11 @@ $('turnout-weight').addEventListener('input', () => {
 $('export-turnout').addEventListener('click', () => {
   const rows = (state.turnout.rows || []).filter((r) => r.agg != null);
   if (!rows.length) { $('turnout-note').textContent = 'Nothing to export yet.'; return; }
-  downloadCsv(`vancouver-turnout-${state.turnout.unit}.csv`, Turnout.toCsv(rows));
+  /* r.key is the row's index into this unit's active features, which is what
+     the points lookup needs to find the feature its counts are keyed by. */
+  const unit = state.turnout.unit;
+  const extra = pointsColumns(unit, (r) => state[unit].active[+r.key]);
+  downloadCsv(`vancouver-turnout-${unit}.csv`, Turnout.toCsv(rows, ['fed', 'prov'], extra));
   $('turnout-note').textContent = `Saved vancouver-turnout-${state.turnout.unit}.csv (${fmtInt(rows.length)} rows).`;
 });
 $('basket-add-top').addEventListener('click', () => {
@@ -12074,6 +12123,10 @@ $('export-socio').addEventListener('click', () => {
   const U = SOCIO_UNITS[unit];
   const vars = socioVariables(unit).filter((v) => st.selected.has(v.key));
   const cFed = crossPair('fed', unit), cProv = crossPair('prov', unit);
+  /* A loaded file of places rides along here too, keyed the same way the map
+     and the readout key it, so a row's count is the same number wherever it is
+     read. Null when nothing is loaded, and the file keeps its old shape. */
+  const pointsExtra = pointsColumns(unit, (r) => r.feature);
   const covOf = (c, i) => (c ? c.coverage.b[i] : null);
   const k = U.keyProp();
   /* source_unit names the voting place a row's provincial numbers came from,
@@ -12090,7 +12143,8 @@ $('export-socio').addEventListener('click', () => {
     'apportion_fed', 'apportion_prov', 'coverage_fed', 'coverage_prov',
     'source_unit', 'catchment_share',
     ...fedParties.map((p) => `fed_share_${p}`), ...provParties.map((p) => `prov_share_${p}`),
-    ...vars.map((v) => v.key)];
+    ...vars.map((v) => v.key),
+    ...(pointsExtra ? pointsExtra.headers : [])];
   const f6 = (v) => (v == null || !isFinite(v) ? '' : Number(v).toFixed(6));
   const f2 = (v) => (v == null || !isFinite(v) ? '' : Number(v).toFixed(2));
   const rows = [header];
@@ -12107,7 +12161,8 @@ $('export-socio').addEventListener('click', () => {
       source || '', f6(share),
       ...fedParties.map((p) => f6(Analysis.shareOf(r.by.fed, p))),
       ...provParties.map((p) => f6(Analysis.shareOf(r.by.prov, p))),
-      ...vars.map((v) => { const x = v.byFeature.get(f.__idx); return x == null ? '' : String(x); })]);
+      ...vars.map((v) => { const x = v.byFeature.get(f.__idx); return x == null ? '' : String(x); }),
+      ...(pointsExtra ? pointsExtra.of(r) : [])]);
   }
   downloadCsv(U.file, rows);
   $('socio-note').textContent = `Saved ${U.file} (${fmtInt(rows.length - 1)} rows).`;

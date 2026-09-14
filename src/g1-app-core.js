@@ -533,10 +533,40 @@ function pointsValue(layerKey, f, mode) {
 }
 
 /* The same figure, for the readout, phrased for whichever file is loaded. */
+/* Which id a layer keys its points by: the federal features carry idx and the
+   others __idx. One copy of that choice, because the readout and both exports
+   have to agree on it and two copies is one too many. */
+function pointsFor(layerKey, feature) {
+  const p = state.points;
+  if (!p || !p.per || !p.per[layerKey] || !feature) return null;
+  return p.per[layerKey].get(layerKey === 'fed' ? feature.idx : feature.__idx) || null;
+}
+
+/* The columns a loaded file of places adds to an export, or null when none is
+   loaded -- in which case the export keeps exactly the shape it had.
+
+   The names are fixed rather than built from the noun. A schema that renames
+   its own columns depending on which file somebody loaded is one no script can
+   be written against; the noun rides along in its own column instead, so the
+   file still says whether those counts are electors or addresses. */
+function pointsColumns(layerKey, featureOf) {
+  const p = state.points;
+  if (!p || !p.per || !p.per[layerKey]) return null;
+  const weighted = Boolean(p.weighted);
+  return {
+    headers: ['points_count', ...(weighted ? ['points_weight'] : []), 'points_noun'],
+    of: (row) => {
+      const a = pointsFor(layerKey, featureOf(row));
+      return [a ? a.count : 0, ...(weighted ? [a ? a.weight : 0] : []),
+              weighted ? (p.weightNoun || p.noun || 'points') : (p.noun || 'points')];
+    },
+  };
+}
+
 function pointsLine(layerKey, f) {
   const p = state.points;
   if (!p || !p.per || !p.per[layerKey]) return null;
-  const a = p.per[layerKey].get(layerKey === 'fed' ? f.idx : f.__idx);
+  const a = pointsFor(layerKey, f);
   const noun = p.noun || 'points';
   if (!a) return `no ${noun} here`;
   return p.weighted

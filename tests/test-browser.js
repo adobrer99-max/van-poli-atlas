@@ -872,10 +872,52 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
      /3 of 4 rows located/.test(rollJoined), rollJoined.slice(0, 200));
   ok('and the miss rate and the key that missed are both named',
      /75(\.0)?% of rows matched/.test(rollJoined) && /9999 NOWHERE RD/.test(rollJoined), rollJoined.slice(0, 320));
+  /* The roll is only useful if it leaves the tab. Both exports carry its counts
+     per area, keyed the same way the map and the readout key them, so the
+     number in a spreadsheet is the number on the screen. The column names are
+     fixed and the noun rides in its own column: a schema that renamed itself
+     according to which file somebody loaded could not be scripted against. */
+  /* Sum the roll's own elector column rather than counting its rows, which is
+     what makes this a count of people instead of a count of addresses. */
+  await page.locator('#points-weight-col').selectOption('electors');
+  await page.waitForTimeout(900);
+  const pointsDl = page.waitForEvent('download', { timeout: 15000 });
+  await page.locator('#tab-turnout').click();
+  await page.waitForTimeout(600);
+  await page.locator('#export-turnout').click();
+  const pointsCsv = require('fs').readFileSync(await (await pointsDl).path(), 'utf8').split(/\r?\n/).filter(Boolean);
+  const pointsHead = pointsCsv[0].split(',');
+  ok('the turnout export gains the points columns',
+     pointsHead.includes('points_count') && pointsHead.includes('points_weight') && pointsHead.includes('points_noun'),
+     pointsHead.slice(-6).join(','));
+  const pointsRows = pointsCsv.slice(1).map((l) => l.split(','));
+  const pointsCountCol = pointsHead.indexOf('points_count'), pointsNounCol = pointsHead.indexOf('points_noun');
+  ok('every row has a count, zero where nothing landed',
+     pointsRows.every((r) => /^\d+$/.test(r[pointsCountCol])), pointsRows[0] && pointsRows[0][pointsCountCol]);
+  ok('and some row actually carries the roll',
+     pointsRows.some((r) => Number(r[pointsCountCol]) > 0), String(pointsRows.filter((r) => Number(r[pointsCountCol]) > 0).length));
+  ok('and the file says what it counted', pointsRows.every((r) => r[pointsNounCol] === 'electors'),
+     pointsRows[0] && pointsRows[0][pointsNounCol]);
+  ok('no row is ragged against the header',
+     pointsRows.every((r) => r.length === pointsHead.length),
+     `${pointsHead.length} vs ${[...new Set(pointsRows.map((r) => r.length))].join('/')}`);
+
+  /* The export left us on the Turnout tab; the clear buttons are on Data. */
+  await page.locator('#tab-data').click();
+  await page.waitForTimeout(300);
   await page.locator('#clear-points').click();
   await page.waitForTimeout(500);
   await page.locator('#clear-points-ref').click();
   await page.waitForTimeout(400);
+  /* And with nothing loaded the export goes back to the shape it had. */
+  await page.locator('#tab-turnout').click();
+  await page.waitForTimeout(600);
+  const pointsDl2 = page.waitForEvent('download', { timeout: 15000 });
+  await page.locator('#export-turnout').click();
+  const pointsHead2 = require('fs').readFileSync(await (await pointsDl2).path(), 'utf8')
+    .split(/\r?\n/)[0].split(',');
+  ok('removing the roll removes its columns rather than leaving them empty',
+     !pointsHead2.some((h) => h.startsWith('points_')), pointsHead2.slice(-4).join(','));
 
   console.log('\n== Census on the map ==');
   await page.locator('#tab-map').click();
