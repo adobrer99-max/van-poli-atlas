@@ -364,11 +364,19 @@ const Points = (() => {
        alone cannot tell those apart, and they call for opposite work. */
     const missCounts = new Map();
     const hitCounts = new Map();
+    /* Placing an address the reference does not carry beside the nearest one it
+       does. Off unless the caller asks: it is an estimate, and a caller that
+       has not thought about that should not get one silently. */
+    const snapping = options.snapToStreet && options.reference && options.byStreet
+      ? { byStreet: options.byStreet, maxGap: options.maxGap || 200 } : null;
+    const snapCounts = new Map();
+    const snapGaps = [];
+    let snapped = 0, crossedStreet = 0;
     let unreadable = 0, matched = 0;
     const cell = (r, i) => (i >= 0 && i < r.length ? r[i] : '');
 
     for (const r of rows) {
-      let lon = null, lat = null, key = '';
+      let lon = null, lat = null, key = '', route = 'counted';
       if (layout.kind === 'lonlat') {
         lon = num(cell(r, layout.lon)); lat = num(cell(r, layout.lat));
       } else if (layout.kind === 'geometry') {
@@ -401,13 +409,32 @@ const Points = (() => {
           hitCounts.set(key, (hitCounts.get(key) || 0) + 1);
         }
         else if (key) {
-          if (misses.length < 25) misses.push(key);
-          missCounts.set(key, (missCounts.get(key) || 0) + 1);
-          const street = /^[0-9A-Z]+ (.+)$/.exec(key);
-          const bucket = knownStreets && street && knownStreets.has(street[1])
-            ? newOnKnownStreet : unknownStreet;
-          if (bucket.length < 25) bucket.push(key);
-          bucket.total = (bucket.total || 0) + 1;
+          /* Before it is called a miss: the nearest number the reference does
+             carry on the same street. Placed, but never counted as matched --
+             `matched` stays the number of addresses the file actually held, and
+             `snapped` is its own figure, because one is a lookup and the other
+             is an estimate of where a door is. */
+          const parts = snapping ? SPLIT_KEY.exec(key) : null;
+          const near = parts
+            ? nearestOnStreet(snapping.byStreet, parts[1], parts[3], snapping.maxGap)
+            : null;
+          if (near) {
+            lon = near.lon; lat = near.lat;
+            snapped++;
+            snapGaps.push(near.gap);
+            if (!near.sameSide) crossedStreet++;
+            snapCounts.set(key, (snapCounts.get(key) || 0) + 1);
+            route = 'interpolated';
+          }
+          if (!near) {
+            if (misses.length < 25) misses.push(key);
+            missCounts.set(key, (missCounts.get(key) || 0) + 1);
+            const street = /^[0-9A-Z]+ (.+)$/.exec(key);
+            const bucket = knownStreets && street && knownStreets.has(street[1])
+              ? newOnKnownStreet : unknownStreet;
+            if (bucket.length < 25) bucket.push(key);
+            bucket.total = (bucket.total || 0) + 1;
+          }
         }
       }
       if (lon == null || lat == null || !isFinite(lon) || !isFinite(lat)) { unreadable++; continue; }
@@ -416,6 +443,11 @@ const Points = (() => {
         lon, lat,
         weight: w == null ? 1 : w,
         label: layout.label >= 0 ? String(cell(r, layout.label)).trim() : '',
+        /* 'counted' when the reference held this exact address, 'interpolated'
+           when it was placed beside the nearest number on the same street. The
+           distinction travels with the point so nothing downstream has to
+           reconstruct it. */
+        route,
         /* The address this row was placed by, when it was placed by one. Kept
            so rows can be pooled back to the building they came from without a
            second pass over the file: a mailer goes to an address, not to a
@@ -449,6 +481,12 @@ const Points = (() => {
         /* The matched side of the same count: distinct addresses located, and
            the busiest of them. One address holding hundreds of rows is a
            building, and a building is one visit. */
+        snapped,
+        snapKeys: snapCounts.size,
+        snapCrossedStreet: crossedStreet,
+        snapGapMedian: snapGaps.length
+          ? snapGaps.slice().sort((a, b) => a - b)[snapGaps.length >> 1] : null,
+        snapGapMax: snapGaps.length ? Math.max(...snapGaps) : null,
         placeKeys: hitCounts.size,
         topPlaces: [...hitCounts.entries()]
           .sort((a, b) => b[1] - a[1]).slice(0, 25)
@@ -479,7 +517,10 @@ const Points = (() => {
       if (!p.key) continue;
       const at = out.get(p.key);
       if (at) { at.rows += 1; at.weight += p.weight; }
-      else out.set(p.key, { key: p.key, rows: 1, weight: p.weight, lon: p.lon, lat: p.lat });
+      else {
+        out.set(p.key, { key: p.key, rows: 1, weight: p.weight,
+                         lon: p.lon, lat: p.lat, route: p.route || 'counted' });
+      }
     }
     return [...out.values()].sort((a, b) => b.rows - a.rows || a.key.localeCompare(b.key));
   }
@@ -500,6 +541,7 @@ const Points = (() => {
        column picked wrong. Those want opposite responses -- a newer property
        extract, or a look at the join -- so they are counted apart. */
     const streets = new Set();
+    const byStreet = new Map();
     let duplicates = 0, unusable = 0;
     const read = readPoints(table, { ...layout, weight: -1, label: -1 });
     const rows = table.rows || [];
@@ -530,11 +572,76 @@ const Points = (() => {
         /* The street half of an address key: everything after the number. */
         const street = /^[0-9A-Z]+ (.+)$/.exec(k);
         if (street) streets.add(street[1]);
+        /* And the numbers each street actually carries, so an address the file
+           does not have can be placed beside the nearest one it does. */
+        const split = SPLIT_KEY.exec(k);
+        if (split) {
+          const n = parseInt(split[1], 10);
+          if (isFinite(n)) {
+            const list = byStreet.get(split[3]);
+            if (list) list.push({ n, lon, lat });
+            else byStreet.set(split[3], [{ n, lon, lat }]);
+          }
+        }
         if (map.has(k)) { duplicates++; continue; }
         map.set(k, { lon, lat });
       }
     }
-    return { map, streets, duplicates, unusable, keys: map.size, streetCount: streets.size };
+    for (const list of byStreet.values()) list.sort((a, b) => a.n - b.n);
+    return { map, streets, byStreet, duplicates, unusable,
+             keys: map.size, streetCount: streets.size };
+  }
+
+  /* A key back into its parts: "1483A E KING EDWARD AVE" -> 1483, A, the rest. */
+  const SPLIT_KEY = /^(\d+)([A-Z]*) (.+)$/;
+
+  /* The nearest civic number the reference DOES carry on the same street.
+
+     This is a model and is labelled as one everywhere it surfaces. It exists
+     because the misses are overwhelmingly a number the property file lacks on
+     a street it knows -- 1483 E King Edward, where the file has 1400, 1401,
+     1402 and so on -- and a neighbouring number on the same street is within a
+     block, which is almost always the same polling division.
+
+     Two refinements that are not decoration:
+
+     PARITY. Odd and even numbers sit on opposite sides of the street, and a
+     street is very often the boundary BETWEEN two areas. Snapping 1483 to 1484
+     crosses the road and can cross the boundary with it; snapping to 1481 does
+     not. Same parity is preferred and only abandoned when nothing on that side
+     is close enough.
+
+     A CEILING. Snapping 5988 to 1424 because they share a street name is not a
+     neighbour, it is a kilometre. Beyond maxGap the address stays unplaced,
+     which is the honest answer, and the gap that was rejected is counted. */
+  function nearestOnStreet(byStreet, number, street, maxGap) {
+    const list = byStreet && byStreet.get(street);
+    if (!list || !list.length) return null;
+    const want = parseInt(number, 10);
+    if (!isFinite(want)) return null;
+    let best = null, bestGap = Infinity, bestSame = null, bestSameGap = Infinity;
+    /* Walk out from the insertion point rather than scanning: the list is
+       sorted, and a street can carry thousands of numbers. */
+    let lo = 0, hi = list.length - 1, at = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (list[mid].n < want) { at = mid + 1; lo = mid + 1; } else { at = mid; hi = mid - 1; }
+    }
+    for (let i = at - 1, seen = 0; i >= 0 && seen < 64; i--, seen++) {
+      const gap = want - list[i].n;
+      if (gap > maxGap) break;
+      if (gap < bestGap) { bestGap = gap; best = list[i]; }
+      if ((list[i].n % 2) === (want % 2) && gap < bestSameGap) { bestSameGap = gap; bestSame = list[i]; }
+    }
+    for (let i = at, seen = 0; i < list.length && seen < 64; i++, seen++) {
+      const gap = list[i].n - want;
+      if (gap > maxGap) break;
+      if (gap < bestGap) { bestGap = gap; best = list[i]; }
+      if ((list[i].n % 2) === (want % 2) && gap < bestSameGap) { bestSameGap = gap; bestSame = list[i]; }
+    }
+    if (bestSame) return { lon: bestSame.lon, lat: bestSame.lat, gap: bestSameGap, sameSide: true };
+    if (best) return { lon: best.lon, lat: best.lat, gap: bestGap, sameSide: false };
+    return null;
   }
 
   /* --- Putting them on a layer --------------------------------------------- */
@@ -587,7 +694,8 @@ const Points = (() => {
   return w;                                                   // anything else, left alone
   }
 
-  return { PATTERNS, detectPointLayout, readPoints, buildReference, assignToLayer, byAddress, singular,
+  return { PATTERNS, detectPointLayout, readPoints, buildReference, assignToLayer, byAddress,
+           nearestOnStreet, singular,
            coverage, normalizeStreet, addressKey, splitAddress, postalKey,
            detectPairOrder, NEEDS_REFERENCE };
 })();
