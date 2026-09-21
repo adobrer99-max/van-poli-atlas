@@ -279,6 +279,22 @@ eq('each point says how it was placed',
    'counted,interpolated,interpolated');
 eq('and the pooled addresses carry it too',
    P.byAddress(withSnap.points).find((a) => a.key === '1412 E KING EDWARD AVE').route, 'counted');
+/* The count of rows still without a location has to drop the snapped ones too.
+
+   `matched` counts only what the reference held, which is right for `matched`
+   and wrong for this: leaving the snapped in made missRows the number of rows
+   the LOOKUP missed rather than the number still unplaced, while missKeys had
+   correctly dropped them. Against the real roll that divided 90,260 by 3,176
+   and reported 28.42 rows per unmatched address against a true 5.40 -- on the
+   strength of which the atlas announced "whole buildings are missing from the
+   reference", a conclusion made entirely of the arithmetic. */
+eq('rows still without a location exclude the ones placed by estimate',
+   withSnap.report.missRows, withSnap.report.rows - withSnap.report.matched - withSnap.report.snapped);
+eq('which is the two that stayed unplaced, not the two that were snapped',
+   withSnap.report.missRows, 2);
+ok('so the per-address reading is computed from the same population as its key count',
+   withSnap.report.missRows / withSnap.report.missKeys === 1,
+   `${withSnap.report.missRows} / ${withSnap.report.missKeys}`);
 
 console.log('\n== The shape of the misses ==');
 /* 80.1% against the real roll, and the row count alone could not say what kind
