@@ -755,6 +755,20 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     await page.waitForTimeout(300);
     const stamp = await page.locator('#overview-stamp').innerText();
     ok('a build made for handing out stamps itself', /Built \d{4}-\d{2}-\d{2}/.test(stamp), stamp);
+    /* And the dirty flag means something.
+
+       It was bool(git status --porcelain), which reports UNTRACKED files too --
+       and a payload build requires untracked local data, the census directory
+       and the downloads, by definition. So every payload build ever made
+       declared itself unreproducible, including one from a pristine checkout.
+       A warning that is always on tells a reader nothing, and this one has a
+       job: saying whether the file in front of them matches the commit it
+       names. Asserted on the command rather than by dirtying this working tree,
+       which no test should do. */
+    const stampSrc = fs.readFileSync('build.py', 'utf8');
+    ok('the dirty flag counts tracked changes only, not local data sitting beside the source',
+       /--untracked-files=no/.test(stampSrc),
+       (stampSrc.match(/.*"dirty".*/) || [''])[0]);
     ok('and says it carries data', /data baked in/.test(stamp), stamp);
     await page.locator('#tab-data').click();
     await page.waitForTimeout(200);
