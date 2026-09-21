@@ -15,6 +15,7 @@
   <button class="nav-link" role="tab" id="tab-corr" aria-controls="panel-corr" aria-selected="false" type="button">Compare</button>
   <button class="nav-link" role="tab" id="tab-turnout" aria-controls="panel-turnout" aria-selected="false" type="button">Turnout</button>
   <button class="nav-link" role="tab" id="tab-socio" aria-controls="panel-socio" aria-selected="false" type="button">Neighbourhood profile</button>
+  <button class="nav-link" role="tab" id="tab-nonvoters" aria-controls="panel-nonvoters" aria-selected="false" type="button">Non-voters</button>
   <button class="nav-link" role="tab" id="tab-method" aria-controls="panel-method" aria-selected="false" type="button">How to read this</button>
 </nav>
 
@@ -101,6 +102,8 @@
         <option value="muni-ballots" hidden>Municipal (2022) ballots cast (smoothed)</option>
         <option value="points-count" hidden>Places loaded (count)</option>
         <option value="points-weight" hidden>Places loaded (weighted)</option>
+        <option value="nonvoters-count" hidden>Did not vote (count)</option>
+        <option value="nonvoters-share" hidden>Did not vote (share of roll)</option>
       </select>
     </label>
     <label class="form-label grow" for="shade-party-fed">Federal (2025) party
@@ -143,6 +146,8 @@
         <option value="muni-ballots" hidden>Municipal (2022) ballots cast (smoothed)</option>
         <option value="points-count" hidden>Places loaded (count)</option>
         <option value="points-weight" hidden>Places loaded (weighted)</option>
+        <option value="nonvoters-count" hidden>Did not vote (count)</option>
+        <option value="nonvoters-share" hidden>Did not vote (share of roll)</option>
       </select>
       </label>
       <label class="form-label" for="prov-opacity">Overlay fill strength
@@ -842,6 +847,115 @@
 </section>
 
 <!-- --------------------------------------------------------------- METHOD -->
+<!-- ---------------------------------------------------------- NON-VOTERS -->
+<!-- Deliberately not part of Turnout. That tab's contract is one election's
+     ballots over that election's own electors; every figure here is
+     cross-source by construction, and a cross-election ratio under a header
+     reading "Federal 2025 / Provincial 2024" is the exact misreading this
+     exists to prevent. Its ranking is by aggregate turnout, too, and two rank
+     semantics on one table is how a wrong number gets screenshotted. -->
+<section id="panel-nonvoters" role="tabpanel" aria-labelledby="tab-nonvoters" hidden>
+  <div class="card">
+    <h2>Who did not vote, and where</h2>
+    <p class="text-small text-muted">
+      Electors on a roll, minus ballots cast, area by area. Load a roll under
+      <b>A file of places</b> on the Data tab and it is counted onto every layer here.
+      Nothing on this tab is a count of people unless both halves of the subtraction were
+      counted &mdash; the route of each is named beside every figure.
+    </p>
+    <div class="viz-controls">
+      <label class="form-label grow" for="nv-unit"
+             title="The geography both halves are brought onto before subtracting.">Compare by area type
+        <select class="form-select" id="nv-unit">
+          <option value="fed">Federal (2025) polling divisions</option>
+          <option value="prov">Provincial (2024) voting areas</option>
+        </select>
+      </label>
+      <label class="form-label grow" for="nv-roll"
+             title="Which set of electors is the denominator.">Electors from
+        <select class="form-select" id="nv-roll"></select>
+      </label>
+      <label class="form-label grow" for="nv-ballots"
+             title="Which ballots are subtracted from it.">Ballots from
+        <!-- Both pickers are refilled from what actually resolves on the chosen
+             area type, so these two are the starting preference rather than the
+             list: the municipal side appears here once municipal results are
+             loaded, and a side with no ballots on these areas is withdrawn. -->
+        <select class="form-select" id="nv-ballots">
+          <option value="fed">Federal (2025)</option>
+          <option value="prov">Provincial (2024)</option>
+        </select>
+      </label>
+      <label class="form-label grow" for="nv-min"
+             title="Areas with very few electors give unstable rates, so they are left out.">Exclude very small areas
+        <select class="form-select" id="nv-min">
+          <option value="0">No minimum</option>
+          <option value="25">25 electors</option>
+          <option value="50" selected>50 electors</option>
+          <option value="100">100 electors</option>
+        </select>
+      </label>
+    </div>
+    <div id="nv-status" class="status"></div>
+    <p class="model-badge" id="nv-badge" hidden></p>
+    <div class="viz-grid" id="nv-stats"></div>
+  </div>
+
+  <div class="card" id="nv-priority" hidden>
+    <h2>Where mail is worth dropping</h2>
+    <p class="text-small text-muted">
+      Areas ranked from the number who did not vote and the party share in each. The rank
+      orders areas against one another &mdash; it is <b>not</b> a count of votes available,
+      which would be a claim about how particular people would vote, and nothing here
+      measures that.
+    </p>
+    <div class="viz-controls">
+      <label class="form-label grow" for="nv-party"
+             title="The share the rank is built from, alongside the number who did not vote.">Party share
+        <select class="form-select" id="nv-party"></select>
+      </label>
+      <label class="form-label grow" for="nv-weight"
+             title="Above 1 leans on the share; below 1 leans on the raw number who did not vote.">Lean
+        <select class="form-select" id="nv-weight">
+          <option value="0.5">Toward the number who did not vote</option>
+          <option value="1" selected>Even (the default)</option>
+          <option value="2">Toward party share</option>
+        </select>
+      </label>
+    </div>
+    <p class="text-small text-muted" id="nv-priority-note"></p>
+  </div>
+
+  <!-- How many doors a chosen set of areas comes to, which is the question a
+       mail budget actually asks. Same pattern as the Turnout basket, and the
+       same reason: a rank says where to go first, and this says what going
+       there costs. -->
+  <div class="card" id="nv-basket-card" hidden>
+    <h2>Areas you have picked</h2>
+    <div class="viz-grid" id="nv-basket"></div>
+    <div class="viz-controls">
+      <label class="form-label" for="nv-basket-top-n">Add the top
+        <input class="form-input" type="number" id="nv-basket-top-n" min="1" max="2000" value="50" style="width:6rem">
+      </label>
+      <button type="button" class="btn" id="nv-basket-add-top">Add them</button>
+      <button type="button" class="btn" id="nv-basket-clear">Clear</button>
+      <p class="text-small text-muted" style="margin:0; flex:1 1 20rem;" id="nv-basket-note"></p>
+    </div>
+  </div>
+
+  <div class="card" id="nv-results" hidden>
+    <h2>By area</h2>
+    <div class="turnout-wrap"><table class="turnout-table" id="nv-table"></table></div>
+    <div class="viz-controls">
+      <button type="button" class="btn" id="export-nonvoters">Download this table (CSV)</button>
+      <p class="text-small text-muted" style="margin:0; flex:1 1 20rem;">
+        One row per area, with the route of each half in its own column so a reader can keep
+        counted and modelled figures apart.
+      </p>
+    </div>
+  </div>
+</section>
+
 <section id="panel-method" role="tabpanel" aria-labelledby="tab-method" hidden>
   <div class="card">
     <h2>How the two geographies are reconciled</h2>
@@ -1161,6 +1275,68 @@
       legend names the denominator every time. The only thing that would make any of this
       turnout is a registered-voter count by voting area; if one is ever published it
       loads in section 3 of the Data tab, and the real column fills in beside these two.
+    </p>
+
+    <h3>Who did not vote, and what that number is not</h3>
+    <p>
+      The <b>Non-voters</b> tab does one subtraction &mdash; electors on a roll, minus
+      ballots cast, area by area &mdash; and almost everything on it exists because that
+      subtraction is easy to get plausibly wrong.
+    </p>
+    <p>
+      <b>The two halves do not arrive the same way.</b> A roll loaded as a file of
+      addresses is counted onto every layer by point-in-polygon: a genuine count on a
+      geography the roll was never published for, and the only elector count in this
+      atlas of which that is true. Federal electors on a <i>provincial</i> area are
+      areally interpolated instead. Municipal ballots on any area are a kernel's output
+      rather than a count of anything that happened inside it. So each half records how
+      it got there, a subtraction inherits the weaker of the two, and only counted minus
+      counted is called a count anywhere on the tab. The badge beside the figures, the
+      second line of every column header, the map legend and the export columns all carry
+      it.
+    </p>
+    <p>
+      <b>A negative is a result, not an error, and is never clamped.</b> More ballots than
+      roll electors means the roll does not describe the people who voted there &mdash; a
+      different vintage, a different franchise, a boundary that moved. It is the best
+      diagnostic the tab produces, and a clamped negative would be a denominator error
+      hidden rather than found. For the same reason the municipal smoothing is capped at
+      each area's own <i>federal</i> electorate and never at a municipal roll: capping it
+      there would floor every municipal gap at zero and destroy the diagnostic. Areas
+      sitting at that ceiling are flagged, since a zero in one of them is arithmetic
+      rather than a finding.
+    </p>
+    <p>
+      <b>An area with no roll entry is not an area with nobody on the roll.</b> The
+      divisions covering UBC and the University Endowment Lands are the expected case:
+      those electors are on Vancouver's roll for the school trustee ballot, and the
+      city's property file does not address land outside the city. They come out with no
+      entry, are counted separately and are left out of every total, rather than
+      appearing as places where the whole electorate stayed home.
+    </p>
+    <p>
+      <b>Census residents are not a roll, and cannot be picked as one.</b> Subtracting
+      ballots from residents aged 15 and over would put 15-, 16- and 17-year-olds into a
+      count of people who did not vote. That count stays where it belongs, on the Turnout
+      tab, labelled &ldquo;Per resident 15+&rdquo;.
+    </p>
+    <p>
+      <b>The mail ranking is ordinal, and is not a count of votes.</b> Areas are ranked
+      from the number who did not vote and a party share together. Mail goes to a
+      geography rather than to a person picked out by an inferred belief, so the unit the
+      ranking infers from and the unit it acts on are the same one, which is what an
+      area-level score can honestly support. What it cannot support is
+      &ldquo;<i>N</i> votes available&rdquo;: that is a claim about how particular people
+      would vote, and nothing here measures it. The weighting between the two ingredients
+      is a control with its default printed, since persuading and mobilising trade them
+      differently and there is no principled split.
+    </p>
+    <p>
+      <b>Nothing from a roll is written into this file.</b> It is read in this tab, on
+      this machine; what is kept afterwards is a count per address and a count per area,
+      never a record per person. The tool that bakes datasets into a build has
+      deliberately no flag for a roll or for canvass data, and a test asserts that it
+      never will.
     </p>
 
     <h3>Census geography and socioeconomic variables</h3>

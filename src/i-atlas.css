@@ -174,6 +174,15 @@
 .turnout-table td.text-start { max-width: 28ch; overflow: hidden; text-overflow: ellipsis; }
 .turnout-table tr.in-basket td { background: color-mix(in srgb, var(--viz-series-1) 12%, transparent); }
 .turnout-table tr.partial td { color: var(--muted-foreground); font-style: italic; }
+/* A non-voter column header names the subtraction under its own name, so a
+   screenshot of the table alone still says what was taken from what. */
+.turnout-table th .th-sub { display: block; font-weight: var(--font-weight-normal, 400);
+  font-size: var(--font-size-small, .8rem); color: var(--muted-foreground);
+  white-space: normal; max-width: 16ch; margin-left: auto; }
+.turnout-table th.text-start .th-sub { margin-left: 0; }
+/* More ballots than roll electors. Not an error and never clamped: it says the
+   roll does not describe the people who voted there. */
+.turnout-table tr.over td { color: var(--destructive); }
 .turnout-table input[type="checkbox"] { margin: 0; }
 .poll.basket { stroke: var(--viz-series-1); stroke-width: 2.2; stroke-opacity: 1; stroke-dasharray: 4 2; }
 .va.basket { stroke: var(--viz-series-1); stroke-dasharray: 4 2; }

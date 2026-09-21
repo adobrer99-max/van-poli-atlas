@@ -1871,6 +1871,15 @@ html>body{padding:0}
 .turnout-table td.text-start { max-width: 28ch; overflow: hidden; text-overflow: ellipsis; }
 .turnout-table tr.in-basket td { background: color-mix(in srgb, var(--viz-series-1) 12%, transparent); }
 .turnout-table tr.partial td { color: var(--muted-foreground); font-style: italic; }
+/* A non-voter column header names the subtraction under its own name, so a
+   screenshot of the table alone still says what was taken from what. */
+.turnout-table th .th-sub { display: block; font-weight: var(--font-weight-normal, 400);
+  font-size: var(--font-size-small, .8rem); color: var(--muted-foreground);
+  white-space: normal; max-width: 16ch; margin-left: auto; }
+.turnout-table th.text-start .th-sub { margin-left: 0; }
+/* More ballots than roll electors. Not an error and never clamped: it says the
+   roll does not describe the people who voted there. */
+.turnout-table tr.over td { color: var(--destructive); }
 .turnout-table input[type="checkbox"] { margin: 0; }
 .poll.basket { stroke: var(--viz-series-1); stroke-width: 2.2; stroke-opacity: 1; stroke-dasharray: 4 2; }
 .va.basket { stroke: var(--viz-series-1); stroke-dasharray: 4 2; }
@@ -2181,6 +2190,7 @@ html>body{padding:0}
   <button class="nav-link" role="tab" id="tab-corr" aria-controls="panel-corr" aria-selected="false" type="button">Compare</button>
   <button class="nav-link" role="tab" id="tab-turnout" aria-controls="panel-turnout" aria-selected="false" type="button">Turnout</button>
   <button class="nav-link" role="tab" id="tab-socio" aria-controls="panel-socio" aria-selected="false" type="button">Neighbourhood profile</button>
+  <button class="nav-link" role="tab" id="tab-nonvoters" aria-controls="panel-nonvoters" aria-selected="false" type="button">Non-voters</button>
   <button class="nav-link" role="tab" id="tab-method" aria-controls="panel-method" aria-selected="false" type="button">How to read this</button>
 </nav>
 
@@ -2267,6 +2277,8 @@ html>body{padding:0}
         <option value="muni-ballots" hidden>Municipal (2022) ballots cast (smoothed)</option>
         <option value="points-count" hidden>Places loaded (count)</option>
         <option value="points-weight" hidden>Places loaded (weighted)</option>
+        <option value="nonvoters-count" hidden>Did not vote (count)</option>
+        <option value="nonvoters-share" hidden>Did not vote (share of roll)</option>
       </select>
     </label>
     <label class="form-label grow" for="shade-party-fed">Federal (2025) party
@@ -2309,6 +2321,8 @@ html>body{padding:0}
         <option value="muni-ballots" hidden>Municipal (2022) ballots cast (smoothed)</option>
         <option value="points-count" hidden>Places loaded (count)</option>
         <option value="points-weight" hidden>Places loaded (weighted)</option>
+        <option value="nonvoters-count" hidden>Did not vote (count)</option>
+        <option value="nonvoters-share" hidden>Did not vote (share of roll)</option>
       </select>
       </label>
       <label class="form-label" for="prov-opacity">Overlay fill strength
@@ -3008,6 +3022,115 @@ html>body{padding:0}
 </section>
 
 <!-- --------------------------------------------------------------- METHOD -->
+<!-- ---------------------------------------------------------- NON-VOTERS -->
+<!-- Deliberately not part of Turnout. That tab's contract is one election's
+     ballots over that election's own electors; every figure here is
+     cross-source by construction, and a cross-election ratio under a header
+     reading "Federal 2025 / Provincial 2024" is the exact misreading this
+     exists to prevent. Its ranking is by aggregate turnout, too, and two rank
+     semantics on one table is how a wrong number gets screenshotted. -->
+<section id="panel-nonvoters" role="tabpanel" aria-labelledby="tab-nonvoters" hidden>
+  <div class="card">
+    <h2>Who did not vote, and where</h2>
+    <p class="text-small text-muted">
+      Electors on a roll, minus ballots cast, area by area. Load a roll under
+      <b>A file of places</b> on the Data tab and it is counted onto every layer here.
+      Nothing on this tab is a count of people unless both halves of the subtraction were
+      counted &mdash; the route of each is named beside every figure.
+    </p>
+    <div class="viz-controls">
+      <label class="form-label grow" for="nv-unit"
+             title="The geography both halves are brought onto before subtracting.">Compare by area type
+        <select class="form-select" id="nv-unit">
+          <option value="fed">Federal (2025) polling divisions</option>
+          <option value="prov">Provincial (2024) voting areas</option>
+        </select>
+      </label>
+      <label class="form-label grow" for="nv-roll"
+             title="Which set of electors is the denominator.">Electors from
+        <select class="form-select" id="nv-roll"></select>
+      </label>
+      <label class="form-label grow" for="nv-ballots"
+             title="Which ballots are subtracted from it.">Ballots from
+        <!-- Both pickers are refilled from what actually resolves on the chosen
+             area type, so these two are the starting preference rather than the
+             list: the municipal side appears here once municipal results are
+             loaded, and a side with no ballots on these areas is withdrawn. -->
+        <select class="form-select" id="nv-ballots">
+          <option value="fed">Federal (2025)</option>
+          <option value="prov">Provincial (2024)</option>
+        </select>
+      </label>
+      <label class="form-label grow" for="nv-min"
+             title="Areas with very few electors give unstable rates, so they are left out.">Exclude very small areas
+        <select class="form-select" id="nv-min">
+          <option value="0">No minimum</option>
+          <option value="25">25 electors</option>
+          <option value="50" selected>50 electors</option>
+          <option value="100">100 electors</option>
+        </select>
+      </label>
+    </div>
+    <div id="nv-status" class="status"></div>
+    <p class="model-badge" id="nv-badge" hidden></p>
+    <div class="viz-grid" id="nv-stats"></div>
+  </div>
+
+  <div class="card" id="nv-priority" hidden>
+    <h2>Where mail is worth dropping</h2>
+    <p class="text-small text-muted">
+      Areas ranked from the number who did not vote and the party share in each. The rank
+      orders areas against one another &mdash; it is <b>not</b> a count of votes available,
+      which would be a claim about how particular people would vote, and nothing here
+      measures that.
+    </p>
+    <div class="viz-controls">
+      <label class="form-label grow" for="nv-party"
+             title="The share the rank is built from, alongside the number who did not vote.">Party share
+        <select class="form-select" id="nv-party"></select>
+      </label>
+      <label class="form-label grow" for="nv-weight"
+             title="Above 1 leans on the share; below 1 leans on the raw number who did not vote.">Lean
+        <select class="form-select" id="nv-weight">
+          <option value="0.5">Toward the number who did not vote</option>
+          <option value="1" selected>Even (the default)</option>
+          <option value="2">Toward party share</option>
+        </select>
+      </label>
+    </div>
+    <p class="text-small text-muted" id="nv-priority-note"></p>
+  </div>
+
+  <!-- How many doors a chosen set of areas comes to, which is the question a
+       mail budget actually asks. Same pattern as the Turnout basket, and the
+       same reason: a rank says where to go first, and this says what going
+       there costs. -->
+  <div class="card" id="nv-basket-card" hidden>
+    <h2>Areas you have picked</h2>
+    <div class="viz-grid" id="nv-basket"></div>
+    <div class="viz-controls">
+      <label class="form-label" for="nv-basket-top-n">Add the top
+        <input class="form-input" type="number" id="nv-basket-top-n" min="1" max="2000" value="50" style="width:6rem">
+      </label>
+      <button type="button" class="btn" id="nv-basket-add-top">Add them</button>
+      <button type="button" class="btn" id="nv-basket-clear">Clear</button>
+      <p class="text-small text-muted" style="margin:0; flex:1 1 20rem;" id="nv-basket-note"></p>
+    </div>
+  </div>
+
+  <div class="card" id="nv-results" hidden>
+    <h2>By area</h2>
+    <div class="turnout-wrap"><table class="turnout-table" id="nv-table"></table></div>
+    <div class="viz-controls">
+      <button type="button" class="btn" id="export-nonvoters">Download this table (CSV)</button>
+      <p class="text-small text-muted" style="margin:0; flex:1 1 20rem;">
+        One row per area, with the route of each half in its own column so a reader can keep
+        counted and modelled figures apart.
+      </p>
+    </div>
+  </div>
+</section>
+
 <section id="panel-method" role="tabpanel" aria-labelledby="tab-method" hidden>
   <div class="card">
     <h2>How the two geographies are reconciled</h2>
@@ -3327,6 +3450,68 @@ html>body{padding:0}
       legend names the denominator every time. The only thing that would make any of this
       turnout is a registered-voter count by voting area; if one is ever published it
       loads in section 3 of the Data tab, and the real column fills in beside these two.
+    </p>
+
+    <h3>Who did not vote, and what that number is not</h3>
+    <p>
+      The <b>Non-voters</b> tab does one subtraction &mdash; electors on a roll, minus
+      ballots cast, area by area &mdash; and almost everything on it exists because that
+      subtraction is easy to get plausibly wrong.
+    </p>
+    <p>
+      <b>The two halves do not arrive the same way.</b> A roll loaded as a file of
+      addresses is counted onto every layer by point-in-polygon: a genuine count on a
+      geography the roll was never published for, and the only elector count in this
+      atlas of which that is true. Federal electors on a <i>provincial</i> area are
+      areally interpolated instead. Municipal ballots on any area are a kernel's output
+      rather than a count of anything that happened inside it. So each half records how
+      it got there, a subtraction inherits the weaker of the two, and only counted minus
+      counted is called a count anywhere on the tab. The badge beside the figures, the
+      second line of every column header, the map legend and the export columns all carry
+      it.
+    </p>
+    <p>
+      <b>A negative is a result, not an error, and is never clamped.</b> More ballots than
+      roll electors means the roll does not describe the people who voted there &mdash; a
+      different vintage, a different franchise, a boundary that moved. It is the best
+      diagnostic the tab produces, and a clamped negative would be a denominator error
+      hidden rather than found. For the same reason the municipal smoothing is capped at
+      each area's own <i>federal</i> electorate and never at a municipal roll: capping it
+      there would floor every municipal gap at zero and destroy the diagnostic. Areas
+      sitting at that ceiling are flagged, since a zero in one of them is arithmetic
+      rather than a finding.
+    </p>
+    <p>
+      <b>An area with no roll entry is not an area with nobody on the roll.</b> The
+      divisions covering UBC and the University Endowment Lands are the expected case:
+      those electors are on Vancouver's roll for the school trustee ballot, and the
+      city's property file does not address land outside the city. They come out with no
+      entry, are counted separately and are left out of every total, rather than
+      appearing as places where the whole electorate stayed home.
+    </p>
+    <p>
+      <b>Census residents are not a roll, and cannot be picked as one.</b> Subtracting
+      ballots from residents aged 15 and over would put 15-, 16- and 17-year-olds into a
+      count of people who did not vote. That count stays where it belongs, on the Turnout
+      tab, labelled &ldquo;Per resident 15+&rdquo;.
+    </p>
+    <p>
+      <b>The mail ranking is ordinal, and is not a count of votes.</b> Areas are ranked
+      from the number who did not vote and a party share together. Mail goes to a
+      geography rather than to a person picked out by an inferred belief, so the unit the
+      ranking infers from and the unit it acts on are the same one, which is what an
+      area-level score can honestly support. What it cannot support is
+      &ldquo;<i>N</i> votes available&rdquo;: that is a claim about how particular people
+      would vote, and nothing here measures it. The weighting between the two ingredients
+      is a control with its default printed, since persuading and mobilising trade them
+      differently and there is no principled split.
+    </p>
+    <p>
+      <b>Nothing from a roll is written into this file.</b> It is read in this tab, on
+      this machine; what is kept afterwards is a count per address and a count per area,
+      never a record per person. The tool that bakes datasets into a build has
+      deliberately no flag for a roll or for canvass data, and a test asserts that it
+      never will.
     </p>
 
     <h3>Census geography and socioeconomic variables</h3>
@@ -8843,6 +9028,209 @@ const Municipal = (() => {
            readOverview, isOverviewSheet, catalogueLink };
 })();
 
+/* --- Who did not vote, and where --------------------------------------------
+
+   Electors on a roll, minus ballots cast, per area. One subtraction, and
+   almost everything here exists because that subtraction is easy to get
+   plausibly wrong.
+
+   THE TWO HALVES DO NOT ARRIVE THE SAME WAY. A roll of addresses is counted
+   onto an area by point-in-polygon -- a genuine count on a geography the roll
+   was never published for. Federal electors on a PROVINCIAL area are areally
+   interpolated. Municipal ballots on any area are a kernel's output, not a
+   count of anything that happened inside it. So each half records its route,
+   a subtraction inherits the weaker of the two, and only counted minus counted
+   is ever called a count in prose. A figure that mixes them is still useful;
+   one that hides which it is, is not.
+
+   NEGATIVE IS A RESULT, NOT AN ERROR. More ballots than roll electors means
+   the roll does not describe the people who voted there -- a different
+   vintage, a different franchise, a boundary that moved. It is the single
+   best diagnostic this file produces and it is never clamped, because a
+   clamped negative is a denominator error that has been hidden rather than
+   found.
+
+   AND IT WRITES TO ONE PLACE. Everything lands on row.g and nothing else:
+   not t, not agg, not expected, not electors, not p. That is the discipline
+   participation() in f2-turnout.js already keeps, for the same reason -- a
+   modelled ratio must never reach something labelled turnout.  */
+const Roll = (() => {
+
+  /* Where an elector count can come from, and what it costs to move it.
+
+     `adults` is deliberately absent. Census residents 15+ is not a roll:
+     subtracting ballots from it puts 15-, 16- and 17-year-olds into a count of
+     people who did not vote. It stays where it already is and is already
+     labelled honestly, as participation()'s perAdult. */
+  const ROLL_SOURCES = {
+    fed:  { label: 'federal electors', vintage: '2025', native: 'fed' },
+    prov: { label: 'provincial electors', vintage: '2024', native: 'prov' },
+    muni: { label: 'municipal roll', vintage: '2026', native: null },
+  };
+
+  const BALLOT_SOURCES = {
+    fed:  { label: 'federal ballots', vintage: '2025', native: 'fed' },
+    prov: { label: 'provincial ballots', vintage: '2024', native: 'prov' },
+    muni: { label: 'municipal ballots', vintage: '2022', native: null },
+  };
+
+  /* counted < interpolated < smoothed, weakest wins a subtraction. */
+  const ROUTE_RANK = { counted: 0, interpolated: 1, smoothed: 2 };
+  const weaker = (a, b) => (ROUTE_RANK[a] >= ROUTE_RANK[b] ? a : b);
+
+  /* A roll that arrives as ADDRESSES is counted onto every layer directly,
+     with no interpolation anywhere -- the one elector count in this atlas that
+     is a genuine count on a geography it was not published for. A roll that
+     arrives already attached to a geography is counted on that geography and
+     interpolated everywhere else. */
+  function routeOf(source, target, viaAddresses) {
+    if (viaAddresses) return 'counted';
+    const native = (ROLL_SOURCES[source] || BALLOT_SOURCES[source] || {}).native;
+    if (native == null) return 'smoothed';
+    return native === target ? 'counted' : 'interpolated';
+  }
+
+  /* --- The subtraction ---------------------------------------------------- */
+
+  /* rows are Turnout.rowsOnUnit's, untouched. Everything written lands on
+     row.g.
+
+     rollOf and ballotsOf are the caller's: this module does not know how a
+     layer indexes its features, and guessing has been a bug here before. Each
+     returns a number or null, and null means absent rather than zero --
+     an area the roll never mentions is not an area with no electors. */
+  function gap(rows, options = {}) {
+    const {
+      roll, ballots, rollOf, ballotsOf,
+      rollViaAddresses = false, target = 'fed', cappedIds = null, idOf = null,
+      rollLabel = null, rollVintage = null,
+    } = options;
+    if (!roll || !ballots || typeof rollOf !== 'function' || typeof ballotsOf !== 'function') {
+      for (const row of rows) delete row.g;
+      return rows;
+    }
+    const base = ROLL_SOURCES[roll] || { label: roll, vintage: '', native: null };
+    /* The caller may name the roll instead, and must where the roll arrived as
+       a file the atlas was handed rather than one it knows. ROLL_SOURCES.muni
+       reads "2026 municipal roll", which is right for the file this was built
+       for and a lie about any other file dropped in the same slot -- and a
+       wrong vintage propagates straight into `coherent`. So a source with no
+       native geography carries whatever the reader called it, with no vintage
+       claimed unless one was given. */
+    const rollMeta = { ...base,
+      label: rollLabel || base.label,
+      vintage: rollVintage != null ? rollVintage : base.vintage };
+    const ballotMeta = BALLOT_SOURCES[ballots] || { label: ballots, vintage: '', native: null };
+    const rollRoute = routeOf(roll, target, rollViaAddresses);
+    const ballotRoute = routeOf(ballots, target, false);
+    const named = (m) => `${m.vintage} ${m.label}`.trim();
+    const label = `${named(rollMeta)} minus ${named(ballotMeta)}`;
+
+    for (const row of rows) {
+      const rollCount = rollOf(row);
+      const ballotCount = ballotsOf(row);
+      if (rollCount == null || ballotCount == null) { delete row.g; continue; }
+      const notVoted = rollCount - ballotCount;
+      row.g = {
+        roll: { count: rollCount, source: roll, vintage: rollMeta.vintage,
+                route: rollRoute, label: named(rollMeta) },
+        ballots: { count: ballotCount, source: ballots, vintage: ballotMeta.vintage,
+                   route: ballotRoute, label: named(ballotMeta) },
+        notVoted,
+        notVotedShare: rollCount > 0 ? notVoted / rollCount : null,
+        route: weaker(rollRoute, ballotRoute),
+        /* Same source AND same vintage. A roll taken for one election and
+           ballots cast in another count different people in the same place,
+           and the reader has to be told rather than left to notice. */
+        coherent: roll === ballots && rollMeta.vintage === ballotMeta.vintage,
+        /* The municipal smoothing is capped at federal electors per division,
+           so a municipal-paired gap is non-negative BY CONSTRUCTION rather
+           than by the world -- floored by arithmetic, not by the electorate.
+           Flagged so nobody reads a zero as a finding. */
+        capped: Boolean(ballotRoute === 'smoothed' && cappedIds && idOf && cappedIds.has(idOf(row))),
+        label,
+      };
+    }
+    return rows;
+  }
+
+  const negativeGap = (rows) => rows.filter((r) => r.g && r.g.notVoted < 0).length;
+  const incoherent = (rows) => rows.filter((r) => r.g && !r.g.coherent).length;
+  const capped = (rows) => rows.filter((r) => r.g && r.g.capped).length;
+
+  /* --- Where mail is worth dropping --------------------------------------- */
+
+  /* An ORDINAL rank over areas, and never a count of votes.
+
+     The unit of action is an area -- mail goes to a geography, not to a person
+     picked out by an inferred belief -- so an area-level score is the matched
+     instrument here rather than a tolerated one. What it must not become is
+     "N votes available": a ranking is ordinal and does its job, while a vote
+     count is a forecast about how particular people would behave, and nothing
+     here measures that.
+
+     The weighting is the caller's, with its default printed, because
+     persuading and mobilising trade non-voters against party share differently
+     and there is no principled split between them. Pretending otherwise by
+     burying a constant would be worse than choosing one out loud. */
+  function mailScore(rows, options = {}) {
+    const { shareOf, weight = 1, basis = '' } = options;
+    if (typeof shareOf !== 'function') {
+      for (const row of rows) delete row.m;
+      return rows;
+    }
+    const scored = [];
+    for (const row of rows) {
+      const share = shareOf(row);
+      if (!row.g || share == null || !isFinite(share) || row.g.notVoted <= 0) {
+        delete row.m;
+        continue;
+      }
+      /* weight 1 is the plain product; above 1 leans on the share, below on
+         the raw number who did not vote. */
+      const score = row.g.notVoted * Math.pow(share, weight);
+      row.m = { score, share, basis, rank: 0, percentile: 0 };
+      scored.push(row);
+    }
+    scored.sort((a, b) => b.m.score - a.m.score);
+    scored.forEach((row, i) => {
+      row.m.rank = i + 1;
+      row.m.percentile = scored.length > 1
+        ? Math.round(((scored.length - 1 - i) / (scored.length - 1)) * 100) : 100;
+    });
+    return rows;
+  }
+
+  /* --- What to say about all of it ---------------------------------------- */
+
+  function summary(rows) {
+    let areas = 0, notVoted = 0, rollTotal = 0, ballotTotal = 0;
+    let counted = 0, interpolated = 0, smoothed = 0;
+    for (const row of rows) {
+      if (!row.g) continue;
+      areas++;
+      notVoted += row.g.notVoted;
+      rollTotal += row.g.roll.count;
+      ballotTotal += row.g.ballots.count;
+      if (row.g.route === 'counted') counted++;
+      else if (row.g.route === 'interpolated') interpolated++;
+      else smoothed++;
+    }
+    return {
+      areas, notVoted, rollTotal, ballotTotal,
+      negative: negativeGap(rows), incoherent: incoherent(rows), capped: capped(rows),
+      counted, interpolated, smoothed,
+      /* Over the areas that HAVE a gap, not over every row: an area the roll
+         never reached would otherwise drag a rate towards zero while looking
+         like an area where nobody voted. */
+      share: rollTotal > 0 ? notVoted / rollTotal : null,
+    };
+  }
+
+  return { ROLL_SOURCES, BALLOT_SOURCES, routeOf, weaker,
+           gap, negativeGap, incoherent, capped, mailScore, summary };
+})();
+
 </script>
 <script>
 
@@ -8981,6 +9369,13 @@ const state = {
   muniFiles: { places: null, races: null, overview: null },
   socio: { outcome: 'turnout-agg', minElectors: 50, selected: new Set(), extra: new Map(),
            rows: null, byDa: null, table: null, sortKey: 'absR', sortDir: 'desc', picked: null },
+  /* Electors on a roll minus ballots cast, per area, for the pairing the
+     Non-voters tab currently has selected. `on` is keyed by layer and then by
+     the feature's own index, the way `points` and `muni` are, so the map and
+     the readout read it without knowing which tab produced it. */
+  nonvoters: { unit: 'fed', roll: '', ballots: 'fed', minRoll: 50, party: '', weight: 1,
+               rows: null, on: {}, below: {}, pairing: null, basket: new Set(),
+               sortKey: 'g.notVoted', sortDir: 'desc' },
 };
 
 /* Results for one side, apportioned if the Turnout tab asked for it. Every
@@ -9357,6 +9752,7 @@ function shadeValue(layerKey, f, mode, fedParty, provParty) {
   if (mode === 'none' || mode === 'type' || mode === 'flat') return null;
   if (POINT_MODES.has(mode)) return pointsValue(layerKey, f, mode);
   if (MUNI_MODES.has(mode)) return muniValue(layerKey, f, mode);
+  if (NONVOTER_MODES.has(mode)) return nonvotersValue(layerKey, f, mode);
   if (layerKey === 'prov') {
     if (PART_MODES.has(mode)) {
       const p = state.provPart && state.provPart.get(f.__idx);
@@ -9418,6 +9814,11 @@ const POINT_MODES = new Set(['points-count', 'points-weight']);
    such a map would show. The city-wide rate the city publishes is shown on the
    Results tab instead, as the single figure it honestly is. */
 const MUNI_MODES = new Set(['muni-party', 'muni-ballots']);
+/* Electors on a roll minus ballots cast, from the Non-voters tab. Deliberately
+   not called `gap-*`: `gap` is already this atlas's name for federal minus
+   provincial party share, three lines up in the same select, and one word
+   meaning two things in one legend is how a wrong screenshot happens. */
+const NONVOTER_MODES = new Set(['nonvoters-count', 'nonvoters-share']);
 
 /* What the municipal spread put on this feature, keyed the way each layer
    indexes itself. */
@@ -9463,6 +9864,51 @@ function pointsValue(layerKey, f, mode) {
   const a = per.get(layerKey === 'fed' ? f.idx : f.__idx);
   if (!a) return null;
   return mode === 'points-weight' ? a.weight : a.count;
+}
+
+/* What the Non-voters tab put on this feature, for the selected pairing. Keyed
+   the same way as the points and municipal surfaces. Absent means the roll
+   never mentioned this area, which is not a non-voter count of zero -- a
+   division outside the city the roll was drawn for has no entry at all, and
+   shading it as an empty area would say something false about it. */
+function nonvotersValue(layerKey, f, mode) {
+  const on = state.nonvoters && state.nonvoters.on && state.nonvoters.on[layerKey];
+  if (!on) return null;
+  const a = on.get(layerKey === 'fed' ? f.idx : f.__idx);
+  if (!a) return null;
+  return mode === 'nonvoters-share' ? a.share : a.notVoted;
+}
+
+/* One rule holds on every surface this feature has: a non-voter figure never
+   appears without both halves of the subtraction named beside it. muniLegend
+   is the working precedent, and for the same reason -- the number alone reads
+   as a measurement of one thing when it is the difference between two. */
+function nonvotersLegend(mode, layerKey) {
+  const nv = state.nonvoters;
+  const on = nv && nv.on && nv.on[layerKey];
+  if (!on || !on.size || !nv.pairing) return [];
+  const dom = state.shadeDomain[layerKey];
+  const share = mode === 'nonvoters-share';
+  const range = dom ? (share ? ` — ${fmtPct(dom.lo, 0)} to ${fmtPct(dom.hi, 0)}`
+                             : ` — ${fmtInt(dom.lo)} to ${fmtInt(dom.hi)}`) : '';
+  const out = [['var(--viz-series-4)',
+    `Did not vote${share ? ', share of roll' : ''} · ${nv.pairing.label}${range}`]];
+  out.push(['note', `${routePhrase(nv.pairing.rollRoute, 'the roll')}; `
+    + `${routePhrase(nv.pairing.ballotRoute, 'the ballots')}.`]);
+  return out;
+}
+
+/* How a half of the subtraction reached this geography, in the atlas's own
+   three words. `interpolated` is the vocabulary f8-roll.js uses and
+   `modelled geography` is the one every other surface here uses; they are the
+   same claim, and the reader should only ever meet the second. */
+const ROUTE_PROVENANCE = { counted: 'counted', interpolated: 'modelled', smoothed: 'smoothed' };
+function routePhrase(route, who) {
+  if (route === 'counted') return `${who} were counted on these areas`;
+  if (route === 'smoothed') {
+    return `${who} were spread by distance from each voting place, not counted inside these areas`;
+  }
+  return `${who} were moved onto these areas from the geography they were reported on`;
 }
 
 /* The same figure, for the readout, phrased for whichever file is loaded. */
@@ -9519,9 +9965,32 @@ function muniLine(layerKey, f) {
     + (share == null ? '' : ` · ${party} ${fmtPct(share)}`);
 }
 
+/* The non-voter line on a readout card. Both half-labels travel with it, and
+   the word "counted" appears only where both halves were. */
+function nonvotersLine(layerKey, f) {
+  const nv = state.nonvoters;
+  const on = nv && nv.on && nv.on[layerKey];
+  if (!on || !on.size || !nv.pairing) return null;
+  const id = layerKey === 'fed' ? f.idx : f.__idx;
+  const a = on.get(id);
+  if (!a) {
+    /* Two different absences, and only one of them is the interesting one. An
+       area held out by the minimum does have a roll entry; saying it has none
+       would report a setting on this tab as a fact about the roll. */
+    const small = nv.below && nv.below[layerKey] && nv.below[layerKey].get(id);
+    return small != null
+      ? `${fmtInt(small)} on the roll — under the minimum this tab is set to, so it is out of `
+        + 'the table and the ranking'
+      : 'no roll entry for this area, which is not a roll of zero';
+  }
+  return `${fmtInt(a.notVoted)} did not vote (${fmtPct(a.share)} of the roll) · `
+    + `${nv.pairing.label} · ${ROUTE_PROVENANCE[nv.pairing.route]}`
+    + (a.mailRank ? ` · mail priority ${fmtInt(a.mailRank)}` : '');
+}
+
 /* Modes whose ramp follows the data on the map rather than a fixed scale. */
 const DATA_MODES = new Set([...TURNOUT_MODES, ...PART_MODES, ...POINT_MODES,
-                            'muni-ballots', 'variable']);
+                            ...NONVOTER_MODES, 'muni-ballots', 'variable']);
 
 /* Turnout ramps are data-driven -- 5th to 95th percentile of what is on the
    map -- because a fixed scale would either wash out or saturate depending on
@@ -9918,6 +10387,8 @@ function renderLegend() {
     items.push(...pointsLegend(mode, 'fed'));
   } else if (MUNI_MODES.has(mode)) {
     items.push(...muniLegend(mode, 'fed', state.muni));
+  } else if (NONVOTER_MODES.has(mode)) {
+    items.push(...nonvotersLegend(mode, 'fed'));
   }
   /* Every mode derived from the two elections moves with apportionment -- the
      turnout ones because the ballots move, the party ones because
@@ -9937,6 +10408,8 @@ function renderLegend() {
       items.push(...muniLegend(provMode, 'prov', state.muni));
     } else if (POINT_MODES.has(provMode)) {
       items.push(...pointsLegend(provMode, 'prov'));
+    } else if (NONVOTER_MODES.has(provMode)) {
+      items.push(...nonvotersLegend(provMode, 'prov'));
     } else if (PART_MODES.has(provMode)) {
       /* Named by its denominator every time it is drawn. The whole reason
          these exist is that neither denominator is a provincial electorate,
@@ -10074,6 +10547,8 @@ function renderReadout() {
     if (fpl) fedCard.append(el('p', 'text-small text-muted', fpl));
     const fml = muniLine('fed', fed);
     if (fml) fedCard.append(el('p', 'text-small text-muted', fml));
+    const fnv = nonvotersLine('fed', fed);
+    if (fnv) fedCard.append(el('p', 'text-small text-muted', fnv));
   } else {
     fedCard.append(el('p', 'text-muted', 'No federal polling division at this point.'));
   }
@@ -10109,6 +10584,8 @@ function renderReadout() {
     if (pl) provCard.append(el('p', 'text-small text-muted', pl));
     const ml = muniLine('prov', prov);
     if (ml) provCard.append(el('p', 'text-small text-muted', ml));
+    const pnv = nonvotersLine('prov', prov);
+    if (pnv) provCard.append(el('p', 'text-small text-muted', pnv));
   } else if (state.prov.all.length) {
     provCard.append(el('p', 'text-muted', 'No provincial voting area at this point.'));
   } else {
@@ -11945,6 +12422,7 @@ function refreshTurnout() {
       ['Load federal or provincial results on the Data tab. Turnout needs an electors count in the file.']);
     t.rows = null; results.hidden = true; basketCard.hidden = true;
     restyleMapForTurnout();
+    refreshNonvoters();
     return;
   }
   const labels = {
@@ -12024,6 +12502,10 @@ function refreshTurnout() {
   drawTurnoutCurve(curve, top20);
   renderBasket();
   restyleMapForTurnout();
+  /* The Non-voters tab is built from these same rows, so it follows every
+     loader that already calls this one rather than needing a hook of its own
+     at each of the fourteen call sites. */
+  refreshNonvoters();
 }
 
 /* What the two denominator columns are, said in the tab rather than only in
@@ -13680,9 +14162,15 @@ function exportBasis() {
   const sel = $('shade-by').selectedOptions[0];
   const fedParty = $('shade-party-fed').value;
   const provParty = $('shade-party-prov').value;
-  const label = (sel ? sel.textContent.trim() : mode)
-    + (mode.includes('fed-party') && fedParty ? ` — ${fedParty}`
-      : mode.includes('prov-party') && provParty ? ` — ${provParty}` : '');
+  /* What the option name leaves out. A party share means nothing without the
+     party, and a non-voter figure means nothing without both halves of its
+     subtraction -- and this column is the one that leaves the tab, so it is the
+     last place either may go unsaid. */
+  const qualifier = NONVOTER_MODES.has(mode) && state.nonvoters.pairing
+    ? ` — ${state.nonvoters.pairing.label}, ${state.nonvoters.pairing.route}`
+    : mode.includes('fed-party') && fedParty ? ` — ${fedParty}`
+      : mode.includes('prov-party') && provParty ? ` — ${provParty}` : '';
+  const label = (sel ? sel.textContent.trim() : mode) + qualifier;
   const valueOf = (f) => shadeValue('fed', f, mode, fedParty, provParty);
   /* Ranked against every area the map is drawing, which is the same population
      the colour ramp is scaled to. */
@@ -14144,6 +14632,17 @@ function datasetInventory() {
       + `${state.points.noun || 'rows'} placed`,
       'loaded in this tab, never saved');
   }
+  /* Derived, like the crosswalk, and listed for the same reason: a reader who
+     has loaded a roll and not opened the Non-voters tab has no other signal
+     that the subtraction is there to be had. */
+  const nv = state.nonvoters;
+  if (state.points || (nv && nv.rows)) {
+    add('Electors who did not vote', Boolean(nv && nv.rows && nv.pairing),
+      nv && nv.rows && nv.pairing
+        ? `${fmtInt(nv.rows.length)} areas, ${nv.pairing.label}`
+        : 'pick a roll and a ballot side on the Non-voters tab',
+      'computed here, never saved');
+  }
   return rows;
 }
 
@@ -14271,6 +14770,20 @@ function headlineFindings() {
       'ballots cast citywide; party share is mapped, turnout by area is not',
       'smoothed');
   }
+
+  /* The subtraction, with both halves named in the detail line -- the same rule
+     the tab itself keeps. A headline is the single most quotable line in this
+     file, so it is the last place a bare non-voter figure may appear. */
+  const nv = state.nonvoters;
+  if (nv && nv.rows && nv.rows.length && nv.pairing) {
+    const s = Roll.summary(nv.rows);
+    push('Electors who did not vote', fmtInt(s.notVoted),
+      `${nv.pairing.label}, across ${fmtInt(s.areas)} `
+      + `${NV_UNIT_NAMES[nv.unit] || 'areas'} — ${fmtPct(s.share)} of the roll`
+      + (s.negative ? `; ${fmtInt(s.negative)} came out with more ballots than roll electors` : ''),
+      nv.pairing.route === 'counted' ? 'counted'
+        : nv.pairing.route === 'smoothed' ? 'smoothed' : 'modelled');
+  }
   return out;
 }
 
@@ -14286,6 +14799,11 @@ const CAVEATS = [
    'The 2024 provincial results are reported by voting place and shared out over the areas each '
    + 'one served, so every r reports the number of original reporting units beside the number '
    + 'of areas, and widens its confidence interval to match.'],
+  ['A non-voter count is a count over areas, and names nobody.',
+   'Electors on a roll minus ballots cast says how many did not vote in an area. It cannot say '
+   + 'which of them, and the ranking built on it orders areas for a mail drop rather than '
+   + 'estimating votes. Both halves of the subtraction are named wherever the figure appears, '
+   + 'since they are rarely the same election.'],
   ['There is no municipal turnout by area, anywhere in this atlas.',
    'You may vote at any place in Vancouver and in 2022 most people did, so ballots are smoothed by '
    + 'distance rather than assigned. Measured against the federal turnout surface any municipal '
@@ -14410,6 +14928,725 @@ function renderStamp() {
     host.append(el('span', 'badge badge-dirty',
       'built from uncommitted changes — not reproducible from that commit'));
   }
+}
+
+/* --- Non-voters tab ----------------------------------------------------------
+
+   Electors on a roll, minus ballots cast, area by area. The maths is in
+   f8-roll.js; this file is wiring and words, and the words are most of it.
+
+   NOT AN EXTENSION OF TURNOUT, on purpose. That tab's contract is one
+   election's ballots over that election's own electors, and every figure here
+   is cross-source by construction -- a roll drawn for one election against
+   ballots cast in another. Its ranks follow the aggregate turnout too, and the
+   ranking that matters here is by the number who did not vote. Two rank
+   semantics on one table is how a wrong number gets screenshotted.
+
+   The rows are the same objects, though: rowsOnUnit builds them, Turnout.score
+   fills t/agg/expected, and Roll.gap hangs row.g beside them without touching
+   anything it finds there. Nothing is recomputed -- only the table, the words
+   and the export are new. */
+
+const NV_UNIT_NAMES = { fed: 'federal (2025) polling divisions',
+                        prov: 'provincial (2024) voting areas' };
+const NV_UNIT_ONE = { fed: 'polling division', prov: 'voting area' };
+
+/* The feature id a layer keys its counts by, for a row of rowsOnUnit's. Going
+   through turnoutFeature rather than state[unit].active is deliberate: once a
+   crosswalk exists the row key is a crosswalk-local index, not an index into
+   the active features, and the two are not the same list. */
+function nvFeature(unit, row) {
+  return turnoutFeature(unit, +row.key);
+}
+function nvFeatureId(unit, row) {
+  const f = nvFeature(unit, row);
+  if (!f) return null;
+  return unit === 'fed' ? f.idx : f.__idx;
+}
+
+/* --- Where each half comes from --------------------------------------------
+
+   Both are the caller's business rather than f8's, which knows nothing about
+   how a layer indexes its features. Each returns a number or null, and null
+   means ABSENT -- an area the roll never reached is not an area with no
+   electors on it. That distinction is what lets the UBC and UEL divisions come
+   out with no entry rather than with a gap the size of their whole electorate:
+   those electors are on Vancouver's roll for the school trustee ballot, and
+   the city's property file does not address land outside the city. */
+
+/* Every elector count that resolves for at least one area, with the label the
+   picker shows. Availability is measured rather than assumed: a source is
+   offered when it actually produces a number here, so a picker never offers a
+   denominator that would blank the tab. */
+function nvRollSources(rows, unit) {
+  const out = [];
+  const p = state.points;
+  if (p && p.per && p.per[unit]) {
+    /* A roll is one row per elector, so counting rows counts people. A file
+       already aggregated to one row per address carries the people in a column
+       instead, and the reader named that column on the Data tab -- so where one
+       was chosen it is the elector count, and the row count would be a count of
+       doors. Both are named by whichever noun applies. */
+    const weighted = Boolean(p.weighted);
+    const noun = (weighted ? p.weightNoun : p.noun) || p.noun || 'rows';
+    out.push({
+      id: 'muni',
+      /* Named by what the reader called the file, never by what this atlas was
+         built expecting. ROLL_SOURCES.muni reads "2026 municipal roll", which
+         is right for the electors list this exists for and false about any
+         other file dropped in the same slot. */
+      label: `The loaded file of places (${noun})`,
+      rollLabel: /elector/i.test(noun) ? 'roll of electors' : `loaded file of ${noun}`,
+      rollVintage: '',
+      /* A file of points is counted onto every layer by point-in-polygon, with
+         no interpolation anywhere -- the one elector count in this atlas that
+         is a genuine count on geographies it was never published for. Whether
+         its rows arrived as coordinates or were looked up from addresses does
+         not change that; where the lookup had to estimate a door, the prose
+         below says how often. */
+      viaAddresses: true,
+      of: (row) => {
+        const id = nvFeatureId(unit, row);
+        if (id == null) return null;
+        const a = p.per[unit].get(id);
+        return a ? (weighted ? a.weight : a.count) : null;
+      },
+    });
+  }
+  for (const side of ['fed', 'prov']) {
+    const of = (row) => {
+      const u = row.by[side];
+      return u && u.electors > 0 ? u.electors : null;
+    };
+    if (!rows.some((r) => of(r) != null)) continue;
+    const meta = Roll.ROLL_SOURCES[side];
+    out.push({ id: side, label: `${meta.vintage} ${meta.label}`, viaAddresses: false, of });
+  }
+  return out;
+}
+
+function nvBallotSources(rows, unit) {
+  const out = [];
+  for (const side of ['fed', 'prov']) {
+    const of = (row) => (row.ballots && row.ballots[side] != null ? row.ballots[side] : null);
+    if (!rows.some((r) => of(r) != null)) continue;
+    const meta = Roll.BALLOT_SOURCES[side];
+    out.push({ id: side, label: `${meta.vintage} ${meta.label}`, of,
+               unitOf: (row) => row.by[side] || null });
+  }
+  const on = state.muni && state.muni.on && state.muni.on[unit];
+  if (on && on.size) {
+    out.push({
+      id: 'muni', label: '2022 municipal ballots (smoothed)',
+      of: (row) => {
+        const id = nvFeatureId(unit, row);
+        const u = id == null ? null : on.get(id);
+        return u ? u.ballots : null;
+      },
+      unitOf: (row) => {
+        const id = nvFeatureId(unit, row);
+        return id == null ? null : (on.get(id) || null);
+      },
+    });
+  }
+  return out;
+}
+
+/* Areas where the municipal smoothing hit its ceiling.
+
+   muniTargets caps each area's modelled ballots at its own federal electorate,
+   so a municipal-paired gap cannot go negative however the world behaves: a
+   zero there is arithmetic, not a finding. The smoother reports how many areas
+   were bound but not which, so the ceiling is recognised here instead -- an
+   area sitting at its cap took every ballot the model was allowed to give it.
+
+   Do not be tempted to cap the municipal model at the municipal roll once one
+   is loaded. It looks like an improvement and it would floor every municipal
+   gap at zero, which destroys the one diagnostic this tab produces. */
+function nvCappedAreas(unit) {
+  const on = state.muni && state.muni.on && state.muni.on[unit];
+  if (!on) return null;
+  const values = unit === 'fed' ? fedValues() : provValues();
+  if (!values) return null;
+  const ids = new Set();
+  for (const [id, u] of on) {
+    const cap = values.get(id)?.electors || 0;
+    if (cap > 0 && u.ballots >= cap * 0.999) ids.add(String(id));
+  }
+  return ids.size ? ids : null;
+}
+
+/* Parties on whichever ballots are being subtracted, so the mail rank is built
+   from a share of the same election the ballots came from. */
+function nvParties(rows, ballotSource) {
+  if (!ballotSource || !ballotSource.unitOf) return [];
+  const seen = new Set();
+  for (const row of rows) {
+    const u = ballotSource.unitOf(row);
+    if (u && u.parties) for (const name of u.parties.keys()) seen.add(name);
+  }
+  return [...seen].sort((a, b) => a.localeCompare(b));
+}
+
+/* --- The tab ---------------------------------------------------------------- */
+
+/* Refills a picker from what is actually available, keeping the reader's
+   choice where it survives and falling to the first option where it does not.
+   Returns the selection in force. */
+function nvSyncSelect(id, sources, current) {
+  const node = $(id);
+  if (!node) return current;
+  const keep = sources.some((s) => s.id === current) ? current : (sources[0] ? sources[0].id : '');
+  fillSelect(node, sources.map((s) => ({ value: s.id, label: s.label })), keep);
+  node.disabled = sources.length === 0;
+  return keep;
+}
+
+function refreshNonvoters() {
+  const statusHost = $('nv-status');
+  if (!statusHost) return;
+  const nv = state.nonvoters;
+  nv.unit = $('nv-unit').value;
+  nv.minRoll = parseFloat($('nv-min').value) || 0;
+  nv.weight = parseFloat($('nv-weight').value) || 1;
+
+  const hide = (...ids) => { for (const id of ids) if ($(id)) $(id).hidden = true; };
+  const clear = (message) => {
+    nv.rows = null; nv.on = {}; nv.below = {}; nv.pairing = null;
+    hide('nv-results', 'nv-priority', 'nv-basket-card', 'nv-badge');
+    $('nv-stats').textContent = '';
+    setStatus('nv-status', 'idle', [message]);
+    restyleForNonvoters();
+  };
+
+  const sources = turnoutSources();
+  if (!sources.length) {
+    clear('Load federal or provincial results on the Data tab, then a roll under “A file of '
+      + 'places”. This tab subtracts one from the other.');
+    return;
+  }
+  const labels = {
+    fed: (i) => turnoutFeature('fed', i)?.label ?? `poll ${i}`,
+    prov: (i) => provLabel(turnoutFeature('prov', i)),
+  };
+  /* minElectors stays 0 here on purpose. rowsOnUnit's own minimum reads
+     row.electors -- "the first source with a non-zero count", which on a
+     provincial row is the FEDERAL electorate -- and the control above this
+     table says "electors", meaning the ones on the roll the reader picked.
+     Filtering on the roll count below is the only reading of it that matches
+     what the label promises. */
+  const all = Turnout.rowsOnUnit(nv.unit, sources, labels, { minElectors: 0 });
+  Turnout.score(all, { weights: { fed: 0.5, prov: 0.5 } });
+
+  const rollSources = nvRollSources(all, nv.unit);
+  const ballotSources = nvBallotSources(all, nv.unit);
+  /* The reader's choice comes from the control, not from the last value the
+     state happened to hold: nvSyncSelect refills the picker, so feeding it the
+     state would rewrite the DOM back to the previous selection and the change
+     handler would be a no-op. */
+  nv.roll = nvSyncSelect('nv-roll', rollSources, $('nv-roll').value || nv.roll);
+  nv.ballots = nvSyncSelect('nv-ballots', ballotSources, $('nv-ballots').value || nv.ballots);
+  const roll = rollSources.find((s) => s.id === nv.roll);
+  const ballots = ballotSources.find((s) => s.id === nv.ballots);
+  if (!roll || !ballots) {
+    clear(rollSources.length
+      ? 'No ballots are loaded for this area type yet — see the Data tab.'
+      : 'No elector count reaches these areas yet. Load a roll under “A file of places” on the '
+        + 'Data tab, or federal results, which carry an elector count of their own.');
+    return;
+  }
+
+  Roll.gap(all, {
+    roll: roll.id, ballots: ballots.id, target: nv.unit,
+    rollOf: roll.of, ballotsOf: ballots.of,
+    rollViaAddresses: roll.viaAddresses,
+    rollLabel: roll.rollLabel, rollVintage: roll.rollVintage,
+    cappedIds: nvCappedAreas(nv.unit), idOf: (row) => String(nvFeatureId(nv.unit, row)),
+  });
+
+  const noRoll = all.filter((r) => !r.g).length;
+  const small = all.filter((r) => r.g && r.g.roll.count < nv.minRoll);
+  const tooSmall = small.length;
+  const rows = all.filter((r) => r.g && r.g.roll.count >= nv.minRoll);
+  /* Held for the readout alone: an area under the minimum is out of the table
+     and out of the ranking, and it is still not an area the roll never
+     reached. The map does not shade it either way. */
+  nv.below = { [nv.unit]: new Map(small.map((r) => [nvFeatureId(nv.unit, r), r.g.roll.count])) };
+  if (!rows.length) {
+    /* Two different failures, and the minimum is only one of them. Reporting
+       "no area carries at least 0" would send a reader to a control that is
+       already as low as it goes. */
+    clear(nv.minRoll > 0
+      ? `No area carries at least ${fmtInt(nv.minRoll)} on the ${roll.label.toLowerCase()}. `
+        + 'Lower the minimum, or check that the roll joined — the Data tab reports its match rate.'
+      : `Nothing on the ${roll.label.toLowerCase()} reached any of these ${fmtInt(all.length)} `
+        + 'areas. The Data tab reports the roll\u2019s match rate, which is where to look first.');
+    return;
+  }
+
+  /* The share the rank leans on, from the same election the ballots came from.
+     Refilled every refresh, since switching the ballots side changes which
+     parties there are to pick from. */
+  const parties = nvParties(rows, ballots);
+  const partyNode = $('nv-party');
+  if (parties.length) {
+    const chosen = partyNode.value || nv.party;
+    const keep = parties.includes(chosen) ? chosen : parties[0];
+    fillSelect(partyNode, parties.map((name) => ({ value: name, label: name })), keep);
+    nv.party = keep;
+    Roll.mailScore(rows, {
+      shareOf: (row) => {
+        const u = ballots.unitOf ? ballots.unitOf(row) : null;
+        return u ? Analysis.shareOf(u, nv.party) : null;
+      },
+      weight: nv.weight,
+      basis: `${nv.party} share, ${ballots.label}`,
+    });
+  } else {
+    nv.party = '';
+    for (const row of rows) delete row.m;
+  }
+  $('nv-priority').hidden = parties.length === 0;
+
+  const pairing = rows[0].g;
+  nv.pairing = { label: pairing.label, route: pairing.route,
+                 rollRoute: pairing.roll.route, ballotRoute: pairing.ballots.route,
+                 rollLabel: pairing.roll.label, ballotLabel: pairing.ballots.label,
+                 coherent: pairing.coherent };
+  rows.forEach((r) => { r.basketKey = nvBasketKey(nv.unit, r); });
+  nv.rows = sortNonvoterRows(rows);
+  nv.on = { [nv.unit]: new Map(rows.map((r) => [nvFeatureId(nv.unit, r), {
+    notVoted: r.g.notVoted, share: r.g.notVotedShare,
+    mailRank: r.m ? r.m.rank : null, label: r.label,
+  }])) };
+
+  const s = Roll.summary(rows);
+  renderNonvoterStats(s, roll, ballots);
+  renderNonvoterBadge(pairing);
+  setStatus('nv-status', 'ok', nonvoterProse(rows, s, { roll, ballots, noRoll, tooSmall }));
+  renderNonvoterPriorityNote(rows, ballots);
+  $('nv-results').hidden = false;
+  $('nv-basket-card').hidden = false;
+  renderNonvoterTable(nv.rows);
+  renderNonvoterBasket();
+  restyleForNonvoters();
+}
+
+function renderNonvoterStats(s, roll, ballots) {
+  const host = $('nv-stats');
+  host.textContent = '';
+  const stat = (label, value, note) => {
+    const box = el('div', 'viz-stat');
+    box.append(el('div', 'viz-stat-value', value), el('div', 'text-small text-muted', label));
+    if (note) box.append(el('div', 'text-small text-muted', note));
+    return box;
+  };
+  host.append(
+    stat('did not vote', fmtInt(s.notVoted), fmtPct(s.share) + ' of the roll'),
+    stat('on the roll', fmtInt(s.rollTotal), roll.label.toLowerCase()),
+    stat('ballots cast', fmtInt(s.ballotTotal), ballots.label),
+    stat('areas with a roll entry', fmtInt(s.areas)),
+  );
+}
+
+/* Beside the figures rather than a tab away, and taking the weaker of the two
+   halves: a subtraction is only as firm as its softer side. */
+function renderNonvoterBadge(pairing) {
+  const host = $('nv-badge');
+  if (!host) return;
+  host.textContent = '';
+  const kind = pairing.route === 'counted' ? 'counted'
+    : pairing.route === 'smoothed' ? 'smoothed' : 'modelled';
+  const [label, why] = PROVENANCE[pairing.route === 'interpolated' ? 'modelled' : pairing.route];
+  const badge = el('span', `badge badge-${kind}`,
+    pairing.route === 'counted' ? `${label} · ${pairing.label}` : `${label} · read caveat`);
+  badge.title = why;
+  host.append(badge);
+  if (!pairing.coherent) {
+    const cross = el('span', 'badge badge-modelled', 'Cross-election');
+    cross.title = `${pairing.roll.label} against ${pairing.ballots.label}: a roll drawn for one `
+      + 'election and ballots cast in another count different people in the same place.';
+    host.append(document.createTextNode(' '), cross);
+  }
+  host.hidden = false;
+}
+
+/* --- What to say about it ---------------------------------------------------
+
+   Four beats, the same shape correlationSummary uses: the finding, how firmly
+   to hold it, what the qualifier reflects, and the fixed caveat. One deliberate
+   adaptation -- a counted fact carries no confidence interval, so beat two is
+   the provenance of each half and beat three the diagnostic counts. That is the
+   honest analogue of "how firmly", rather than a weakening of it.
+
+   No verb of cause appears in anything below, and a test checks that. */
+function nonvoterProse(rows, s, ctx) {
+  const nv = state.nonvoters;
+  const unitName = NV_UNIT_NAMES[nv.unit];
+  const one = NV_UNIT_ONE[nv.unit];
+  const p = nv.pairing;
+  const out = [];
+
+  /* 1. The finding. Phrased differently where the two halves are the same
+        election, since only then is "did not vote" a statement about the same
+        people rather than a difference between two electorates. */
+  out.push(el('p', null, p.coherent
+    ? `${fmtInt(s.notVoted)} electors did not cast a ballot, across ${fmtInt(s.areas)} `
+      + `${unitName} — ${fmtPct(s.share)} of the ${p.rollLabel}.`
+    : `${fmtInt(s.areas)} ${unitName} hold ${fmtInt(s.notVoted)} more on the ${p.rollLabel} than `
+      + `there were ${p.ballotLabel} cast in them — ${fmtPct(s.share)} of the roll.`));
+
+  /* 2. How each half reached this geography. */
+  const both = p.rollRoute === 'counted' && p.ballotRoute === 'counted';
+  out.push(el('p', 'text-small text-muted', both
+    ? 'Both figures are counts. The roll was placed on these areas one address at a time; the '
+      + 'ballots were reported on them.'
+    : `${capitalise(routePhrase(p.rollRoute, 'the roll'))}, and `
+      + `${routePhrase(p.ballotRoute, 'the ballots')}. `
+      + 'A subtraction is only as firm as its softer half, so this one is not a count.'));
+  const rep = ctx.roll.id === 'muni' ? (state.points && state.points.report) : null;
+  if (rep && rep.snapped) {
+    const located = rep.matched + rep.snapped;
+    out.push(el('p', 'text-small text-muted',
+      `${fmtPct(rep.snapped / located)} of the roll rows behind these counts were placed beside the `
+      + `nearest number on their own street rather than looked up, typically `
+      + `${fmtInt(rep.snapGapMedian)} numbers away. That is an estimate of where a door is; the `
+      + 'Data tab reports the spread of it.'));
+  }
+  if (!p.coherent) {
+    out.push(el('p', 'text-small text-warning',
+      `Cross-election: the ${p.rollLabel} and the ${p.ballotLabel} count different people in the `
+      + 'same place. Somebody registered since the ballots were cast is on one side of this '
+      + 'subtraction and not the other.'));
+  }
+
+  /* 3. The diagnostic counts, which is what this tab is worth most for. */
+  if (s.negative) {
+    out.push(el('p', 'text-small text-warning',
+      `${fmtInt(s.negative)} ${one}${s.negative === 1 ? '' : 's'} came out with more ballots than `
+      + 'roll electors. In those the roll does not describe the people who voted there, which is a '
+      + 'fact about the roll rather than about the ballots.'));
+  }
+  if (s.capped) {
+    out.push(el('p', 'text-small text-warning',
+      `${fmtInt(s.capped)} ${one}${s.capped === 1 ? '' : 's'} sit at the ceiling the municipal `
+      + `model works under — each area's own `
+      + 'federal electorate. A gap of zero there is arithmetic rather than a finding, and those '
+      + 'rows are shown in italic.'));
+  }
+  if (ctx.noRoll) {
+    out.push(el('p', 'text-small text-muted',
+      `${fmtInt(ctx.noRoll)} ${unitName} have no roll entry at all, which is not the same as a roll `
+      + 'of zero and is left out of every figure above. The divisions covering UBC and the '
+      + 'University Endowment Lands are the expected case: those electors are on Vancouver’s '
+      + 'roll for the school trustee ballot, and the city’s property file does not address '
+      + 'land outside the city.'));
+  }
+  if (ctx.tooSmall) {
+    out.push(el('p', 'text-small text-muted',
+      `${fmtInt(ctx.tooSmall)} more carry fewer than ${fmtInt(nv.minRoll)} on the roll and are left `
+      + 'out by the minimum above; a share over a handful of electors moves several points on one '
+      + 'person.'));
+  }
+
+  /* 4. The fixed caveat, adapted rather than copied. correlationSummary says a
+        correlation cannot tell you how anybody voted; this sits closer to the
+        individual than that -- a roll really is a list of people -- so the
+        caveat has to bite on the other edge. The atlas holds the count. */
+  out.push(el('p', 'text-small text-muted',
+    `This is about ${unitName}, not people. What is held here is a count for each area and no `
+    + 'names: a total across a whole area cannot tell you which elector did not vote.'));
+  return out;
+}
+
+const capitalise = (t) => (t ? t[0].toUpperCase() + t.slice(1) : t);
+
+/* The mail surface, saying exactly what the rank is and is not. The unit of
+   action is an area -- mail goes to a geography, not to a person picked out by
+   an inferred belief -- so an area-level score is the matched instrument here.
+   What it must never become is a count of votes. */
+function renderNonvoterPriorityNote(rows, ballots) {
+  const host = $('nv-priority-note');
+  if (!host) return;
+  const nv = state.nonvoters;
+  const ranked = rows.filter((r) => r.m);
+  host.textContent = '';
+  if (!ranked.length) {
+    host.append(el('span', null,
+      'No area has both a positive number who did not vote and a party share, so there is nothing '
+      + 'to rank.'));
+    return;
+  }
+  const lean = nv.weight > 1 ? 'leaning on the share'
+    : nv.weight < 1 ? 'leaning on the raw number who did not vote'
+      : 'weighting the two evenly';
+  const excluded = rows.length - ranked.length;
+  host.append(el('span', null,
+    `${fmtInt(ranked.length)} ${NV_UNIT_NAMES[nv.unit]} ranked from the number who did not vote and `
+    + `the ${nv.party} share of ${ballots.label} in each, ${lean}. The rank orders areas against `
+    + 'one another. It is not a count of votes available: that would be a claim about how '
+    + 'particular people would vote, and nothing here measures that.'
+    + (excluded
+      ? ` ${fmtInt(excluded)} are left out — an area where everybody on the roll voted is not a `
+        + 'mail target, and one with more ballots than roll electors is a sign the roll is wrong '
+        + 'about that area rather than a smaller target.'
+      : '')));
+}
+
+/* --- Table ------------------------------------------------------------------ */
+
+/* Every column carries both half-labels in its second header line, so a
+   screenshot of the table alone still says what was subtracted from what. */
+const NONVOTER_COLUMNS = [
+  { key: 'rank', label: '#', sub: 'by did not vote', get: (r) => r.rank, fmt: fmtInt },
+  { key: 'label', label: 'Area', get: (r) => r.label, fmt: (v) => v, left: true },
+  { key: 'g.roll.count', label: 'On the roll', get: (r) => r.g.roll.count, fmt: fmtInt },
+  { key: 'g.ballots.count', label: 'Ballots cast', get: (r) => r.g.ballots.count, fmt: fmtInt },
+  { key: 'g.notVoted', label: 'Did not vote', get: (r) => r.g.notVoted, fmt: fmtInt },
+  { key: 'g.notVotedShare', label: 'Share', get: (r) => r.g.notVotedShare, fmt: fmtPct },
+  { key: 'm.rank', label: 'Mail priority', sub: 'rank, not votes',
+    get: (r) => (r.m ? r.m.rank : null), fmt: fmtInt },
+  { key: 'm.percentile', label: 'Percentile', get: (r) => (r.m ? r.m.percentile : null),
+    fmt: (v) => `${Math.round(v)}` },
+];
+
+/* A column of dashes says nothing, exactly as on the Turnout tab: with no
+   party share there is no rank, and the two columns that carry one go. */
+function nonvoterColumns(rows) {
+  const ranked = rows.some((r) => r.m);
+  const p = state.nonvoters.pairing;
+  const subs = {
+    'g.roll.count': p ? p.rollLabel : '',
+    'g.ballots.count': p ? p.ballotLabel : '',
+    'g.notVoted': p ? p.label : '',
+    'g.notVotedShare': p ? `of the ${p.rollLabel}` : '',
+  };
+  return NONVOTER_COLUMNS
+    .filter((c) => ranked || !c.key.startsWith('m.'))
+    .map((c) => ({ ...c, sub: subs[c.key] != null ? subs[c.key] : c.sub }));
+}
+
+/* Ranks always follow the number who did not vote, whatever the table is
+   sorted by -- the Turnout tab's rule, for the same reason. The mail rank is a
+   second ordering with a second name and its own column, never folded into
+   this one. */
+function sortNonvoterRows(rows) {
+  const nv = state.nonvoters;
+  const columns = nonvoterColumns(rows);
+  if (!columns.some((c) => c.key === nv.sortKey)) { nv.sortKey = 'g.notVoted'; nv.sortDir = 'desc'; }
+  const byGap = rows.slice().sort((a, b) => b.g.notVoted - a.g.notVoted);
+  byGap.forEach((r, i) => { r.rank = i + 1; });
+  if (nv.sortKey === 'g.notVoted' && nv.sortDir === 'desc') return byGap;
+  const column = columns.find((c) => c.key === nv.sortKey);
+  const sign = nv.sortDir === 'desc' ? -1 : 1;
+  return rows.slice().sort((a, b) => {
+    const x = column.get(a), y = column.get(b);
+    /* Not negated the way the numeric branch is. A descending number is the
+       largest first, so sign flips the subtraction; a descending name is Z to
+       A, which is what sign alone already gives localeCompare. Both minus
+       signs sorted the Area column backwards from what its arrow claimed. */
+    if (typeof x === 'string' || typeof y === 'string') {
+      return sign * String(x).localeCompare(String(y), undefined, { numeric: true });
+    }
+    if (x == null && y == null) return 0;
+    if (x == null) return 1;                 // nulls sink either way
+    if (y == null) return -1;
+    return sign * (x - y);
+  });
+}
+
+function renderNonvoterTable(rows) {
+  const table = $('nv-table');
+  table.textContent = '';
+  const columns = nonvoterColumns(rows);
+  const thead = el('thead'), hr = el('tr');
+  hr.append(el('th', 'text-start', ''));
+  for (const c of columns) {
+    const th = el('th', c.left ? 'text-start' : null);
+    th.append(el('span', null, c.label));
+    if (c.sub) th.append(el('span', 'th-sub text-small text-muted', c.sub));
+    if (c.key === state.nonvoters.sortKey) th.classList.add('sorted', state.nonvoters.sortDir);
+    th.dataset.key = c.key;
+    th.addEventListener('click', () => {
+      const nv = state.nonvoters;
+      if (nv.sortKey === c.key) nv.sortDir = nv.sortDir === 'desc' ? 'asc' : 'desc';
+      else { nv.sortKey = c.key; nv.sortDir = c.key === 'label' ? 'asc' : 'desc'; }
+      nv.rows = sortNonvoterRows(nv.rows || []);
+      renderNonvoterTable(nv.rows);
+    });
+    hr.append(th);
+  }
+  thead.append(hr);
+  const tbody = el('tbody');
+  const frag = document.createDocumentFragment();
+  for (const r of rows) {
+    const tr = el('tr');
+    tr.dataset.key = r.basketKey || '';
+    /* The same italic the Turnout tab gives a row built from one election: a
+       row whose zero is the model's ceiling rather than the electorate's. */
+    if (r.g.capped) tr.classList.add('partial');
+    if (r.g.notVoted < 0) tr.classList.add('over');
+    if (r.basketKey && state.nonvoters.basket.has(r.basketKey)) tr.classList.add('in-basket');
+    const td0 = el('td', 'text-start');
+    const cb = el('input'); cb.type = 'checkbox'; cb.checked = tr.classList.contains('in-basket');
+    cb.disabled = !r.basketKey;
+    cb.setAttribute('aria-label', `Add ${r.label} to the picked set`);
+    cb.addEventListener('change', () => toggleNonvoterBasket(r.basketKey));
+    td0.append(cb); tr.append(td0);
+    for (const c of columns) {
+      const v = c.get(r);
+      tr.append(el('td', c.left ? 'text-start' : null, v == null ? '--' : c.fmt(v)));
+    }
+    frag.append(tr);
+  }
+  tbody.append(frag);
+  table.append(thead, tbody);
+}
+
+/* --- The picked set --------------------------------------------------------- */
+
+function nvBasketKey(unit, row) {
+  const f = nvFeature(unit, row);
+  if (!f) return null;
+  return unit === 'fed' ? f.key : f.__key;
+}
+
+function toggleNonvoterBasket(key) {
+  if (!key) return;
+  const b = state.nonvoters.basket;
+  if (b.has(key)) b.delete(key); else b.add(key);
+  const row = $('nv-table').querySelector(`tr[data-key="${CSS.escape(key)}"]`);
+  if (row) {
+    row.classList.toggle('in-basket', b.has(key));
+    const cb = row.querySelector('input[type=checkbox]');
+    if (cb) cb.checked = b.has(key);
+  }
+  renderNonvoterBasket();
+}
+
+/* Summed, never re-modelled: these are the same counts the table shows, added
+   up. The share is over the picked roll rather than over the areas, so a large
+   area cannot be outvoted by a handful of small ones. */
+function renderNonvoterBasket() {
+  const host = $('nv-basket');
+  if (!host) return;
+  host.textContent = '';
+  const rows = (state.nonvoters.rows || []).filter((r) => r.basketKey
+    && state.nonvoters.basket.has(r.basketKey));
+  let rollTotal = 0, notVoted = 0;
+  for (const r of rows) { rollTotal += r.g.roll.count; notVoted += r.g.notVoted; }
+  const stat = (label, value, note) => {
+    const box = el('div', 'viz-stat');
+    box.append(el('div', 'viz-stat-value', value), el('div', 'text-small text-muted', label));
+    if (note) box.append(el('div', 'text-small text-muted', note));
+    return box;
+  };
+  host.append(
+    stat('areas picked', fmtInt(rows.length)),
+    stat('on the roll', fmtInt(rollTotal)),
+    stat('did not vote', fmtInt(notVoted), rollTotal > 0 ? `${fmtPct(notVoted / rollTotal)} of them` : null),
+  );
+  const note = $('nv-basket-note');
+  if (note) {
+    note.textContent = rows.length
+      ? 'Counts, added up. Doors are not areas: the addresses export on the Data tab is what a '
+        + 'mail house needs, and several electors behind one door is one drop.'
+      : 'Tick areas in the table below, or add the top of the ranking.';
+  }
+}
+
+/* --- Export ------------------------------------------------------------------
+
+   The {headers, of} builder stays here rather than in f8-roll.js, following
+   pointsColumns: which columns an export carries is a decision about this
+   table, and the maths module has no business knowing about it.
+
+   Fixed schema names, the reader's choice in its own columns. A file that
+   renames its columns depending on what somebody picked is one no script can be
+   written against, and every route travels beside its half so that counted and
+   modelled figures can be told apart after the file has left this tab. */
+function nonvoterCsvExtra(rows) {
+  const ranked = rows.some((r) => r.m);
+  const headers = ['not_voted_rank', 'not_voted', 'not_voted_share',
+    'roll_count', 'roll_source', 'roll_label', 'roll_vintage', 'roll_route',
+    'ballots_count', 'ballots_source', 'ballots_label', 'ballots_vintage', 'ballots_route',
+    'pairing_route', 'coherent', 'capped',
+    ...(ranked ? ['mail_rank', 'mail_percentile', 'mail_score', 'mail_basis'] : [])];
+  const f = (v, dp = 6) => (v == null || !isFinite(v) ? '' : Number(v).toFixed(dp));
+  return {
+    headers,
+    of: (r) => {
+      const g = r.g;
+      return [r.rank ?? '', g.notVoted, f(g.notVotedShare),
+        g.roll.count, g.roll.source, g.roll.label, g.roll.vintage, g.roll.route,
+        g.ballots.count, g.ballots.source, g.ballots.label, g.ballots.vintage, g.ballots.route,
+        g.route, g.coherent ? 'yes' : 'no', g.capped ? 'yes' : 'no',
+        ...(ranked ? [r.m ? r.m.rank : '', r.m ? r.m.percentile : '',
+                      r.m ? f(r.m.score, 4) : '', r.m ? r.m.basis : ''] : [])];
+    },
+  };
+}
+
+/* --- Map -------------------------------------------------------------------- */
+
+function updateNonvoterControls() {
+  const on = state.nonvoters.on || {};
+  for (const [sel, layer] of [['shade-by', 'fed'], ['shade-prov-by', 'prov']]) {
+    const node = $(sel);
+    if (!node) continue;
+    const ok = Boolean(on[layer] && on[layer].size);
+    for (const value of ['nonvoters-count', 'nonvoters-share']) {
+      const option = node.querySelector(`option[value="${value}"]`);
+      if (!option) continue;
+      option.hidden = !ok;
+      if (!ok && node.value === value) node.value = 'none';
+    }
+  }
+}
+
+function restyleForNonvoters() {
+  updateNonvoterControls();
+  applyFederalStyle(gFed.selectAll('path'));
+  applyProvincialStyle(gProv.selectAll('path'));
+  renderLegend();
+  renderReadout();
+}
+
+/* --- Wiring ------------------------------------------------------------------ */
+
+if ($('nv-unit')) {
+  for (const id of ['nv-unit', 'nv-roll', 'nv-ballots', 'nv-min', 'nv-party', 'nv-weight']) {
+    /* The unit changes which features the rows are keyed by, so the picked set
+       is cleared with it -- keys from one geography mean nothing on another. */
+    $(id).addEventListener('change', () => {
+      if (id === 'nv-unit') state.nonvoters.basket.clear();
+      refreshNonvoters();
+    });
+  }
+  $('export-nonvoters').addEventListener('click', () => {
+    const rows = state.nonvoters.rows || [];
+    if (!rows.length) return;
+    const unit = state.nonvoters.unit;
+    downloadCsv(`vancouver-nonvoters-${unit}.csv`,
+      Turnout.toCsv(rows, ['fed', 'prov'], nonvoterCsvExtra(rows)));
+  });
+  $('nv-basket-add-top').addEventListener('click', () => {
+    const n = Math.max(1, parseInt($('nv-basket-top-n').value, 10) || 50);
+    const rows = state.nonvoters.rows || [];
+    /* The top of whichever ranking the reader is looking at: the mail rank
+       where one exists, the number who did not vote where it does not. */
+    const ordered = rows.some((r) => r.m)
+      ? rows.filter((r) => r.m).slice().sort((a, b) => a.m.rank - b.m.rank)
+      : rows.slice().sort((a, b) => b.g.notVoted - a.g.notVoted);
+    for (const r of ordered.slice(0, n)) if (r.basketKey) state.nonvoters.basket.add(r.basketKey);
+    renderNonvoterTable(rows);
+    renderNonvoterBasket();
+  });
+  $('nv-basket-clear').addEventListener('click', () => {
+    state.nonvoters.basket.clear();
+    renderNonvoterTable(state.nonvoters.rows || []);
+    renderNonvoterBasket();
+  });
 }
 
 /* --- Start ---------------------------------------------------------------

@@ -594,11 +594,24 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
        names and home addresses of people. So the pattern forbids a roll flag by
        every name it might plausibly take while permitting that one explicitly,
        and the checks below pin what it is for -- a guard that can be widened by
-       renaming a flag is not a guard. */
+       renaming a flag is not a guard.
+
+       Widened with the Non-voters tab, which is what reads a roll. The first
+       version matched the literal --roll and so would have let --muni-roll
+       straight through, and it had nothing at all to say about canvass data --
+       a support level per named person, which is the one file here even more
+       disclosive than the roll. --prov-electors stays permitted and must: it
+       is a district-level count published by Elections BC, an aggregate about
+       areas rather than a list of people. */
     const payloadTool = fs.readFileSync('tools/make-payload.js', 'utf8');
-    ok('there is no flag that would bake in a roll of people',
-       !/--points(?!-ref)|--roll|--elector(s)?-roll|--voters?\b/.test(payloadTool),
+    ok('there is no flag that would bake in a roll of people, by any name it might take',
+       !/--points(?!-ref)|--[a-z-]*roll\b|--elector(s)?-roll|--voters?\b/.test(payloadTool),
        (payloadTool.match(/--[a-z-]+/g) || []).join(' '));
+    ok('nor one that would bake in canvass data, which names people as well as placing them',
+       !/--canvass|--support|--contacts?\b|--turf\b/.test(payloadTool),
+       (payloadTool.match(/--[a-z-]+/g) || []).join(' '));
+    ok('and the aggregate elector count that IS allowed is still allowed',
+       /--prov-electors/.test(payloadTool));
     ok('and the one address flag there is says it takes buildings, not people',
        /--points-ref/.test(payloadTool)
        && /PROPERTY ADDRESSES, which are open data and\s*\*?\s*carry no people/.test(payloadTool),
@@ -606,8 +619,8 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     ok('and the refusal is still written down where somebody adding a flag will read it',
        /WHAT THIS WILL NOT TAKE: an elector roll/.test(payloadTool));
     /* And the build must have no key for one either: a flag is only half of it. */
-    ok('no payload key would carry a roll',
-       !/"(points|roll|electors-roll)"/.test(fs.readFileSync('build.py', 'utf8')),
+    ok('no payload key would carry a roll or a canvass',
+       !/"([a-z-]*roll|points|canvass|support|contacts)"/.test(fs.readFileSync('build.py', 'utf8')),
        (fs.readFileSync('build.py', 'utf8').match(/PAYLOAD_KEYS[^)]*\)/) || [''])[0]);
     /* Half a payload must fail loudly: boundaries with no variables draw an
        empty map and variables with no boundaries have nothing to join to,
