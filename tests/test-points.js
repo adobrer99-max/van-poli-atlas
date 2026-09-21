@@ -220,6 +220,66 @@ const cov = P.coverage(a.per, ['A', 'B', 'C'], { disclosureBelow: 2 });
 eq('coverage names the empty areas', [cov.areas, cov.empty], [3, 1]);
 ok(`and how many are small enough to be disclosive (${cov.sparse})`, cov.sparse === 1);
 
+console.log('\n== Placing an address the reference does not carry ==');
+/* 81% against the real roll, and 82% of the misses were a number the property
+   file lacks on a street it knows: 1483 E King Edward, where the file holds
+   1400, 1401, 1402 and so on. A neighbouring number on the same street is
+   within a block, which is almost always the same polling division.
+
+   It is an estimate and is labelled one everywhere. Two things stop it being a
+   bad estimate, and both are tested: it keeps to the same side of the street,
+   because odd and even face each other across a line that is very often an
+   AREA BOUNDARY; and it gives up past a ceiling, because snapping 9999 to 1424
+   on the strength of a shared street name is a kilometre, not a neighbour. */
+const snapRefRows = [];
+for (let n = 1400; n <= 1424; n++) {
+  snapRefRows.push([String(n), 'E KING EDWARD AVE', String(-123.1 + n * 1e-5), '49.25']);
+}
+const snapRefTable = { header: ['CIVIC_NUMBER', 'STD_STREET', 'longitude', 'latitude'],
+                       rows: snapRefRows };
+const snapRef = P.buildReference(snapRefTable,
+  P.detectPointLayout(snapRefTable.header, snapRefTable.rows));
+const snapRollHeader = ['CIVIC_NUMBER', 'STD_STREET'];
+const snapRoll = { header: snapRollHeader, rows: [
+  ['1483', 'E KING EDWARD AVE'],   // odd, past the end
+  ['1484', 'E KING EDWARD AVE'],   // even, past the end
+  ['1412', 'E KING EDWARD AVE'],   // the reference has this one
+  ['9999', 'E KING EDWARD AVE'],   // far beyond the ceiling
+  ['3518', 'WESBROOK MALL'],       // a street the reference never heard of
+]};
+const snapLayout = P.detectPointLayout(snapRollHeader, snapRoll.rows);
+const snapOpts = { reference: snapRef.map, referenceStreets: snapRef.streets };
+const noSnap = P.readPoints(snapRoll, snapLayout, snapOpts).report;
+const withSnap = P.readPoints(snapRoll, snapLayout,
+  { ...snapOpts, snapToStreet: true, byStreet: snapRef.byStreet });
+
+/* The field is always present and reads zero when off, rather than appearing
+   only sometimes: a caller reading report.snapped should not have to know
+   whether the option was set to know what the number means. */
+eq('off unless asked for: an estimate is never produced silently', noSnap.snapped, 0);
+eq('with it on, the two past the end of the street are placed', withSnap.report.snapped, 2);
+/* The figure that must not move. One is a lookup and the other is a guess at
+   where a door is, and a per-area count built on them is only as good as the
+   reader's ability to tell how much of it is which. */
+eq('and matched still counts only what the reference actually held',
+   [noSnap.matched, withSnap.report.matched], [1, 1]);
+eq('a number far past the ceiling stays a miss rather than crossing the city',
+   withSnap.report.misses.includes('9999 E KING EDWARD AVE'), true);
+eq('and a street the reference never heard of stays a miss too',
+   withSnap.report.misses.includes('3518 WESBROOK MALL'), true);
+/* Odd and even face each other across a line that is often an area boundary. */
+eq('nothing crossed the street: parity was preserved on both', withSnap.report.snapCrossedStreet, 0);
+ok(`the gap is reported so a reader can judge it (median ${withSnap.report.snapGapMedian})`,
+   withSnap.report.snapGapMedian > 0 && withSnap.report.snapGapMax <= 200,
+   JSON.stringify([withSnap.report.snapGapMedian, withSnap.report.snapGapMax]));
+/* And the distinction travels with the point, so nothing downstream has to
+   reconstruct it from the report. */
+eq('each point says how it was placed',
+   withSnap.points.map((q) => q.route).sort().join(','),
+   'counted,interpolated,interpolated');
+eq('and the pooled addresses carry it too',
+   P.byAddress(withSnap.points).find((a) => a.key === '1412 E KING EDWARD AVE').route, 'counted');
+
 console.log('\n== The shape of the misses ==');
 /* 80.1% against the real roll, and the row count alone could not say what kind
    of failure it was. A roll has one row per elector, so a tower is hundreds of
@@ -250,6 +310,14 @@ eq('while forty at separate addresses are forty of each',
 ok('and the busiest unmatched address is named, with its count',
    towerReport.topMisses[0].key === '999 KNOWN ST' && towerReport.topMisses[0].rows === 40,
    JSON.stringify(towerReport.topMisses[0]));
+/* The reading is a RATIO against the rows that matched, not an absolute number.
+   Against the real roll the misses averaged 3.75 rows per address and the hits
+   4.81 -- nearly the same -- and a threshold comparing 3.75 to 1 announced
+   "close to one row per address, so this is the keying". Both halves wrong: it
+   is not close to one, and the question was never how it compares to one. The
+   baseline was in the next sentence the whole time. */
+eq('the miss report carries both sides of the comparison, not just one',
+   [towerReport.missKeys > 0, towerReport.placeKeys >= 0].every(Boolean), true);
 
 /* The matched side of the same count, which is the useful one: a tower is one
    door and hundreds of electors behind it, so the busiest located addresses are

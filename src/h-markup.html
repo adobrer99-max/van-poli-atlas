@@ -501,6 +501,17 @@
         <input class="form-control" type="text" id="points-noun" value="addresses" maxlength="24">
       </label>
     </div>
+    <div class="viz-controls">
+      <label class="form-check">
+        <input class="form-check-input" type="checkbox" id="points-snap" checked>
+        <span class="form-check-label">Place an address the lookup table lacks beside the nearest
+          number on the same street</span>
+      </label>
+      <p class="text-small text-muted" style="margin:0; flex:1 1 20rem;">
+        An estimate, not a lookup, and reported as one. It keeps to the same side of the street and
+        gives up beyond two blocks &mdash; a street is often the boundary between two areas.
+      </p>
+    </div>
     <!-- The label names the FILE, not the condition.
 
          It used to read "Reference file, if the rows carry addresses rather

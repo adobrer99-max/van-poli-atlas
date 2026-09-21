@@ -99,16 +99,53 @@ function renderPointsReport() {
        of work on the normaliser touches it. Misses spread across nearly as many
        addresses as rows means the keying itself is wrong. The row count cannot
        tell those apart, and they call for opposite work. */
+    /* Placed by estimate, said plainly and kept apart from the lookups.
+
+       This is the difference between "the file says this door is here" and
+       "the nearest door the file knows is sixty numbers away", and a reader
+       deciding whether to trust a per-area count needs to see which they have.
+       The median gap is the useful figure: sixty numbers is most of a block and
+       almost never crosses a division; six hundred would. */
+    if (r.snapped) {
+      lines.push(el('p', 'text-small text-muted',
+        `A further ${fmtInt(r.snapped)} were placed beside the nearest number on the same street, `
+        + `at ${fmtInt(r.snapKeys)} addresses the lookup table does not carry. `
+        + `Typically ${fmtInt(r.snapGapMedian)} numbers away, at most ${fmtInt(r.snapGapMax)} — `
+        + 'an estimate of where the door is, not a lookup, and never counted as one.'
+        + (r.snapCrossedStreet
+          ? ` ${fmtInt(r.snapCrossedStreet)} had nothing close on their own side of the street `
+            + 'and took the other side, which is the case most likely to cross an area boundary.'
+          : ' All kept to their own side of the street.')));
+    }
     if (r.missKeys) {
       const per = r.missRows / r.missKeys;
+      /* Read against the rows that DID match, not against an absolute number.
+
+         The first version compared this to 1 and called 3.75 "close to one row
+         per address", which is both wrong and the wrong question. What matters
+         is whether the addresses that missed look like the addresses that hit:
+         3.75 beside a located 4.8 says the same mix of towers and houses, so
+         the reference is simply missing addresses across the board rather than
+         failing on a particular kind of place. Only a figure far below the
+         located one would point at the keying, and far above it at whole
+         buildings. The baseline was always sitting in the next sentence. */
+      const locatedPer = r.placeKeys ? r.matched / r.placeKeys : null;
+      const ratio = locatedPer ? per / locatedPer : null;
       lines.push(el('p', 'text-small text-muted',
         `Those ${fmtInt(r.missRows)} rows sit at ${fmtInt(r.missKeys)} distinct addresses, `
-        + `${per >= 10 ? fmtNum(per, 1) : fmtNum(per, 2)} rows each on average. `
-        + (per >= 10
-          ? 'That many to an address means whole buildings are missing from the reference, not '
-            + 'individual doors — so a newer extract or the addresses those buildings actually '
-            + 'use would recover them in blocks.'
-          : 'Close to one row per address, so this is the keying rather than whole buildings.')));
+        + `${fmtNum(per, 2)} rows each on average`
+        + (locatedPer ? `, against ${fmtNum(locatedPer, 2)} at the addresses that did match. ` : '. ')
+        + (ratio == null ? ''
+          : ratio > 1.75
+            ? 'Far more to an address than the ones that matched, so whole buildings are missing '
+              + 'from the reference rather than scattered doors — a newer extract would recover '
+              + 'them in blocks.'
+          : ratio < 0.45
+            ? 'Far fewer to an address than the ones that matched, which points at the keying '
+              + 'rather than at missing places.'
+            : 'About the same, so the addresses that missed are the same mix of buildings and '
+              + 'houses as the ones that hit — the reference is missing addresses across the '
+              + 'board, not failing on one kind of place.')));
       if (r.topMisses && r.topMisses.length) {
         lines.push(el('p', 'text-small text-muted',
           'Most electors at one unmatched address: '
@@ -251,8 +288,12 @@ function applyPointFile(table) {
       + 'against it.']);
     return;
   }
-  const read = Points.readPoints(table, layout, { reference: pointReference && pointReference.map,
-     referenceStreets: pointReference && pointReference.streets });
+  const read = Points.readPoints(table, layout, {
+    reference: pointReference && pointReference.map,
+    referenceStreets: pointReference && pointReference.streets,
+    snapToStreet: $('points-snap') ? $('points-snap').checked : false,
+    byStreet: pointReference && pointReference.byStreet,
+  });
   const assigned = assignPoints(read.points);
   state.points = {
     ...assigned,
@@ -314,6 +355,10 @@ function exportAddresses() {
   const basis = exportBasis();
   const head = ['address', noun];
   if (p.report && p.report.weighted) head.push('weight');
+  /* Whether this door was looked up or estimated. A fixed column name, so a
+     script can filter on it, and never folded into the coordinate: a reader
+     who wants only the addresses the city actually lists can have them. */
+  head.push('located_by');
   head.push('longitude', 'latitude');
   for (const t of indexes) head.push(LAYER_COLUMN[t.key] || t.key);
   if (basis) head.push('selected_on', 'selected_value', 'selected_percentile');
@@ -321,6 +366,7 @@ function exportAddresses() {
   for (const a of places) {
     const row = [a.key, a.rows];
     if (p.report && p.report.weighted) row.push(round5(a.weight));
+    row.push(a.route === 'interpolated' ? 'nearest on street' : 'address lookup');
     row.push(round5(a.lon), round5(a.lat));
     let onFeature = null;
     for (const t of indexes) {
