@@ -220,6 +220,37 @@ const cov = P.coverage(a.per, ['A', 'B', 'C'], { disclosureBelow: 2 });
 eq('coverage names the empty areas', [cov.areas, cov.empty], [3, 1]);
 ok(`and how many are small enough to be disclosive (${cov.sparse})`, cov.sparse === 1);
 
+console.log('\n== The shape of the misses ==');
+/* 80.1% against the real roll, and the row count alone could not say what kind
+   of failure it was. A roll has one row per elector, so a tower is hundreds of
+   rows at one address: tens of thousands of unmatched rows collapsing to a
+   couple of thousand addresses means the reference lacks the address those
+   residents write, and no work on the normaliser would touch it. Spread across
+   nearly as many addresses as rows means the keying is wrong. Opposite fixes,
+   so the report has to tell them apart. */
+const shapeRef = P.buildReference(
+  { header: ['CIVIC_NUMBER', 'STD_STREET', 'longitude', 'latitude'],
+    rows: [['1', 'KNOWN ST', '-123.1', '49.28']] },
+  P.detectPointLayout(['CIVIC_NUMBER', 'STD_STREET', 'longitude', 'latitude'],
+                      [['1', 'KNOWN ST', '-123.1', '49.28']]));
+const rollHeader = ['CIVIC_NUMBER', 'STD_STREET'];
+const tower = { header: rollHeader, rows: [] };
+for (let i = 0; i < 40; i++) tower.rows.push(['999', 'KNOWN ST']);   // one address
+const spread = { header: rollHeader, rows: [] };
+for (let i = 0; i < 40; i++) spread.rows.push([String(2000 + i), 'KNOWN ST']); // forty
+const shapeLayout = P.detectPointLayout(rollHeader, tower.rows);
+const towerReport = P.readPoints(tower, shapeLayout,
+  { reference: shapeRef.map, referenceStreets: shapeRef.streets }).report;
+const spreadReport = P.readPoints(spread, shapeLayout,
+  { reference: shapeRef.map, referenceStreets: shapeRef.streets }).report;
+eq('forty electors at one unmatched address are forty rows', towerReport.missRows, 40);
+eq('but one distinct address', towerReport.missKeys, 1);
+eq('while forty at separate addresses are forty of each',
+   [spreadReport.missRows, spreadReport.missKeys], [40, 40]);
+ok('and the busiest unmatched address is named, with its count',
+   towerReport.topMisses[0].key === '999 KNOWN ST' && towerReport.topMisses[0].rows === 40,
+   JSON.stringify(towerReport.topMisses[0]));
+
 console.log('\n== A lone direction has one canonical position ==');
 /* "E 10TH AVENUE" and "10TH AVE E" are one street. The City's property file
    leads with the direction; the electors roll trails it in a column of its own.

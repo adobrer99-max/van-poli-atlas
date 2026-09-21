@@ -352,6 +352,17 @@ const Points = (() => {
        samples, because they call for different action. */
     const knownStreets = options.referenceStreets || null;
     const newOnKnownStreet = [], unknownStreet = [];
+    /* How many DISTINCT addresses the misses represent, which is the measure
+       that says what kind of failure this is.
+
+       A roll has one row per elector, so a tower is hundreds of rows at one
+       address. If tens of thousands of unmatched rows collapse to a couple of
+       thousand keys, the misses are big buildings whose registered parcel
+       address differs from the one their residents use -- and the fix is the
+       reference, not the normaliser. If they stay spread across nearly as many
+       keys as rows, something is wrong with the keying itself. The row count
+       alone cannot tell those apart, and they call for opposite work. */
+    const missCounts = new Map();
     let unreadable = 0, matched = 0;
     const cell = (r, i) => (i >= 0 && i < r.length ? r[i] : '');
 
@@ -383,6 +394,7 @@ const Points = (() => {
         if (hit) { lon = hit.lon; lat = hit.lat; matched++; }
         else if (key) {
           if (misses.length < 25) misses.push(key);
+          missCounts.set(key, (missCounts.get(key) || 0) + 1);
           const street = /^[0-9A-Z]+ (.+)$/.exec(key);
           const bucket = knownStreets && street && knownStreets.has(street[1])
             ? newOnKnownStreet : unknownStreet;
@@ -413,6 +425,13 @@ const Points = (() => {
         missRate: NEEDS_REFERENCE.has(layout.kind) && rows.length
           ? (rows.length - matched) / rows.length : null,
         misses,
+        missRows: rows.length - matched,
+        missKeys: missCounts.size,
+        /* The addresses that swallowed the most electors, which name the
+           buildings to check by hand when the shape above says buildings. */
+        topMisses: [...missCounts.entries()]
+          .sort((a, b) => b[1] - a[1]).slice(0, 8)
+          .map(([key, n]) => ({ key, rows: n })),
         /* Counted whether or not the caller supplied the street set: with no
            set every miss falls to unknownStreet, which is the honest answer
            when there is nothing to tell them apart with. */

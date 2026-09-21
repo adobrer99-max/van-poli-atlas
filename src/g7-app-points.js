@@ -89,6 +89,32 @@ function renderPointsReport() {
           + `does not cover. For example: ${r.unknownStreet.sample.slice(0, 4).join('; ')}.`));
       }
     }
+    /* The shape of the misses, which says what KIND of failure this is and so
+       which fix would be wasted effort.
+
+       A roll has one row per elector, so a tower is hundreds of rows at a
+       single address. Tens of thousands of rows collapsing to a couple of
+       thousand addresses means big buildings whose registered parcel address is
+       not the one their residents write -- a reference problem, and no amount
+       of work on the normaliser touches it. Misses spread across nearly as many
+       addresses as rows means the keying itself is wrong. The row count cannot
+       tell those apart, and they call for opposite work. */
+    if (r.missKeys) {
+      const per = r.missRows / r.missKeys;
+      lines.push(el('p', 'text-small text-muted',
+        `Those ${fmtInt(r.missRows)} rows sit at ${fmtInt(r.missKeys)} distinct addresses, `
+        + `${per >= 10 ? fmtNum(per, 1) : fmtNum(per, 2)} rows each on average. `
+        + (per >= 10
+          ? 'That many to an address means buildings, so the reference is missing the address '
+            + 'those residents use rather than the normaliser mis-spelling it.'
+          : 'Close to one row per address, so this is the keying rather than a few large '
+            + 'buildings.')));
+      if (r.topMisses && r.topMisses.length) {
+        lines.push(el('p', 'text-small text-muted',
+          'Most electors at one unmatched address: '
+          + r.topMisses.slice(0, 5).map((m) => `${m.key} (${fmtInt(m.rows)})`).join('; ') + '.'));
+      }
+    }
   }
   if (r.unreadable) {
     lines.push(el('p', 'text-small text-muted',
