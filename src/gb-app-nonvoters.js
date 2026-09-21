@@ -45,7 +45,13 @@ function nvFeatureId(unit, row) {
 /* Every elector count that resolves for at least one area, with the label the
    picker shows. Availability is measured rather than assumed: a source is
    offered when it actually produces a number here, so a picker never offers a
-   denominator that would blank the tab. */
+   denominator that would blank the tab.
+
+   ORDER IS THE DEFAULT. A loaded roll comes first, ahead of the elector counts
+   that ride along with a results file, because a reader who has gone to the
+   trouble of loading one wants this tab to be about it. The picker falls to
+   the first entry whenever the reader has not chosen, so this order is what
+   the tab settles on by itself. */
 function nvRollSources(rows, unit) {
   const out = [];
   const p = state.points;
@@ -208,12 +214,24 @@ function refreshNonvoters() {
 
   const rollSources = nvRollSources(all, nv.unit);
   const ballotSources = nvBallotSources(all, nv.unit);
-  /* The reader's choice comes from the control, not from the last value the
-     state happened to hold: nvSyncSelect refills the picker, so feeding it the
-     state would rewrite the DOM back to the previous selection and the change
-     handler would be a no-op. */
-  nv.roll = nvSyncSelect('nv-roll', rollSources, $('nv-roll').value || nv.roll);
-  nv.ballots = nvSyncSelect('nv-ballots', ballotSources, $('nv-ballots').value || nv.ballots);
+  /* What was asked for decides; what is merely in force does not.
+
+     rollWanted is null until the reader touches the picker, and null lets the
+     preference order in nvRollSources decide afresh on every refresh. Reading
+     the control instead would be wrong in both directions: nvSyncSelect
+     refills it, so an untouched picker hands back its own fallback as though
+     it were a choice, and a choice whose source has gone away is overwritten
+     there and cannot come back when the source does.
+
+     That first direction is the whole bug this fixes. A payload build loads
+     its datasets in sequence, so this tab ran before a roll had been read and
+     settled on the only elector count that existed at that moment; keeping
+     that pinned the tab to federal electors minus federal ballots with a roll
+     of half a million people loaded and ignored. Nothing looked wrong -- the
+     figures were real counts, correctly labelled, answering a question nobody
+     had asked. */
+  nv.roll = nvSyncSelect('nv-roll', rollSources, nv.rollWanted);
+  nv.ballots = nvSyncSelect('nv-ballots', ballotSources, nv.ballotsWanted);
   const roll = rollSources.find((s) => s.id === nv.roll);
   const ballots = ballotSources.find((s) => s.id === nv.ballots);
   if (!roll || !ballots) {
@@ -687,7 +705,13 @@ if ($('nv-unit')) {
     /* The unit changes which features the rows are keyed by, so the picked set
        is cleared with it -- keys from one geography mean nothing on another. */
     $(id).addEventListener('change', () => {
-      if (id === 'nv-unit') state.nonvoters.basket.clear();
+      const nv = state.nonvoters;
+      if (id === 'nv-unit') nv.basket.clear();
+      /* Only a change event records an ask. fillSelect assigns `value`
+         directly, which fires nothing, so refilling a picker can never promote
+         its own fallback into a choice. */
+      if (id === 'nv-roll') nv.rollWanted = $('nv-roll').value;
+      if (id === 'nv-ballots') nv.ballotsWanted = $('nv-ballots').value;
       refreshNonvoters();
     });
   }

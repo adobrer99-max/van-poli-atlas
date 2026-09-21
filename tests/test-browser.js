@@ -1050,10 +1050,37 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
      rollOptions.includes('fed') && rollOptions.includes('muni'), rollOptions.join(','));
   ok('and never offers census residents as a roll',
      !rollOptions.includes('adults'), rollOptions.join(','));
+  /* The default, and the reason it needs a test.
 
+     This tab runs on every refresh, which means it runs before a roll has been
+     loaded -- and in a payload build, before the payload has finished loading
+     its datasets one by one. At that moment the only elector count in
+     existence is the one riding along with the federal results, so the picker
+     settles on it. If that fallback is then treated as the reader's choice,
+     the tab stays on federal electors minus federal ballots with a roll of
+     half a million people loaded and ignored, and nothing about the figures
+     looks wrong: they are real counts, correctly labelled, answering a
+     question nobody asked. Caught only by opening a real payload build. */
+  ok('with a roll loaded the tab is about the roll, not about whichever elector '
+     + 'count existed when it first ran',
+     (await page.locator('#nv-roll').inputValue()) === 'muni',
+     await page.locator('#nv-roll').inputValue());
+  ok('and the status names the loaded file rather than the federal roll',
+     /file of|roll of/i.test(await page.locator('#nv-status').innerText()),
+     (await page.locator('#nv-status').innerText()).replace(/\s+/g, ' ').slice(0, 160));
+
+  /* And a choice the reader does make is kept, across every later refresh --
+     the flag distinguishes the two cases, it does not stop preserving one. */
   await page.locator('#nv-roll').selectOption('fed');
   await page.locator('#nv-ballots').selectOption('fed');
   await page.waitForTimeout(900);
+  await page.locator('#nv-min').selectOption('25');
+  await page.waitForTimeout(700);
+  await page.locator('#nv-min').selectOption('0');
+  await page.waitForTimeout(900);
+  ok('a roll the reader picks survives an unrelated change to another control',
+     (await page.locator('#nv-roll').inputValue()) === 'fed',
+     await page.locator('#nv-roll').inputValue());
   const nvSame = (await page.locator('#nv-status').innerText()).replace(/\s+/g, ' ');
   ok('one election against its own roll reads as people who did not cast a ballot',
      /did not cast a ballot/.test(nvSame), nvSame.slice(0, 220));
@@ -1217,6 +1244,33 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
      basket.slice(0, 200));
   await page.locator('#nv-basket-clear').click();
   await page.waitForTimeout(300);
+
+  /* The narrower form of the same bug, and the reason the ask is stored rather
+     than a was-touched flag. The reader has chosen the loaded roll. Clearing it
+     must drop the tab to what still resolves -- there is nothing else it could
+     honestly show -- but loading the next roll must return to what they asked
+     for. A flag saying "they have chosen something" cannot do that: by then the
+     control holds the fallback, and reading it back pins the tab to the
+     federal count exactly as before. */
+  await page.locator('#tab-data').click();
+  await page.waitForTimeout(300);
+  await page.locator('#clear-points').click();
+  await page.waitForTimeout(900);
+  await page.locator('#tab-nonvoters').click();
+  await page.waitForTimeout(500);
+  ok('clearing the roll falls back to an elector count that still resolves',
+     (await page.locator('#nv-roll').inputValue()) === 'fed',
+     await page.locator('#nv-roll').inputValue());
+  await page.locator('#tab-data').click();
+  await page.waitForTimeout(300);
+  await page.locator('#file-points').setInputFiles(
+    { name: 'roll.csv', mimeType: 'text/csv', buffer: Buffer.from(ROLL) });
+  await page.waitForTimeout(1500);
+  await page.locator('#tab-nonvoters').click();
+  await page.waitForTimeout(600);
+  ok('and loading the next roll returns to the one the reader asked for',
+     (await page.locator('#nv-roll').inputValue()) === 'muni',
+     await page.locator('#nv-roll').inputValue());
 
   await page.locator('#tab-map').click();
   await page.waitForTimeout(300);
