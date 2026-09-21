@@ -126,6 +126,57 @@ const decode = (b) => T.decodeBytes(b);
   eq('outer + hole + second outer -> 2 polygons',
      B.groupRings([cw, ccwHole, cw2]).map((p) => p.length), [2, 1]);
 
+  console.log('\n== What a file actually is ==');
+  /* An extension is a claim; the first bytes are evidence. This exists because
+     trusting the claim let a workbook through as text: decodeBytes falls back
+     to windows-1252, which maps EVERY byte to a character, so it can never fail
+     and the failure surfaced instead as screenfuls of mojibake quoted back to
+     the reader as the file's column names. */
+  const xlsxBytes = read('fixtures/roll_shaped.xlsx');
+  eq('a workbook sniffs as a zip by its first bytes', B.sniffFormat(xlsxBytes).id, 'zip');
+  eq('and as an Excel workbook once its entries are known',
+     B.sniffZipContents([...B.readZip(xlsxBytes).keys()]).id, 'xlsx');
+  eq('a PDF is recognised', B.sniffFormat(new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d])).id, 'pdf');
+  eq('an older .xls is recognised, so it can be told apart from a .xlsx',
+     B.sniffFormat(new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1])).id, 'ole');
+  ok('plain text is not mistaken for any of them',
+     B.sniffFormat(new TextEncoder().encode('a,b,c\n1,2,3\n')) === null);
+  ok('and neither is an empty file', B.sniffFormat(new Uint8Array([])) === null);
+
+  console.log('\n== Excel workbooks ==');
+  const book = await B.readXlsx(xlsxBytes);
+  /* The header is on row 6 under a disclaimer, as the real roll's is. Taking
+     row 1 would name every column after a sentence about postal codes. */
+  eq('the header row is found rather than assumed to be the first', book.headerRow, 5);
+  eq('and it is the header', book.header,
+     ['Elector', 'FirstName', 'LastName', 'PropertyAddress',
+      'StreetNumb', 'StreetName', 'StreetTyp', 'LocalArea']);
+  eq('four data rows follow it', book.rows.length, 4);
+  eq('shared strings are resolved', book.rows[0][1], 'DOMENICO');
+  eq('numbers come through as their digits', book.rows[0][0], '110155');
+
+  /* The one that matters most. An empty cell is OMITTED from the XML, not
+     written blank, so a reader that counts cells as they arrive shifts every
+     value after the gap one column left -- and produces a perfectly plausible
+     table with the wrong data in it. Position has to come from r="C7". */
+  eq('an omitted cell leaves a hole rather than shifting the row left',
+     book.rows[1], ['540029', '', 'WI-AFEDZI', '706-1833 FRANCES ST',
+                    '1833', 'FRANCES', 'ST', 'Grandview-Woodland']);
+  eq('and the column after the hole is still the right column',
+     book.rows[1][2], 'WI-AFEDZI');
+
+  eq('an inline string is read', book.rows[2][1], 'DIRAN');
+  /* Excel splits a string across runs when its formatting changes part way. */
+  eq('rich text is joined across its runs, not truncated at the first',
+     book.rows[3][1], 'RICH TEXT CELL');
+
+  eq('the sheet read is named', book.sheet, 'Query1');
+  eq('and the others are listed, so taking the first is visible', book.sheets, ['Query1', 'Notes']);
+  eq('a named sheet can be asked for', (await B.readXlsx(xlsxBytes, { sheet: 'Notes' })).sheet, 'Notes');
+
+  eq('column letters map to indices', [0, 25, 26, 27, 701].map((_, i) =>
+     B.columnIndex(['A', 'Z', 'AA', 'AB', 'ZZ'][i])), [0, 25, 26, 27, 701]);
+
   console.log(fails ? `\n${fails} FAILURE(S)\n` : '\nAll binary-format tests passed.\n');
   process.exit(fails ? 1 : 0);
 })().catch((e) => { console.error('ERROR', e); process.exit(1); });

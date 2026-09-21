@@ -304,7 +304,7 @@
       each file adds to what is already loaded.
     </p>
     <div class="viz-controls">
-      <input class="form-control" type="file" id="file-fed-results" accept=".csv,.tsv,.txt,.zip" multiple>
+      <input class="form-control" type="file" id="file-fed-results" accept=".csv,.tsv,.txt,.xlsx,.zip" multiple>
       <button type="button" class="btn" id="clear-fed-results" hidden>Clear federal results</button>
     </div>
     <div id="status-fed-results" class="status"></div>
@@ -341,7 +341,7 @@
     </p>
     <div class="viz-controls">
       <label class="form-label grow" for="file-prov-electors">Registered voters by electoral district (optional)
-        <input class="form-control" type="file" id="file-prov-electors" accept=".csv,.tsv,.txt">
+        <input class="form-control" type="file" id="file-prov-electors" accept=".csv,.tsv,.txt,.xlsx">
       </label>
       <button type="button" class="btn" id="clear-prov-electors" hidden>Remove</button>
     </div>
@@ -355,7 +355,7 @@
       </label>
     </div>
     <div class="viz-controls">
-      <input class="form-control" type="file" id="file-prov-results" accept=".csv,.tsv,.txt,.zip" multiple>
+      <input class="form-control" type="file" id="file-prov-results" accept=".csv,.tsv,.txt,.xlsx,.zip" multiple>
       <button type="button" class="btn" id="clear-prov-results" hidden>Clear provincial results</button>
     </div>
     <div id="status-prov-results" class="status"></div>
@@ -400,14 +400,14 @@
     <div id="status-db-geo" class="status"></div>
     <div class="viz-controls">
       <label class="form-label grow" for="file-geo-attr">Block population: the Geographic Attribute File, or <code>db_population.csv</code> from the tool
-        <input class="form-control" type="file" id="file-geo-attr" accept=".csv,.tsv,.txt,.zip">
+        <input class="form-control" type="file" id="file-geo-attr" accept=".csv,.tsv,.txt,.xlsx,.zip">
       </label>
       <button type="button" class="btn" id="clear-geo-attr" hidden>Remove</button>
     </div>
     <div id="status-geo-attr" class="status"></div>
     <div class="viz-controls">
       <label class="form-label grow" for="file-census">Census Profile: the long download, or <code>census_da_wide.csv</code> / <code>starter.csv</code> from the tool
-        <input class="form-control" type="file" id="file-census" accept=".csv,.tsv,.txt,.zip">
+        <input class="form-control" type="file" id="file-census" accept=".csv,.tsv,.txt,.xlsx,.zip">
       </label>
       <button type="button" class="btn" id="clear-census" hidden>Remove</button>
     </div>
@@ -434,13 +434,13 @@
     </p>
     <div class="viz-controls">
       <label class="form-label grow" for="file-muni-results">Results archive (2022MunicipalElectionResults.zip)
-        <input class="form-control" type="file" id="file-muni-results" accept=".zip,.csv">
+        <input class="form-control" type="file" id="file-muni-results" accept=".zip,.csv,.xlsx">
       </label>
       <button type="button" class="btn" id="clear-muni" hidden>Remove</button>
     </div>
     <div class="viz-controls">
       <label class="form-label grow" for="file-muni-places">Voting places (voting-places-2022.csv)
-        <input class="form-control" type="file" id="file-muni-places" accept=".csv,.tsv,.txt,.zip,.geojson,.json">
+        <input class="form-control" type="file" id="file-muni-places" accept=".csv,.tsv,.txt,.xlsx,.zip,.geojson,.json">
       </label>
     </div>
     <div class="viz-controls" id="muni-controls" hidden>
@@ -478,7 +478,7 @@
     </p>
     <div class="viz-controls">
       <label class="form-label grow" for="file-points">Places to count
-        <input class="form-control" type="file" id="file-points" accept=".csv,.tsv,.txt,.zip,.geojson,.json">
+        <input class="form-control" type="file" id="file-points" accept=".csv,.tsv,.txt,.xlsx,.zip,.geojson,.json">
       </label>
       <button type="button" class="btn" id="clear-points" hidden>Remove</button>
     </div>
@@ -495,7 +495,7 @@
     </div>
     <div class="viz-controls">
       <label class="form-label grow" for="file-points-ref">Reference file, if the rows carry addresses rather than coordinates
-        <input class="form-control" type="file" id="file-points-ref" accept=".csv,.tsv,.txt,.zip">
+        <input class="form-control" type="file" id="file-points-ref" accept=".csv,.tsv,.txt,.xlsx,.zip">
       </label>
       <button type="button" class="btn" id="clear-points-ref" hidden>Remove</button>
     </div>

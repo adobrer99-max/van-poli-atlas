@@ -220,5 +220,78 @@ const cov = P.coverage(a.per, ['A', 'B', 'C'], { disclosureBelow: 2 });
 eq('coverage names the empty areas', [cov.areas, cov.empty], [3, 1]);
 ok(`and how many are small enough to be disclosive (${cov.sparse})`, cov.sparse === 1);
 
+console.log('\n== A lone direction has one canonical position ==');
+/* "E 10TH AVENUE" and "10TH AVE E" are one street. The City's property file
+   leads with the direction; the electors roll trails it in a column of its own.
+   Keying them apart would miss every directional avenue in Vancouver -- most of
+   the East Side -- while reporting a clean read and the right row count.
+
+   The 100% rehearsal could not have caught it: it respelled the property file's
+   OWN addresses, so both sides of that join shared one convention. It took a
+   real second agency to surface it, which is the argument for this test. */
+for (const [a, b] of [['10TH AVE E', 'E 10TH AVENUE'],
+                      ['KING EDWARD AVE E', 'E KING EDWARD AVE'],
+                      ['10TH AVENUE EAST', 'E 10TH AVE'],
+                      ['41ST AVE W', 'WEST 41ST AVENUE']]) {
+  eq(`"${a}" and "${b}" are the same street`, P.addressKey('1883', a), P.addressKey('1883', b));
+}
+/* But only when there is exactly one. A prefix and a suffix on the same street
+   mean different things, and folding them together would produce "KENT AVE W N"
+   and lose which was which. */
+eq('a street carrying both a prefix and a suffix keeps them where they were',
+   P.addressKey('1883', 'W KENT AV NORTH'), '1883 W KENT AVE N');
+ok('and it is still not confused with the same street lacking one',
+   P.addressKey('1883', 'W KENT AV NORTH') !== P.addressKey('1883', 'KENT AVE W'));
+
+console.log('\n== A street split across columns ==');
+/* The electors roll splits its street three ways -- REGIMENT | SQ | E -- while
+   the property reference it joins against holds the whole thing. Keying on the
+   name column alone builds "131 REGIMENT" against a reference holding
+   "131 REGIMENT SQ", so every row misses. Nothing errors, the row count is
+   right, and the match rate is zero: the exact shape of a silent wrong answer
+   this atlas keeps finding. */
+const splitHeader = ['Elector', 'StreetNumb', 'StreetNumberSuf', 'StreetName',
+                     'StreetTyp', 'StreetDirection', 'MailingAddress'];
+const splitRows = [
+  ['110155', '131', '', 'REGIMENT', 'SQ', '', 'PO BOX 1 SOMEWHERE ELSE'],
+  ['430952', '1483', '', 'KING EDWARD', 'AVE', 'E', 'PO BOX 2 SOMEWHERE ELSE'],
+  ['268402', '1883', 'A', '10TH', 'AVE', 'E', 'PO BOX 3 SOMEWHERE ELSE'],
+];
+const splitLayout = P.detectPointLayout(splitHeader, splitRows);
+eq('the number column is StreetNumb, not the suffix beside it',
+   splitHeader[splitLayout.number], 'StreetNumb');
+eq('and the suffix is picked up as a suffix', splitHeader[splitLayout.numberSuffix], 'StreetNumberSuf');
+eq('and the type and direction columns are found',
+   [splitHeader[splitLayout.streetType], splitHeader[splitLayout.streetDir]],
+   ['StreetTyp', 'StreetDirection']);
+/* A mailing address is not where somebody lives. The roll's own disclaimer says
+   the two differ often enough that postal codes are blanked when they do, so
+   choosing it would place electors at their accountant's office. */
+ok('a mailing-address column is never chosen as the address',
+   splitLayout.address < 0 || !/mail/i.test(splitHeader[splitLayout.address]),
+   String(splitHeader[splitLayout.address]));
+
+/* A reference holding the assembled form, as the city's property file does. */
+const splitRefTable = { header: ['CIVIC_NUMBER', 'STD_STREET', 'longitude', 'latitude'], rows: [
+  ['131', 'REGIMENT SQ', '-123.10', '49.28'],
+  ['1483', 'KING EDWARD AVE E', '-123.09', '49.25'],
+  ['1883A', 'E 10TH AVENUE', '-123.07', '49.26'],
+]};
+const splitRefLayout = P.detectPointLayout(splitRefTable.header, splitRefTable.rows);
+const splitRef = P.buildReference(splitRefTable, splitRefLayout);
+const joined = P.readPoints({ header: splitHeader, rows: splitRows }, splitLayout,
+                            { reference: splitRef.map, referenceStreets: splitRef.streets });
+eq(`every split-street row rejoins (${joined.report.matched} of ${joined.report.rows})`,
+   joined.report.matched, 3);
+ok('including the one whose number carries a suffix',
+   joined.points.some((p) => Math.abs(p.lat - 49.26) < 1e-9));
+/* And the proof that the assembly is what did it: drop the type and direction
+   columns from the layout and the same rows miss entirely. */
+const crippled = { ...splitLayout, streetType: -1, streetDir: -1, numberSuffix: -1 };
+const crippledJoin = P.readPoints({ header: splitHeader, rows: splitRows }, crippled,
+                                  { reference: splitRef.map, referenceStreets: splitRef.streets });
+eq('while keying on the name column alone matches nothing at all',
+   crippledJoin.report.matched, 0);
+
 console.log(fails ? `\n${fails} FAILURE(S)\n` : '\nAll point tests passed.\n');
 process.exit(fails ? 1 : 0);

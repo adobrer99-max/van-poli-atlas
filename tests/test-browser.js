@@ -849,6 +849,29 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.waitForTimeout(400);
 
   console.log('\n== A file of places, counted onto the layers ==');
+  /* An Excel workbook, through the file input a person actually uses.
+
+     The bug: loadTable decided by extension, so an .xlsx -- which IS a zip --
+     skipped the unzip branch, was decoded by a windows-1252 fallback that maps
+     every byte and therefore cannot fail, and had its own compressed bytes
+     quoted back as its column names. Screenfuls of mojibake where a column list
+     should be. Asserted through the UI rather than only at the reader, because
+     the accept attribute is part of the failure: a file the picker will not
+     offer cannot be loaded however well it parses. */
+  await page.locator('#tab-data').click();
+  await page.waitForTimeout(300);
+  ok('the file picker offers workbooks at all',
+     /\.xlsx/.test(await page.locator('#file-points').getAttribute('accept')),
+     await page.locator('#file-points').getAttribute('accept'));
+  await page.locator('#file-points').setInputFiles('fixtures/roll_shaped.xlsx');
+  await page.waitForTimeout(1500);
+  const xstatus = (await page.locator('#status-points').innerText()).replace(/\s+/g, ' ');
+  ok('a workbook is read, and its columns are understood',
+     /reference file/.test(xstatus) && !/No way to locate/.test(xstatus), xstatus.slice(0, 220));
+  ok('and nothing binary reaches the reader',
+     xstatus.length < 400 && !/[\u0000-\u0008\u000e-\u001f\ufffd]/.test(xstatus),
+     JSON.stringify(xstatus.slice(0, 160)));
+
   /* Real coordinates inside known Vancouver Centre polls, so the counts are
      checkable rather than merely non-zero. */
   await page.locator('#tab-data').click();

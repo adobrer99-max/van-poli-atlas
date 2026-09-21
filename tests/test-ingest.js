@@ -106,6 +106,52 @@ const enc = (s) => new TextEncoder().encode(s);
   eq('header', t.header, ['District','VA','Party','Votes']);
   eq('row', t.rows[0], ['Vancouver-Fairview','015','BC NDP','321']);
 
+  console.log('\n== A table out of whatever was dropped on it ==');
+  /* The bug this pins. loadTable decided by EXTENSION -- extensionOf(f) ===
+     'zip' -- so an .xlsx, which is a zip, skipped the unzip branch entirely and
+     fell through to the text path. decodeBytes then "succeeded", because its
+     windows-1252 fallback maps every byte to some character and can never fail,
+     and the delimited parser turned the compressed bytes into a header. What
+     the reader saw was the file's own binary quoted back as its column names. */
+  const book = await Ingest.loadTable('roll_shaped.xlsx', read('fixtures/roll_shaped.xlsx'));
+  eq('an Excel workbook is read as a table, by its bytes and not its extension',
+     book.header, ['Elector', 'FirstName', 'LastName', 'PropertyAddress',
+                   'StreetNumb', 'StreetName', 'StreetTyp', 'LocalArea']);
+  eq('and its rows survive the trip', book.rows.length, 4);
+  eq('and it says which sheet it read', book.sheet, 'Query1');
+  eq('and that it was a workbook rather than a delimited file', book.format, 'xlsx');
+  /* The extension is now evidence of nothing: the same bytes under a wrong name
+     still read correctly, which is the whole point of sniffing. */
+  eq('a workbook named .csv is still read as a workbook',
+     (await Ingest.loadTable('mislabelled.csv', read('fixtures/roll_shaped.xlsx'))).header.length, 8);
+
+  const refuses = async (what, name, bytes, re) => {
+    try {
+      await Ingest.loadTable(name, bytes);
+      ok(`${what} should have been refused`, false);
+    } catch (e) {
+      ok(`${what}: ${e.message.slice(0, 72)}`, re.test(e.message), e.message.slice(0, 200));
+      /* The point of the whole exercise: the message says what the file IS. It
+         must never contain the file's own bytes, which is what made the old
+         error unreadable. */
+      ok(`  and the message carries no raw bytes`, e.message.length < 400
+         && !/[\u0000-\u0008\u000e-\u001f\ufffd]/.test(e.message), JSON.stringify(e.message.slice(0, 120)));
+    }
+  };
+  await refuses('a PDF', 'notes.pdf',
+                new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a, 0x25]),
+                /is a PDF, not a table/);
+  await refuses('an older .xls', 'roll.xls',
+                new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0x00, 0x00]),
+                /older Office file.*save as \.xlsx or CSV/s);
+  await refuses('a PNG', 'map.png',
+                new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]),
+                /is a PNG image, not a table/);
+
+  /* And the paths that already worked must keep working. */
+  const stillCsv = await Ingest.loadTable('plain.csv', enc('A,B\n1,2\n'));
+  eq('a plain CSV is untouched by any of this', [stillCsv.header, stillCsv.rows[0]], [['A', 'B'], ['1', '2']]);
+
   console.log(fails ? `\n${fails} FAILURE(S)\n` : '\nAll ingest tests passed.\n');
   process.exit(fails ? 1 : 0);
 })().catch(e => { console.error('ERROR', e); process.exit(1); });
