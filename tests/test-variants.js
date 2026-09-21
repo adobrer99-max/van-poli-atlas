@@ -585,6 +585,66 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     ok('the payload tool runs', made.status === 0, (made.stderr || made.stdout || '').slice(0, 300));
     ok('it converts the boundaries and names what it wrote',
        /da-geo: 63 dissemination areas/.test(made.stdout), made.stdout.slice(0, 300));
+
+    /* A command line that would not do what it says must not run at all.
+
+       `--fed-results a.csv b.csv` reads as two files and is one: a flag takes
+       the single token after it, so b.csv was dropped -- unreported, and not
+       even checked for existence, since the path check only ever sees what the
+       parser returned. That cost a real build: six Vancouver ridings were
+       named, one was baked, the run reported a full set of datasets, and the
+       only trace was "fed-results: 1 file(s)" among nine similar lines.
+
+       The refusal has to come BEFORE anything is written, and must leave an
+       existing payload alone: a mistyped command has produced nothing, so
+       marking a good payload failed on its way out would turn a typo into a
+       rebuild. */
+    const twoValues = spawnSync('node', ['tools/make-payload.js', '--census', census,
+      '--fed-results', 'fixtures/e2e_federal_results.csv', 'fixtures/e2e_provincial_results.csv',
+      '--out', path.join(work, 'never')], { encoding: 'utf8' });
+    ok('two files after one flag is refused rather than silently taking the first',
+       twoValues.status === 1, `exit ${twoValues.status}`);
+    ok('and the refusal names the flag, what it would have used and what it dropped',
+       /--fed-results takes one value and was given 2/.test(twoValues.stderr)
+       && /would have used\s+fixtures\/e2e_federal_results\.csv/.test(twoValues.stderr)
+       && /dropped\s+fixtures\/e2e_provincial_results\.csv/.test(twoValues.stderr),
+       twoValues.stderr.slice(0, 400));
+    ok('and says how to name several files instead',
+       /--fed-results a\.csv --fed-results b\.csv/.test(twoValues.stderr)
+       && /--fed-results pollresults\//.test(twoValues.stderr),
+       twoValues.stderr.slice(-300));
+    ok('and writes nothing at all, so a typo cannot cost an existing payload',
+       !fs.existsSync(path.join(work, 'never')));
+
+    /* The same failure wearing different clothes: a flag with no value hands
+       the parser the NEXT FLAG as its value, which then fails a path check
+       naming a file nobody typed. */
+    const noValue = spawnSync('node', ['tools/make-payload.js',
+      '--fed-results', '--census', census, '--out', path.join(work, 'never')],
+      { encoding: 'utf8' });
+    ok('a flag given no value is refused, rather than swallowing the next flag',
+       noValue.status === 1 && /--fed-results was given no value/.test(noValue.stderr),
+       noValue.stderr.slice(0, 300));
+
+    /* A typo is one problem, not two. Every value after an unknown flag is
+       unattached by construction, and reporting that as well buries the line
+       that names the typo. */
+    const typo = spawnSync('node', ['tools/make-payload.js',
+      '--fed-result', 'fixtures/e2e_federal_results.csv', '--out', path.join(work, 'never')],
+      { encoding: 'utf8' });
+    ok('an unknown flag is named once, without a second complaint about its value',
+       typo.status === 1 && /--fed-result is not a flag this tool knows/.test(typo.stderr)
+       && !/takes one value/.test(typo.stderr), typo.stderr.slice(0, 300));
+
+    /* And the two forms that ARE right keep working, which is what stops this
+       guard from being a guard against using the tool. */
+    const repeated = spawnSync('node', ['tools/make-payload.js', '--census', census,
+      '--fed-results', 'fixtures/e2e_federal_results.csv',
+      '--fed-results', 'fixtures/e2e_provincial_results.csv',
+      '--no-clip', '--out', path.join(work, 'repeated')], { encoding: 'utf8' });
+    ok('repeating the flag takes both files, and a flag that takes no value is left alone',
+       repeated.status === 0 && /fed-results: 2 file\(s\)/.test(repeated.stdout),
+       (repeated.stderr || repeated.stdout || '').slice(0, 300));
     /* An elector roll must have no way in. There is deliberately no flag for it,
        and this is the assertion that keeps it that way.
 
@@ -618,6 +678,24 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
        'the --points-ref documentation must state what it carries');
     ok('and the refusal is still written down where somebody adding a flag will read it',
        /WHAT THIS WILL NOT TAKE: an elector roll/.test(payloadTool));
+    /* And where somebody RUNNING it will read it. --help printed a fixed 45
+       lines, which had already grown past the refusal: the sentence saying
+       there is deliberately no flag for a roll was reachable only by opening
+       the source. It now prints the whole header, bounded by its own close. */
+    const help = spawnSync('node', ['tools/make-payload.js', '--help'], { encoding: 'utf8' });
+    ok('--help reaches the refusal rather than stopping short of it',
+       /WHAT THIS WILL NOT TAKE: an elector roll/.test(help.stdout)
+       && /deliberately no flag for it/.test(help.stdout)
+       && /Nor canvass data/.test(help.stdout), help.stdout.slice(-200));
+    /* Scoped to the usage line, which is the thing that gets copied. Checking
+       the whole help failed on its own explanation: the first version of that
+       paragraph quoted the old spelling to say why it changed, so the help
+       contained the exact string the assertion forbade. The quotation went to
+       the commit message, where archaeology belongs, and the assertion now
+       says what it actually means. */
+    const usage = (help.stdout.match(/^.*--fed-results .*$/m) || [''])[0];
+    ok('and the usage line no longer advertises the spelling that drops files',
+       !/\.\.\./.test(usage) && /EVERY FLAG TAKES ONE VALUE/.test(help.stdout), usage);
     /* And the build must have no key for one either: a flag is only half of it. */
     ok('no payload key would carry a roll or a canvass',
        !/"([a-z-]*roll|points|canvass|support|contacts)"/.test(fs.readFileSync('build.py', 'utf8')),
