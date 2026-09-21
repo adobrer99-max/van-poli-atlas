@@ -22,9 +22,10 @@
          [--precision 5] [--no-clip]
 
    EVERY FLAG TAKES ONE VALUE. For several files, name the directory holding
-   them, or repeat the flag -- `--fed-results a.csv b.csv` is a command line
-   this refuses, because the old spelling of this line read "dir-or-file ..."
-   and the tool quietly used a.csv and dropped the rest.
+   them, or repeat the flag. `--fed-results a.csv b.csv` is refused rather than
+   run: a flag takes the one token after it, so the rest would be dropped in
+   silence, and a build carrying one riding out of six looks exactly like a
+   build carrying six.
 
    Each input is converted to the plainest text form the atlas reads -- a
    shapefile becomes lon/lat GeoJSON, an archive becomes the CSVs inside it --

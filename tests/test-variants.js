@@ -687,9 +687,15 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
        /WHAT THIS WILL NOT TAKE: an elector roll/.test(help.stdout)
        && /deliberately no flag for it/.test(help.stdout)
        && /Nor canvass data/.test(help.stdout), help.stdout.slice(-200));
-    ok('and it no longer advertises the spelling that drops files',
-       !/dir-or-file \.\.\./.test(help.stdout) && /EVERY FLAG TAKES ONE VALUE/.test(help.stdout),
-       (help.stdout.match(/--fed-results.*/) || [''])[0]);
+    /* Scoped to the usage line, which is the thing that gets copied. Checking
+       the whole help failed on its own explanation: the first version of that
+       paragraph quoted the old spelling to say why it changed, so the help
+       contained the exact string the assertion forbade. The quotation went to
+       the commit message, where archaeology belongs, and the assertion now
+       says what it actually means. */
+    const usage = (help.stdout.match(/^.*--fed-results .*$/m) || [''])[0];
+    ok('and the usage line no longer advertises the spelling that drops files',
+       !/\.\.\./.test(usage) && /EVERY FLAG TAKES ONE VALUE/.test(help.stdout), usage);
     /* And the build must have no key for one either: a flag is only half of it. */
     ok('no payload key would carry a roll or a canvass',
        !/"([a-z-]*roll|points|canvass|support|contacts)"/.test(fs.readFileSync('build.py', 'utf8')),
