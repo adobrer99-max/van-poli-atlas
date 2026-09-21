@@ -12,7 +12,7 @@
    Usage:
      node tools/make-payload.js --out payload \
          [--census census/]                 filter_census.py's output directory
-         [--fed-results dir-or-file ...]    Elections Canada poll-by-poll CSVs
+         [--fed-results dir-or-file]        Elections Canada poll-by-poll CSVs
          [--prov-geo file]                  Elections BC voting areas
          [--prov-results file]              provincial results
          [--prov-electors file]             registered voters by district
@@ -20,6 +20,11 @@
          [--muni-places file]               the city's voting places
          [--points-ref file]                civic addresses, to geocode a roll
          [--precision 5] [--no-clip]
+
+   EVERY FLAG TAKES ONE VALUE. For several files, name the directory holding
+   them, or repeat the flag -- `--fed-results a.csv b.csv` is a command line
+   this refuses, because the old spelling of this line read "dir-or-file ..."
+   and the tool quietly used a.csv and dropped the rest.
 
    Each input is converted to the plainest text form the atlas reads -- a
    shapefile becomes lon/lat GeoJSON, an archive becomes the CSVs inside it --
@@ -88,10 +93,93 @@ const args = (name) => argv.reduce((out, a, i) =>
   (a === `--${name}` && argv[i + 1] ? out.concat(argv[i + 1]) : out), []);
 
 if (argv.includes('--help') || argv.length < 3) {
-  console.log(fs.readFileSync(__filename, 'utf8')
-    .split('\n').slice(1, 45).join('\n').replace(/^\/\*\s*/, ''));
+  /* The whole header, bounded by its own closing rather than by a line count.
+     A hard-coded 45 cut the help short every time this block grew, and what it
+     had already reached was the paragraph naming the files this tool refuses
+     to take -- the one part of the help nobody should be able to miss. */
+  const lines = fs.readFileSync(__filename, 'utf8').split('\n');
+  const end = lines.findIndex((l) => l.includes('*/'));
+  console.log(lines.slice(1, end + 1).join('\n')
+    .replace(/^\/\*\s*/, '').replace(/\s*\*\/\s*$/, ''));
   process.exit(0);
 }
+
+/* --- What the command line is allowed to say ------------------------------
+
+   Every flag this tool knows, and whether it takes a value. Enumerated rather
+   than inferred, because the point is to recognise a token that belongs to
+   nothing.
+
+   `--fed-results a.csv b.csv c.csv` reads as three files and is one. args()
+   takes the token after each OCCURRENCE of a flag, so a.csv went in and the
+   rest were dropped -- not reported, not even checked for existence, since
+   checkInputs only ever sees what args() returned. The build that followed
+   baked one riding out of six and reported a full set of datasets, and the
+   only trace was a line reading "fed-results: 1 file(s)" among nine others.
+
+   A flag given no value at all is the same failure wearing different clothes:
+   `--fed-results --census dir` hands args() the string "--census", which then
+   fails a path check with a message about a file nobody named.
+
+   None of this touches the payload directory. A mistyped command has written
+   nothing, so it must not mark an existing payload failed on its way out --
+   which is why this runs here rather than inside the run. */
+const TAKES_VALUE = new Set(['out', 'precision', 'census', 'points-ref', 'prov-geo',
+  'fed-results', 'prov-results', 'prov-electors', 'muni-results', 'muni-places']);
+const TAKES_NOTHING = new Set(['help', 'no-clip', 'bbox-only']);
+
+function checkCommandLine() {
+  const stray = new Map();        // flag -> { taken, dropped: [] }
+  const unknown = new Set(), starved = [];
+  let owner = null;
+  /* Walked in order, because position is the only thing that says which flag a
+     value belongs to. */
+  for (let i = 2; i < argv.length; i++) {
+    const token = argv[i];
+    if (!token.startsWith('--')) {
+      const entry = stray.get(owner) || { taken: null, dropped: [] };
+      entry.dropped.push(token);
+      stray.set(owner, entry);
+      continue;
+    }
+    const name = token.slice(2);
+    if (!TAKES_VALUE.has(name) && !TAKES_NOTHING.has(name)) unknown.add(name);
+    owner = name;
+    if (!TAKES_VALUE.has(name)) continue;
+    const next = argv[i + 1];
+    if (next === undefined || next.startsWith('--')) { starved.push(token); continue; }
+    i++;
+    const entry = stray.get(name) || { taken: null, dropped: [] };
+    if (entry.taken == null) entry.taken = next;
+    stray.set(name, entry);
+  }
+
+  const problems = [];
+  for (const [flag, { taken, dropped }] of stray) {
+    /* A flag this tool does not know is one problem, not two: every value after
+       it is unattached by construction, and saying so as well would bury the
+       line that actually names the typo. */
+    if (!dropped.length || unknown.has(flag)) continue;
+    problems.push(flag == null
+      ? `${dropped.length} value${dropped.length > 1 ? 's were' : ' was'} given before any `
+        + `flag: ${dropped.join(', ')}`
+      : `--${flag} takes one value and was given ${dropped.length + (taken ? 1 : 0)}.\n`
+        + (taken ? `      it would have used  ${taken}\n` : '')
+        + dropped.map((d) => `      and dropped         ${d}`).join('\n'));
+  }
+  for (const flag of starved) problems.push(`${flag} was given no value.`);
+  for (const flag of unknown) {
+    problems.push(`--${flag} is not a flag this tool knows. --help lists them.`);
+  }
+  if (!problems.length) return;
+  console.error('This command line would not do what it says, and nothing was written.\n');
+  for (const p of problems) console.error(`  ${p}`);
+  console.error('\nA flag takes the one value after it. To name several files, either repeat '
+    + 'the flag:\n\n      --fed-results a.csv --fed-results b.csv\n\nor put them in a '
+    + 'directory and name that:\n\n      --fed-results pollresults/\n');
+  process.exit(1);
+}
+checkCommandLine();
 
 const outDir = arg('out', 'payload');
 const precision = parseInt(arg('precision', '5'), 10);
