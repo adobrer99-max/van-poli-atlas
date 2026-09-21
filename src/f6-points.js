@@ -363,6 +363,7 @@ const Points = (() => {
        keys as rows, something is wrong with the keying itself. The row count
        alone cannot tell those apart, and they call for opposite work. */
     const missCounts = new Map();
+    const hitCounts = new Map();
     let unreadable = 0, matched = 0;
     const cell = (r, i) => (i >= 0 && i < r.length ? r[i] : '');
 
@@ -391,7 +392,14 @@ const Points = (() => {
           key = addressKey(number, street);
         } else key = postalKey(cell(r, layout.postal));
         const hit = key && reference ? reference.get(key) : null;
-        if (hit) { lon = hit.lon; lat = hit.lat; matched++; }
+        if (hit) {
+          lon = hit.lon; lat = hit.lat; matched++;
+          /* Many electors at one address is not a defect to be explained away:
+             a tower is one door for a canvass and four hundred electors behind
+             it, so the addresses carrying the most rows are the most valuable
+             list this join produces. Counted here so they can be ranked. */
+          hitCounts.set(key, (hitCounts.get(key) || 0) + 1);
+        }
         else if (key) {
           if (misses.length < 25) misses.push(key);
           missCounts.set(key, (missCounts.get(key) || 0) + 1);
@@ -431,6 +439,13 @@ const Points = (() => {
            buildings to check by hand when the shape above says buildings. */
         topMisses: [...missCounts.entries()]
           .sort((a, b) => b[1] - a[1]).slice(0, 8)
+          .map(([key, n]) => ({ key, rows: n })),
+        /* The matched side of the same count: distinct addresses located, and
+           the busiest of them. One address holding hundreds of rows is a
+           building, and a building is one visit. */
+        placeKeys: hitCounts.size,
+        topPlaces: [...hitCounts.entries()]
+          .sort((a, b) => b[1] - a[1]).slice(0, 25)
           .map(([key, n]) => ({ key, rows: n })),
         /* Counted whether or not the caller supplied the street set: with no
            set every miss falls to unknownStreet, which is the honest answer

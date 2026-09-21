@@ -251,6 +251,18 @@ ok('and the busiest unmatched address is named, with its count',
    towerReport.topMisses[0].key === '999 KNOWN ST' && towerReport.topMisses[0].rows === 40,
    JSON.stringify(towerReport.topMisses[0]));
 
+/* The matched side of the same count, which is the useful one: a tower is one
+   door and hundreds of electors behind it, so the busiest located addresses are
+   a canvassing list rather than an anomaly to explain. */
+const together = { header: rollHeader, rows: [] };
+for (let i = 0; i < 12; i++) together.rows.push(['1', 'KNOWN ST']);
+const togetherReport = P.readPoints(together, shapeLayout,
+  { reference: shapeRef.map, referenceStreets: shapeRef.streets }).report;
+eq('twelve electors at one located address are twelve rows', togetherReport.matched, 12);
+eq('at one distinct address', togetherReport.placeKeys, 1);
+eq('and the address is named with its count, largest first',
+   togetherReport.topPlaces[0], { key: '1 KNOWN ST', rows: 12 });
+
 console.log('\n== A lone direction has one canonical position ==');
 /* "E 10TH AVENUE" and "10TH AVE E" are one street. The City's property file
    leads with the direction; the electors roll trails it in a column of its own.

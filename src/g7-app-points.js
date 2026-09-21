@@ -105,15 +105,32 @@ function renderPointsReport() {
         `Those ${fmtInt(r.missRows)} rows sit at ${fmtInt(r.missKeys)} distinct addresses, `
         + `${per >= 10 ? fmtNum(per, 1) : fmtNum(per, 2)} rows each on average. `
         + (per >= 10
-          ? 'That many to an address means buildings, so the reference is missing the address '
-            + 'those residents use rather than the normaliser mis-spelling it.'
-          : 'Close to one row per address, so this is the keying rather than a few large '
-            + 'buildings.')));
+          ? 'That many to an address means whole buildings are missing from the reference, not '
+            + 'individual doors — so a newer extract or the addresses those buildings actually '
+            + 'use would recover them in blocks.'
+          : 'Close to one row per address, so this is the keying rather than whole buildings.')));
       if (r.topMisses && r.topMisses.length) {
         lines.push(el('p', 'text-small text-muted',
           'Most electors at one unmatched address: '
           + r.topMisses.slice(0, 5).map((m) => `${m.key} (${fmtInt(m.rows)})`).join('; ') + '.'));
       }
+    }
+  }
+  /* The buildings, which is the useful side of the same count.
+
+     Several electors at one address is not something to explain away: a tower
+     is one door for a canvass and hundreds of electors behind it. So the
+     addresses carrying the most rows are named, largest first, and the count of
+     distinct addresses says how many separate places the list really is. */
+  if (r.placeKeys) {
+    lines.push(el('p', 'text-small text-muted',
+      `${fmtInt(r.matched)} located rows sit at ${fmtInt(r.placeKeys)} distinct addresses — `
+      + `${fmtNum(r.matched / r.placeKeys, 1)} each on average.`));
+    if (r.topPlaces && r.topPlaces.length > 1 && r.topPlaces[0].rows > 1) {
+      lines.push(el('p', 'text-small text-muted',
+        'Largest: '
+        + r.topPlaces.slice(0, 6).map((m) => `${m.key} (${fmtInt(m.rows)})`).join('; ')
+        + '. One address, one visit.'));
     }
   }
   if (r.unreadable) {
