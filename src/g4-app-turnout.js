@@ -92,6 +92,7 @@ function refreshTurnout() {
       ['Load federal or provincial results on the Data tab. Turnout needs an electors count in the file.']);
     t.rows = null; results.hidden = true; basketCard.hidden = true;
     restyleMapForTurnout();
+    refreshNonvoters();
     return;
   }
   const labels = {
@@ -171,6 +172,10 @@ function refreshTurnout() {
   drawTurnoutCurve(curve, top20);
   renderBasket();
   restyleMapForTurnout();
+  /* The Non-voters tab is built from these same rows, so it follows every
+     loader that already calls this one rather than needing a hook of its own
+     at each of the fourteen call sites. */
+  refreshNonvoters();
 }
 
 /* What the two denominator columns are, said in the tab rather than only in

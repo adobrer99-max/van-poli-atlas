@@ -46,6 +46,15 @@
    campaign's own device, and a file people pass around has no business
    carrying it. There is deliberately no flag for it.
 
+   Nor canvass data, for the same reason and more so: a canvass export carries
+   a support level against a named person, which is the one thing here more
+   disclosive than the roll itself. The Non-voters tab reads both in the tab and
+   holds only per-area counts afterwards; neither ever reaches a file.
+
+   --prov-electors is not an exception to any of this. It is the district-level
+   registered-voter count Elections BC publishes: an aggregate about areas, with
+   nobody named in it.
+
    This is JavaScript rather than Python like filter_census.py because the
    boundary files are Statistics Canada Lambert and BC Albers, and those
    projections are implemented and tested once, in src/a-geo.js. Running them

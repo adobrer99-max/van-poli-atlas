@@ -168,6 +168,19 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   readout = await page.locator('#readout').innerText();
   ok('joint readout shows both layers', /federal/i.test(readout) && /Sample District/.test(readout), readout.slice(0, 200));
 
+  /* The Non-voters tab before anything it needs exists. A tab that throws on
+     an empty state is one nobody reaches twice, and the message has to name
+     both halves of what is missing rather than sitting blank. */
+  await page.locator('#tab-nonvoters').click();
+  await page.waitForTimeout(300);
+  const nvEmpty = (await page.locator('#nv-status').innerText()).replace(/\s+/g, ' ');
+  ok('the Non-voters tab opens with nothing loaded and says what it needs',
+     /Data tab/.test(nvEmpty) && nvEmpty.length > 20, nvEmpty.slice(0, 200));
+  ok('and shows no table, no ranking and no badge until it has both halves',
+     await page.evaluate(() => ['nv-results', 'nv-priority', 'nv-badge', 'nv-basket-card']
+       .every((id) => document.getElementById(id).hidden)));
+  ok('and without a console error', errors.length === 0, errors.join(' | '));
+
   console.log('\n== Load results ==');
   await page.locator('#tab-data').click();
   await page.locator('#file-fed-results').setInputFiles('fixtures/e2e_federal_results.csv');
@@ -1017,6 +1030,198 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
      rows than this one has. */
   ok(`one row per address rather than per row read (${addrCsv.length - 1})`,
      addrCsv.length - 1 > 0 && addrCsv.length - 1 <= 6, String(addrCsv.length - 1));
+
+  console.log('\n== Non-voters ==');
+  /* Two pairings, and the whole point of the tab is that they read differently.
+
+     federal electors minus federal ballots is one election against its own
+     roll: coherent, counted on both sides, and a positive gap everywhere.
+     The loaded three-row roll against those same ballots is neither -- a
+     different register, a different vintage, and far more ballots than roll
+     electors in every area it touches. The second is not an error; it is the
+     best diagnostic this tab produces, and it must survive to the screen
+     rather than being clamped on the way. */
+  await page.locator('#tab-nonvoters').click();
+  await page.waitForTimeout(400);
+  await page.locator('#nv-min').selectOption('0');
+  await page.waitForTimeout(700);
+  const rollOptions = await page.$$eval('#nv-roll option', (os) => os.map((o) => o.value));
+  ok('the roll picker offers the elector counts that actually resolve here',
+     rollOptions.includes('fed') && rollOptions.includes('muni'), rollOptions.join(','));
+  ok('and never offers census residents as a roll',
+     !rollOptions.includes('adults'), rollOptions.join(','));
+
+  await page.locator('#nv-roll').selectOption('fed');
+  await page.locator('#nv-ballots').selectOption('fed');
+  await page.waitForTimeout(900);
+  const nvSame = (await page.locator('#nv-status').innerText()).replace(/\s+/g, ' ');
+  ok('one election against its own roll reads as people who did not cast a ballot',
+     /did not cast a ballot/.test(nvSame), nvSame.slice(0, 220));
+  ok('and says both halves are counts rather than leaving it to be noticed',
+     /Both figures are counts/.test(nvSame), nvSame.slice(0, 300));
+  ok('and carries no cross-election warning, since there is none',
+     !/Cross-election/.test(nvSame), nvSame.slice(0, 300));
+  ok('and closes on the caveat that a count over an area names no elector',
+     /cannot tell you which elector did not vote/.test(nvSame), nvSame.slice(-200));
+  ok('the badge says counted', /Counted/.test(await page.locator('#nv-badge').innerText()),
+     await page.locator('#nv-badge').innerText());
+
+  /* No verb of cause anywhere on the tab. An area-level difference licenses a
+     ranking and licenses nothing about why anybody stayed home. */
+  const nvText = await page.locator('#panel-nonvoters').innerText();
+  const causal = ['because', 'drove', 'led to', 'caused', 'explains', 'predicts', 'therefore',
+                  'due to'].filter((w) => new RegExp('\\b' + w + '\\b', 'i').test(nvText));
+  ok('no verb of cause appears anywhere on the tab', causal.length === 0, causal.join(', '));
+
+  const nvHeads = await page.$$eval('#nv-table thead th', (ts) => ts.map((t) => ({
+    label: t.querySelector('span:not(.th-sub)')?.textContent || '',
+    sub: t.querySelector('.th-sub')?.textContent || '' })));
+  ok('the table names what was subtracted from what, under its own column',
+     nvHeads.some((h) => h.label === 'Did not vote' && /electors/.test(h.sub) && /ballots/.test(h.sub)),
+     JSON.stringify(nvHeads.map((h) => h.label + '|' + h.sub)));
+  const nvRows = await page.locator('#nv-table tbody tr').count();
+  ok(`one row per area with a roll entry (${nvRows})`, nvRows > 500, String(nvRows));
+
+  /* A rank, and never a count of votes. The words are the feature. */
+  ok('the ranking column is a priority, not a quantity',
+     nvHeads.some((h) => h.label === 'Mail priority'),
+     JSON.stringify(nvHeads.map((h) => h.label)));
+  const priority = (await page.locator('#nv-priority-note').innerText()).replace(/\s+/g, ' ');
+  ok('and the tab refuses the votes-available reading in as many words',
+     /not a count of votes available/.test(priority), priority.slice(0, 260));
+  ok('and names the share the rank rests on', /share of/.test(priority), priority.slice(0, 260));
+  const ranks = await page.evaluate(() => {
+    const rows = window.vanPoliAtlas.state.nonvoters.rows.filter((r) => r.m);
+    const sorted = rows.slice().sort((a, b) => a.m.rank - b.m.rank);
+    return { n: rows.length, first: sorted[0], last: sorted[sorted.length - 1],
+             list: sorted.map((r) => r.m.rank) };
+  });
+  ok(`ranks run 1..n with no gaps and no ties (${ranks.n})`,
+     ranks.list.every((v, i) => v === i + 1), ranks.list.slice(0, 8).join(','));
+  ok('the top of the list is the 100th percentile and the bottom the 0th',
+     ranks.first.m.percentile === 100 && ranks.last.m.percentile === 0,
+     `${ranks.first.m.percentile}/${ranks.last.m.percentile}`);
+
+  /* row.g and nothing else. The direct analogue of participation()'s rule: a
+     figure built by subtracting two electorates must never reach a column
+     labelled turnout. */
+  const untouched = await page.evaluate(() => {
+    const r = window.vanPoliAtlas.state.nonvoters.rows[0];
+    return { agg: r.agg, tfed: r.t.fed, electors: r.electors,
+             gapIsOwn: r.g.roll.count === r.electors && r.g.notVoted !== r.agg };
+  });
+  ok('the gap never reaches the turnout figures on the same row',
+     untouched.agg != null && untouched.agg <= 1 && untouched.tfed <= 1,
+     JSON.stringify(untouched));
+
+  const nvDl = page.waitForEvent('download', { timeout: 15000 });
+  await page.locator('#export-nonvoters').click();
+  const nvCsv = require('fs').readFileSync(await (await nvDl).path(), 'utf8')
+    .split(/\r?\n/).filter(Boolean);
+  /* Quote-aware, because one of these columns legitimately holds a comma: the
+     basis a mail rank rests on reads "Conservative share, 2025 federal
+     ballots". Splitting on every comma would report the file as ragged and
+     blame the export for quoting correctly. */
+  const splitCsv = (line) => {
+    const out = []; let cur = '', q = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (q && c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (c === '"') q = !q;
+      else if (c === ',' && !q) { out.push(cur); cur = ''; }
+      else cur += c;
+    }
+    out.push(cur);
+    return out;
+  };
+  const nvHead = splitCsv(nvCsv[0].replace(/^\ufeff/, ''));
+  ok('the export names each half, its vintage and its route in their own columns',
+     ['roll_source', 'roll_vintage', 'roll_route', 'ballots_source', 'ballots_vintage',
+      'ballots_route', 'pairing_route', 'coherent'].every((h) => nvHead.includes(h)),
+     nvHead.join(','));
+  ok('and names the mail rank as a rank', nvHead.includes('mail_rank'), nvHead.join(','));
+  const nvBody = nvCsv.slice(1).map(splitCsv);
+  ok('no row is ragged against the header',
+     nvBody.every((r) => r.length === nvHead.length),
+     `${nvHead.length} vs ${[...new Set(nvBody.map((r) => r.length))].join('/')}`);
+  const ci = (h) => nvHead.indexOf(h);
+  ok('every row subtracts the two counts it carries',
+     nvBody.every((r) => Number(r[ci('not_voted')])
+       === Number(r[ci('roll_count')]) - Number(r[ci('ballots_count')])),
+     nvBody[0] && [nvBody[0][ci('roll_count')], nvBody[0][ci('ballots_count')],
+                   nvBody[0][ci('not_voted')]].join(' - '));
+  ok('and says both halves were counted on these areas',
+     nvBody.every((r) => r[ci('roll_route')] === 'counted' && r[ci('ballots_route')] === 'counted'),
+     nvBody[0] && nvBody[0][ci('roll_route')]);
+  ok('and that this pairing is one election against itself',
+     nvBody.every((r) => r[ci('coherent')] === 'yes'), nvBody[0] && nvBody[0][ci('coherent')]);
+
+  /* The map, where the same rule holds: a non-voter figure never appears
+     without both half-labels and both routes beside it. */
+  await page.locator('#tab-map').click();
+  await page.waitForTimeout(500);
+  await openDrawers(page);
+  const nvOption = await page.evaluate(() =>
+    !document.querySelector('#shade-by option[value="nonvoters-count"]').hidden);
+  ok('the non-voter shading appears once the tab has produced figures', nvOption);
+  await page.locator('#shade-by').selectOption('nonvoters-count');
+  await page.waitForTimeout(700);
+  const nvLegend = (await page.locator('#map-legend').innerText()).replace(/\s+/g, ' ');
+  ok('the legend names both halves and how each reached these areas',
+     /Did not vote/.test(nvLegend) && /electors/.test(nvLegend) && /ballots/.test(nvLegend)
+     && /counted on these areas/.test(nvLegend), nvLegend.slice(0, 260));
+  ok('and never borrows the word already taken by federal minus provincial share',
+     !/^Federal minus provincial/.test(nvLegend), nvLegend.slice(0, 120));
+  const nvShaded = await page.$$eval('.layer-fed path', (ps) => ps
+    .map((p) => parseFloat(getComputedStyle(p).fillOpacity)).filter((o) => o > 0.07).length);
+  ok(`the areas with a gap are shaded (${nvShaded})`, nvShaded > 500, String(nvShaded));
+  const nvBox = await page.locator('.atlas-map').boundingBox();
+  await page.mouse.click(nvBox.x + nvBox.width * 0.45, nvBox.y + nvBox.height * 0.5);
+  await page.waitForTimeout(300);
+  const nvReadout = await page.locator('#readout').innerText();
+  ok('the readout carries the pairing beside the figure, never the figure alone',
+     /did not vote/i.test(nvReadout) && /electors/.test(nvReadout) && /ballots/.test(nvReadout),
+     nvReadout.replace(/\s+/g, ' ').slice(0, 300));
+
+  /* The other pairing: a roll the atlas was handed, against ballots from a
+     different election. Three located rows against a whole city's ballots, so
+     every area it touches comes out negative -- which is what a roll that does
+     not describe the people who voted there looks like. */
+  await page.locator('#tab-nonvoters').click();
+  await page.waitForTimeout(400);
+  await page.locator('#nv-roll').selectOption('muni');
+  await page.waitForTimeout(900);
+  const nvCross = (await page.locator('#nv-status').innerText()).replace(/\s+/g, ' ');
+  ok('a roll from one election against ballots from another is flagged cross-election',
+     /Cross-election/.test(nvCross), nvCross.slice(0, 300));
+  ok('and is named by what the reader called the file, never as a roll this build assumed',
+     /electors/.test(nvCross) && !/2026 municipal roll/.test(nvCross), nvCross.slice(0, 300));
+  ok('more ballots than roll electors is reported as a fact about the roll, not clamped',
+     /more ballots than roll electors/.test(nvCross)
+     && /fact about the roll/.test(nvCross), nvCross.slice(0, 400));
+  const negatives = await page.evaluate(() =>
+    window.vanPoliAtlas.state.nonvoters.rows.filter((r) => r.g.notVoted < 0).length);
+  ok(`the negative gaps survive to the rows (${negatives})`, negatives > 0, String(negatives));
+  ok('areas the roll never mentions are reported as having no entry rather than a zero',
+     /no roll entry at all/.test(nvCross) && /not the same as a roll of zero/.test(nvCross),
+     nvCross.slice(0, 500));
+  const noEntry = await page.evaluate(() =>
+    window.vanPoliAtlas.state.nonvoters.rows.some((r) => r.g.roll.count === 0));
+  ok('and no area with no roll entry is given a roll count of zero instead', !noEntry);
+
+  /* The picked set: counts added up, and never re-modelled. */
+  await page.locator('#nv-basket-add-top').click();
+  await page.waitForTimeout(400);
+  const basket = (await page.locator('#nv-basket').innerText()).replace(/\s+/g, ' ');
+  ok('picking areas sums the counts they already carry', /areas picked/.test(basket),
+     basket.slice(0, 200));
+  await page.locator('#nv-basket-clear').click();
+  await page.waitForTimeout(300);
+
+  await page.locator('#tab-map').click();
+  await page.waitForTimeout(300);
+  await page.locator('#shade-by').selectOption('fed-party');
+  await page.waitForTimeout(300);
 
   /* The export left us on the Turnout tab; the clear buttons are on Data. */
   await page.locator('#tab-data').click();

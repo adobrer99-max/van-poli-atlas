@@ -33,13 +33,14 @@ markup     = read(SRC + "/h-markup.html")
 
 modules = ["a-geo.js", "b-text.js", "c-binary.js", "d-ingest.js",
            "e-analysis.js", "f-results.js", "f2-turnout.js", "f3-census.js",
-           "f4-places.js", "f5-summary.js", "f6-points.js", "f7-municipal.js"]
+           "f4-places.js", "f5-summary.js", "f6-points.js", "f7-municipal.js",
+           "f8-roll.js"]
 # g9-app-start.js closes the application IIFE that g1 opens, so it stays last
 # whatever is added; everything before it shares that one scope.
 app     = ["g1-app-core.js", "g2-app-data.js", "g3-app-corr.js",
            "g4-app-turnout.js", "g5-app-census.js", "g6-app-results.js",
            "g7-app-points.js", "g8-app-municipal.js", "ga-app-overview.js",
-           "g9-app-start.js"]
+           "gb-app-nonvoters.js", "g9-app-start.js"]
 
 # The federal boundaries, exactly as they came out of the original file.
 geo = read("boundaries/fed_polls.geojson").strip()

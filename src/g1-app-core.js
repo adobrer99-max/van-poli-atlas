@@ -65,6 +65,13 @@ const state = {
   muniFiles: { places: null, races: null, overview: null },
   socio: { outcome: 'turnout-agg', minElectors: 50, selected: new Set(), extra: new Map(),
            rows: null, byDa: null, table: null, sortKey: 'absR', sortDir: 'desc', picked: null },
+  /* Electors on a roll minus ballots cast, per area, for the pairing the
+     Non-voters tab currently has selected. `on` is keyed by layer and then by
+     the feature's own index, the way `points` and `muni` are, so the map and
+     the readout read it without knowing which tab produced it. */
+  nonvoters: { unit: 'fed', roll: '', ballots: 'fed', minRoll: 50, party: '', weight: 1,
+               rows: null, on: {}, below: {}, pairing: null, basket: new Set(),
+               sortKey: 'g.notVoted', sortDir: 'desc' },
 };
 
 /* Results for one side, apportioned if the Turnout tab asked for it. Every
@@ -441,6 +448,7 @@ function shadeValue(layerKey, f, mode, fedParty, provParty) {
   if (mode === 'none' || mode === 'type' || mode === 'flat') return null;
   if (POINT_MODES.has(mode)) return pointsValue(layerKey, f, mode);
   if (MUNI_MODES.has(mode)) return muniValue(layerKey, f, mode);
+  if (NONVOTER_MODES.has(mode)) return nonvotersValue(layerKey, f, mode);
   if (layerKey === 'prov') {
     if (PART_MODES.has(mode)) {
       const p = state.provPart && state.provPart.get(f.__idx);
@@ -502,6 +510,11 @@ const POINT_MODES = new Set(['points-count', 'points-weight']);
    such a map would show. The city-wide rate the city publishes is shown on the
    Results tab instead, as the single figure it honestly is. */
 const MUNI_MODES = new Set(['muni-party', 'muni-ballots']);
+/* Electors on a roll minus ballots cast, from the Non-voters tab. Deliberately
+   not called `gap-*`: `gap` is already this atlas's name for federal minus
+   provincial party share, three lines up in the same select, and one word
+   meaning two things in one legend is how a wrong screenshot happens. */
+const NONVOTER_MODES = new Set(['nonvoters-count', 'nonvoters-share']);
 
 /* What the municipal spread put on this feature, keyed the way each layer
    indexes itself. */
@@ -547,6 +560,51 @@ function pointsValue(layerKey, f, mode) {
   const a = per.get(layerKey === 'fed' ? f.idx : f.__idx);
   if (!a) return null;
   return mode === 'points-weight' ? a.weight : a.count;
+}
+
+/* What the Non-voters tab put on this feature, for the selected pairing. Keyed
+   the same way as the points and municipal surfaces. Absent means the roll
+   never mentioned this area, which is not a non-voter count of zero -- a
+   division outside the city the roll was drawn for has no entry at all, and
+   shading it as an empty area would say something false about it. */
+function nonvotersValue(layerKey, f, mode) {
+  const on = state.nonvoters && state.nonvoters.on && state.nonvoters.on[layerKey];
+  if (!on) return null;
+  const a = on.get(layerKey === 'fed' ? f.idx : f.__idx);
+  if (!a) return null;
+  return mode === 'nonvoters-share' ? a.share : a.notVoted;
+}
+
+/* One rule holds on every surface this feature has: a non-voter figure never
+   appears without both halves of the subtraction named beside it. muniLegend
+   is the working precedent, and for the same reason -- the number alone reads
+   as a measurement of one thing when it is the difference between two. */
+function nonvotersLegend(mode, layerKey) {
+  const nv = state.nonvoters;
+  const on = nv && nv.on && nv.on[layerKey];
+  if (!on || !on.size || !nv.pairing) return [];
+  const dom = state.shadeDomain[layerKey];
+  const share = mode === 'nonvoters-share';
+  const range = dom ? (share ? ` — ${fmtPct(dom.lo, 0)} to ${fmtPct(dom.hi, 0)}`
+                             : ` — ${fmtInt(dom.lo)} to ${fmtInt(dom.hi)}`) : '';
+  const out = [['var(--viz-series-4)',
+    `Did not vote${share ? ', share of roll' : ''} · ${nv.pairing.label}${range}`]];
+  out.push(['note', `${routePhrase(nv.pairing.rollRoute, 'the roll')}; `
+    + `${routePhrase(nv.pairing.ballotRoute, 'the ballots')}.`]);
+  return out;
+}
+
+/* How a half of the subtraction reached this geography, in the atlas's own
+   three words. `interpolated` is the vocabulary f8-roll.js uses and
+   `modelled geography` is the one every other surface here uses; they are the
+   same claim, and the reader should only ever meet the second. */
+const ROUTE_PROVENANCE = { counted: 'counted', interpolated: 'modelled', smoothed: 'smoothed' };
+function routePhrase(route, who) {
+  if (route === 'counted') return `${who} were counted on these areas`;
+  if (route === 'smoothed') {
+    return `${who} were spread by distance from each voting place, not counted inside these areas`;
+  }
+  return `${who} were moved onto these areas from the geography they were reported on`;
 }
 
 /* The same figure, for the readout, phrased for whichever file is loaded. */
@@ -603,9 +661,32 @@ function muniLine(layerKey, f) {
     + (share == null ? '' : ` · ${party} ${fmtPct(share)}`);
 }
 
+/* The non-voter line on a readout card. Both half-labels travel with it, and
+   the word "counted" appears only where both halves were. */
+function nonvotersLine(layerKey, f) {
+  const nv = state.nonvoters;
+  const on = nv && nv.on && nv.on[layerKey];
+  if (!on || !on.size || !nv.pairing) return null;
+  const id = layerKey === 'fed' ? f.idx : f.__idx;
+  const a = on.get(id);
+  if (!a) {
+    /* Two different absences, and only one of them is the interesting one. An
+       area held out by the minimum does have a roll entry; saying it has none
+       would report a setting on this tab as a fact about the roll. */
+    const small = nv.below && nv.below[layerKey] && nv.below[layerKey].get(id);
+    return small != null
+      ? `${fmtInt(small)} on the roll — under the minimum this tab is set to, so it is out of `
+        + 'the table and the ranking'
+      : 'no roll entry for this area, which is not a roll of zero';
+  }
+  return `${fmtInt(a.notVoted)} did not vote (${fmtPct(a.share)} of the roll) · `
+    + `${nv.pairing.label} · ${ROUTE_PROVENANCE[nv.pairing.route]}`
+    + (a.mailRank ? ` · mail priority ${fmtInt(a.mailRank)}` : '');
+}
+
 /* Modes whose ramp follows the data on the map rather than a fixed scale. */
 const DATA_MODES = new Set([...TURNOUT_MODES, ...PART_MODES, ...POINT_MODES,
-                            'muni-ballots', 'variable']);
+                            ...NONVOTER_MODES, 'muni-ballots', 'variable']);
 
 /* Turnout ramps are data-driven -- 5th to 95th percentile of what is on the
    map -- because a fixed scale would either wash out or saturate depending on
@@ -1002,6 +1083,8 @@ function renderLegend() {
     items.push(...pointsLegend(mode, 'fed'));
   } else if (MUNI_MODES.has(mode)) {
     items.push(...muniLegend(mode, 'fed', state.muni));
+  } else if (NONVOTER_MODES.has(mode)) {
+    items.push(...nonvotersLegend(mode, 'fed'));
   }
   /* Every mode derived from the two elections moves with apportionment -- the
      turnout ones because the ballots move, the party ones because
@@ -1021,6 +1104,8 @@ function renderLegend() {
       items.push(...muniLegend(provMode, 'prov', state.muni));
     } else if (POINT_MODES.has(provMode)) {
       items.push(...pointsLegend(provMode, 'prov'));
+    } else if (NONVOTER_MODES.has(provMode)) {
+      items.push(...nonvotersLegend(provMode, 'prov'));
     } else if (PART_MODES.has(provMode)) {
       /* Named by its denominator every time it is drawn. The whole reason
          these exist is that neither denominator is a provincial electorate,
@@ -1158,6 +1243,8 @@ function renderReadout() {
     if (fpl) fedCard.append(el('p', 'text-small text-muted', fpl));
     const fml = muniLine('fed', fed);
     if (fml) fedCard.append(el('p', 'text-small text-muted', fml));
+    const fnv = nonvotersLine('fed', fed);
+    if (fnv) fedCard.append(el('p', 'text-small text-muted', fnv));
   } else {
     fedCard.append(el('p', 'text-muted', 'No federal polling division at this point.'));
   }
@@ -1193,6 +1280,8 @@ function renderReadout() {
     if (pl) provCard.append(el('p', 'text-small text-muted', pl));
     const ml = muniLine('prov', prov);
     if (ml) provCard.append(el('p', 'text-small text-muted', ml));
+    const pnv = nonvotersLine('prov', prov);
+    if (pnv) provCard.append(el('p', 'text-small text-muted', pnv));
   } else if (state.prov.all.length) {
     provCard.append(el('p', 'text-muted', 'No provincial voting area at this point.'));
   } else {

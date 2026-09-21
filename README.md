@@ -64,8 +64,15 @@ provincial results live and the census is carried in instead — counts shared
 out, rates averaged by population, and the picker says which happened to each
 variable. Its export names the voting place behind every row and how much of
 that row came from it, so a clustered standard error can be computed
-elsewhere. The **Method** tab states the assumptions; read it before quoting a
-coefficient.
+elsewhere. The **Non-voters** tab does one subtraction — electors on a roll,
+minus ballots cast, area by area — and records how each half reached the
+geography it is compared on, so only counted minus counted is ever called a
+count. A negative is never clamped: more ballots than roll electors says the
+roll does not describe the people who voted there, which is the best
+diagnostic the tab produces. It also ranks areas for where mail is worth
+dropping, from the number who did not vote and a party share together — a
+rank over areas, never a count of votes available. The **Method** tab states
+the assumptions; read it before quoting a coefficient.
 
 ## Provincial voting areas
 
@@ -541,6 +548,45 @@ that feed it. Three things Elections Canada's files do that the reader handles:
   left out (election-day turnout, which understates areas whose residents vote
   early). Optionally they are apportioned back onto each district's mapped polls,
   by ballots or by electors; both are labelled as estimates.
+
+## Who did not vote
+
+Electors on a roll, minus ballots cast, per area. The subtraction is one line;
+everything around it is there because the two halves do not arrive the same
+way.
+
+- **A roll loaded as a file of places is counted onto every layer** by
+  point-in-polygon — the only elector count here that is a genuine count on a
+  geography its source never published for. Federal electors on a *provincial*
+  area are areally interpolated instead, and municipal ballots on any area are
+  a kernel's output rather than a count of anything that happened inside it. So
+  each half records its route (`counted`, `interpolated`, `smoothed`), a
+  subtraction inherits the weaker of the two, and only counted minus counted is
+  called a count. The route travels with the figure on the table header, the
+  badge, the map legend, the readout and every export.
+- **A negative is a result and is never clamped.** More ballots than roll
+  electors means the roll does not describe the people who voted there. For the
+  same reason the municipal smoothing stays capped at each area's own *federal*
+  electorate and must never be recapped at a municipal roll: that would floor
+  every municipal gap at zero and destroy the diagnostic. Areas sitting at the
+  ceiling are flagged, since a zero in one of them is arithmetic.
+- **An area with no roll entry is not an area with nobody on the roll.** The
+  divisions covering UBC and the University Endowment Lands are the expected
+  case — those electors are on Vancouver's roll for the school trustee ballot,
+  and the city's property file does not address land outside the city. They are
+  counted separately and left out of every total.
+- **Census residents are not a roll and cannot be chosen as one**, since
+  subtracting ballots from residents aged 15 and over puts 15- to 17-year-olds
+  into a count of people who did not vote.
+- **The mail ranking is ordinal.** Areas are ranked from the number who did not
+  vote and a party share together, with the weighting between them a visible
+  control. It orders areas against one another; it is not a count of votes
+  available, which would be a claim about how particular people would vote.
+
+Nothing from a roll is written into the built file. It is read in the browser
+tab; what is kept afterwards is a count per address and a count per area, never
+a record per person. `tools/make-payload.js` has deliberately no flag for a roll
+or for canvass data, and a test asserts that it never gains one.
 
 ## Why there is a crosswalk
 

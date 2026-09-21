@@ -414,9 +414,15 @@ function exportBasis() {
   const sel = $('shade-by').selectedOptions[0];
   const fedParty = $('shade-party-fed').value;
   const provParty = $('shade-party-prov').value;
-  const label = (sel ? sel.textContent.trim() : mode)
-    + (mode.includes('fed-party') && fedParty ? ` — ${fedParty}`
-      : mode.includes('prov-party') && provParty ? ` — ${provParty}` : '');
+  /* What the option name leaves out. A party share means nothing without the
+     party, and a non-voter figure means nothing without both halves of its
+     subtraction -- and this column is the one that leaves the tab, so it is the
+     last place either may go unsaid. */
+  const qualifier = NONVOTER_MODES.has(mode) && state.nonvoters.pairing
+    ? ` — ${state.nonvoters.pairing.label}, ${state.nonvoters.pairing.route}`
+    : mode.includes('fed-party') && fedParty ? ` — ${fedParty}`
+      : mode.includes('prov-party') && provParty ? ` — ${provParty}` : '';
+  const label = (sel ? sel.textContent.trim() : mode) + qualifier;
   const valueOf = (f) => shadeValue('fed', f, mode, fedParty, provParty);
   /* Ranked against every area the map is drawing, which is the same population
      the colour ramp is scaled to. */

@@ -74,6 +74,17 @@ function datasetInventory() {
       + `${state.points.noun || 'rows'} placed`,
       'loaded in this tab, never saved');
   }
+  /* Derived, like the crosswalk, and listed for the same reason: a reader who
+     has loaded a roll and not opened the Non-voters tab has no other signal
+     that the subtraction is there to be had. */
+  const nv = state.nonvoters;
+  if (state.points || (nv && nv.rows)) {
+    add('Electors who did not vote', Boolean(nv && nv.rows && nv.pairing),
+      nv && nv.rows && nv.pairing
+        ? `${fmtInt(nv.rows.length)} areas, ${nv.pairing.label}`
+        : 'pick a roll and a ballot side on the Non-voters tab',
+      'computed here, never saved');
+  }
   return rows;
 }
 
@@ -201,6 +212,20 @@ function headlineFindings() {
       'ballots cast citywide; party share is mapped, turnout by area is not',
       'smoothed');
   }
+
+  /* The subtraction, with both halves named in the detail line -- the same rule
+     the tab itself keeps. A headline is the single most quotable line in this
+     file, so it is the last place a bare non-voter figure may appear. */
+  const nv = state.nonvoters;
+  if (nv && nv.rows && nv.rows.length && nv.pairing) {
+    const s = Roll.summary(nv.rows);
+    push('Electors who did not vote', fmtInt(s.notVoted),
+      `${nv.pairing.label}, across ${fmtInt(s.areas)} `
+      + `${NV_UNIT_NAMES[nv.unit] || 'areas'} — ${fmtPct(s.share)} of the roll`
+      + (s.negative ? `; ${fmtInt(s.negative)} came out with more ballots than roll electors` : ''),
+      nv.pairing.route === 'counted' ? 'counted'
+        : nv.pairing.route === 'smoothed' ? 'smoothed' : 'modelled');
+  }
   return out;
 }
 
@@ -216,6 +241,11 @@ const CAVEATS = [
    'The 2024 provincial results are reported by voting place and shared out over the areas each '
    + 'one served, so every r reports the number of original reporting units beside the number '
    + 'of areas, and widens its confidence interval to match.'],
+  ['A non-voter count is a count over areas, and names nobody.',
+   'Electors on a roll minus ballots cast says how many did not vote in an area. It cannot say '
+   + 'which of them, and the ranking built on it orders areas for a mail drop rather than '
+   + 'estimating votes. Both halves of the subtraction are named wherever the figure appears, '
+   + 'since they are rarely the same election.'],
   ['There is no municipal turnout by area, anywhere in this atlas.',
    'You may vote at any place in Vancouver and in 2022 most people did, so ballots are smoothed by '
    + 'distance rather than assigned. Measured against the federal turnout surface any municipal '
