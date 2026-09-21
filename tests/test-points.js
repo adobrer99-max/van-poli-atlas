@@ -235,6 +235,23 @@ for (const [a, b] of [['10TH AVE E', 'E 10TH AVENUE'],
                       ['41ST AVE W', 'WEST 41ST AVENUE']]) {
   eq(`"${a}" and "${b}" are the same street`, P.addressKey('1883', a), P.addressKey('1883', b));
 }
+/* Two tokens is enough. The guard used to require three, which excluded
+   exactly the streets with no type at all -- and in Vancouver that is Broadway.
+   "BROADWAY E" never had its direction taken off while "E BROADWAY" did, so the
+   two keyed differently and every address on East and West Broadway missed,
+   reported as a street the reference had never heard of. Found against the real
+   roll at an 80.1% match rate, not against any fixture. */
+for (const [a, b] of [['BROADWAY E', 'E BROADWAY'], ['BROADWAY W', 'W BROADWAY']]) {
+  eq(`"${a}" and "${b}" are the same street, with no type between them`,
+     P.addressKey('1209', a), P.addressKey('1209', b));
+}
+/* And the compound directions written out: SW Marine Drive is a real street,
+   and an agency spelling it "Southwest" was missing one spelling it "SW". */
+for (const [a, b] of [['SW MARINE DR', 'SOUTHWEST MARINE DRIVE'],
+                      ['NE MARINE DR', 'NORTHEAST MARINE DRIVE']]) {
+  eq(`"${a}" and "${b}" are the same street`, P.addressKey('1', a), P.addressKey('1', b));
+}
+
 /* But only when there is exactly one. A prefix and a suffix on the same street
    mean different things, and folding them together would produce "KENT AVE W N"
    and lose which was which. */

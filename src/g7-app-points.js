@@ -114,6 +114,23 @@ function renderPointsReport() {
   setStatus('status-points', 'ok', lines);
 }
 
+/* A lookup table that is already loaded should not look like a question.
+
+   In a build with the property addresses baked in, this slot arrives satisfied:
+   leaving an empty file input sitting under a heading that asks for one is an
+   invitation to fill it, and the file nearest to hand on the day is the roll --
+   which is exactly what must not go there. So once a reference exists the input
+   is put away behind "Replace", and the status line below it says what is
+   loaded. */
+function showReferenceLoaded(loaded) {
+  const slot = $('points-ref-slot');
+  const hint = $('points-ref-hint');
+  if (slot) slot.hidden = Boolean(loaded);
+  if (hint) hint.hidden = Boolean(loaded);
+  const swap = $('replace-points-ref');
+  if (swap) swap.hidden = !loaded;
+}
+
 /* rethrow is for the payload adopt step. This function handles its own errors
    so that a person who picks the wrong file sees why beside the input -- which
    is right for a file input and wrong for a baked dataset, because adoptPayloads
@@ -135,19 +152,35 @@ async function loadPointFile(file, { asReference, rethrow } = {}) {
     }
     if (asReference) {
       if (Points.NEEDS_REFERENCE.has(layout.kind)) {
-        throw new Error('A reference file needs coordinates of its own — this one would itself '
-          + 'need looking up. Load the City of Vancouver property addresses, which carry both.');
+        /* Almost always the roll, in the wrong box. A lookup table needs
+           coordinates; a roll has addresses and needs looking up -- so a file
+           that lands here without coordinates is, nine times in ten, the very
+           file the input above wants. Saying where it belongs beats restating
+           what this input requires, and doubly so when a lookup table is
+           already loaded and nothing was needed here at all. */
+        throw new Error(pointReference
+          ? 'This file has addresses rather than coordinates, so it is something to be '
+            + 'looked up, not something to look up against — and the lookup table is '
+            + 'already loaded. Load this file under “Places to count” above instead.'
+          : 'A lookup table needs coordinates of its own — this one would itself need '
+            + 'looking up, so it belongs under “Places to count” above. What goes here is '
+            + 'the City of Vancouver property addresses, which carry both.');
       }
       const ref = Points.buildReference(table, layout);
       pointReference = ref;
+      /* Names itself, because once the input above it collapses this line is
+         all there is: under a heading that reads "Places to count", an
+         unlabelled "2 keys from 2 rows" reads as a report on the roll. */
       setStatus('status-points-ref', 'ok', [
-        `${fmtInt(ref.keys)} keys from ${fmtInt(table.rows.length)} rows.`,
+        `Address lookup table: ${fmtInt(ref.keys)} keys from `
+        + `${fmtInt(table.rows.length)} rows.`,
         el('p', 'text-small text-muted',
           `${fmtInt(ref.duplicates)} rows share a key with an earlier one and keep the first `
           + 'coordinate; two properties at one address sit beside each other, so the area is the '
           + 'same either way, but the point is one of the two.'),
       ]);
       $('clear-points-ref').hidden = false;
+      showReferenceLoaded(true);
       /* A roll already loaded can be joined now that the reference exists. */
       if (state.pointsTable) applyPointFile(state.pointsTable);
       return;
@@ -242,9 +275,16 @@ if ($('file-points')) {
     updatePointControls();
     draw(); renderReadout(); refreshTurnout();
   });
+  if ($('replace-points-ref')) {
+    $('replace-points-ref').addEventListener('click', () => {
+      showReferenceLoaded(false);
+      $('file-points-ref').click();
+    });
+  }
   $('clear-points-ref').addEventListener('click', () => {
     pointReference = null;
     $('clear-points-ref').hidden = true;
+    showReferenceLoaded(false);
     setStatus('status-points-ref', 'idle', []);
     if (state.pointsTable) applyPointFile(state.pointsTable);
   });

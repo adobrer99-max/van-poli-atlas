@@ -95,6 +95,11 @@ const Points = (() => {
     ['N', 'N'], ['NORTH', 'N'], ['S', 'S'], ['SOUTH', 'S'],
     ['E', 'E'], ['EAST', 'E'], ['W', 'W'], ['WEST', 'W'],
     ['NE', 'NE'], ['NW', 'NW'], ['SE', 'SE'], ['SW', 'SW'],
+    /* Written out, because SW Marine Drive is a real street and an agency that
+       spells it "Southwest Marine Drive" was meeting one that spells it "SW"
+       and missing. The four compounds were the only spellings absent. */
+    ['NORTHEAST', 'NE'], ['NORTHWEST', 'NW'],
+    ['SOUTHEAST', 'SE'], ['SOUTHWEST', 'SW'],
   ]);
 
   /* Many spellings in, one out. The canonical token is arbitrary; what matters
@@ -148,7 +153,21 @@ const Points = (() => {
     /* A direction at the end comes off first: in "W KENT AV NORTH" the type is
        the token before it, not the last one. */
     let suffix = '';
-    if (parts.length > 2 && DIRECTIONS.has(parts[parts.length - 1])) {
+    /* Two tokens is enough, and the guard used to require three.
+
+       That excluded exactly the streets with no type at all -- BROADWAY,
+       KINGSWAY -- which is where it hurt most in this city. "BROADWAY E" is two
+       tokens, so its direction was never taken off, while the same street
+       written "E BROADWAY" had its prefix read normally. The two keyed
+       differently and every address on East and West Broadway missed, landing
+       in the "street the reference has never heard of" bucket as though
+       Broadway were unknown.
+
+       Popping here leaves at least one token for the name, and a street whose
+       name genuinely ends in a direction word would have to exist alongside
+       the same name carrying that direction as a prefix before this could
+       conflate anything. */
+    if (parts.length > 1 && DIRECTIONS.has(parts[parts.length - 1])) {
       suffix = DIRECTIONS.get(parts.pop());
     }
     /* Now the last token may be a street type -- or may be the whole name, as

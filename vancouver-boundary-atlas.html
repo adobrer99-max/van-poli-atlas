@@ -2633,8 +2633,8 @@ html>body{padding:0}
       Any list of locations, counted onto every layer that is loaded. Rows can carry
       their own coordinates &mdash; longitude and latitude columns, a GeoJSON geometry
       column, or one column holding both numbers &mdash; or they can carry a civic
-      number and a street, in which case load a reference file below and they are
-      joined against it. Nothing is uploaded: like every other file here, it is read
+      number and a street, in which case they are joined against the address lookup
+      table below. Nothing is uploaded: like every other file here, it is read
       in this browser tab and stays on this machine.
     </p>
     <p class="text-small text-muted">
@@ -2659,13 +2659,35 @@ html>body{padding:0}
         <input class="form-control" type="text" id="points-noun" value="addresses" maxlength="24">
       </label>
     </div>
-    <div class="viz-controls">
-      <label class="form-label grow" for="file-points-ref">Reference file, if the rows carry addresses rather than coordinates
+    <!-- The label names the FILE, not the condition.
+
+         It used to read "Reference file, if the rows carry addresses rather
+         than coordinates", which describes when a lookup table is needed and
+         reads as a description of the file you are about to load. An electors
+         roll carries addresses rather than coordinates, so the file that most
+         exactly matches those words is the one that must never go here -- and
+         somebody duly loaded theirs into this input and got told their roll
+         was not a reference file. -->
+    <div class="viz-controls" id="points-ref-slot">
+      <label class="form-label grow" for="file-points-ref">Address lookup table
         <input class="form-control" type="file" id="file-points-ref" accept=".csv,.tsv,.txt,.xlsx,.zip">
       </label>
+    </div>
+    <p class="text-small text-muted" id="points-ref-hint">
+      Only needed when the file above carries addresses rather than coordinates, and only
+      once: the City of Vancouver
+      <a href="https://opendata.vancouver.ca/explore/dataset/property-addresses/" target="_blank"
+         rel="noopener">property addresses</a> turn a civic number and a street into a point.
+      This is <b>not</b> where the roll goes.
+    </p>
+    <div id="status-points-ref" class="status"></div>
+    <!-- Outside the slot above, which collapses once a lookup table is loaded.
+         Inside it, Remove went invisible the moment there was something to
+         remove -- which an existing test caught by clicking it. -->
+    <div class="viz-controls">
+      <button type="button" class="btn" id="replace-points-ref" hidden>Replace the lookup table</button>
       <button type="button" class="btn" id="clear-points-ref" hidden>Remove</button>
     </div>
-    <div id="status-points-ref" class="status"></div>
   </div>
 </section>
 
@@ -7848,6 +7870,11 @@ const Points = (() => {
     ['N', 'N'], ['NORTH', 'N'], ['S', 'S'], ['SOUTH', 'S'],
     ['E', 'E'], ['EAST', 'E'], ['W', 'W'], ['WEST', 'W'],
     ['NE', 'NE'], ['NW', 'NW'], ['SE', 'SE'], ['SW', 'SW'],
+    /* Written out, because SW Marine Drive is a real street and an agency that
+       spells it "Southwest Marine Drive" was meeting one that spells it "SW"
+       and missing. The four compounds were the only spellings absent. */
+    ['NORTHEAST', 'NE'], ['NORTHWEST', 'NW'],
+    ['SOUTHEAST', 'SE'], ['SOUTHWEST', 'SW'],
   ]);
 
   /* Many spellings in, one out. The canonical token is arbitrary; what matters
@@ -7901,7 +7928,21 @@ const Points = (() => {
     /* A direction at the end comes off first: in "W KENT AV NORTH" the type is
        the token before it, not the last one. */
     let suffix = '';
-    if (parts.length > 2 && DIRECTIONS.has(parts[parts.length - 1])) {
+    /* Two tokens is enough, and the guard used to require three.
+
+       That excluded exactly the streets with no type at all -- BROADWAY,
+       KINGSWAY -- which is where it hurt most in this city. "BROADWAY E" is two
+       tokens, so its direction was never taken off, while the same street
+       written "E BROADWAY" had its prefix read normally. The two keyed
+       differently and every address on East and West Broadway missed, landing
+       in the "street the reference has never heard of" bucket as though
+       Broadway were unknown.
+
+       Popping here leaves at least one token for the name, and a street whose
+       name genuinely ends in a direction word would have to exist alongside
+       the same name carrying that direction as a prefix before this could
+       conflate anything. */
+    if (parts.length > 1 && DIRECTIONS.has(parts[parts.length - 1])) {
       suffix = DIRECTIONS.get(parts.pop());
     }
     /* Now the last token may be a street type -- or may be the whole name, as
@@ -13142,6 +13183,23 @@ function renderPointsReport() {
   setStatus('status-points', 'ok', lines);
 }
 
+/* A lookup table that is already loaded should not look like a question.
+
+   In a build with the property addresses baked in, this slot arrives satisfied:
+   leaving an empty file input sitting under a heading that asks for one is an
+   invitation to fill it, and the file nearest to hand on the day is the roll --
+   which is exactly what must not go there. So once a reference exists the input
+   is put away behind "Replace", and the status line below it says what is
+   loaded. */
+function showReferenceLoaded(loaded) {
+  const slot = $('points-ref-slot');
+  const hint = $('points-ref-hint');
+  if (slot) slot.hidden = Boolean(loaded);
+  if (hint) hint.hidden = Boolean(loaded);
+  const swap = $('replace-points-ref');
+  if (swap) swap.hidden = !loaded;
+}
+
 /* rethrow is for the payload adopt step. This function handles its own errors
    so that a person who picks the wrong file sees why beside the input -- which
    is right for a file input and wrong for a baked dataset, because adoptPayloads
@@ -13163,19 +13221,35 @@ async function loadPointFile(file, { asReference, rethrow } = {}) {
     }
     if (asReference) {
       if (Points.NEEDS_REFERENCE.has(layout.kind)) {
-        throw new Error('A reference file needs coordinates of its own — this one would itself '
-          + 'need looking up. Load the City of Vancouver property addresses, which carry both.');
+        /* Almost always the roll, in the wrong box. A lookup table needs
+           coordinates; a roll has addresses and needs looking up -- so a file
+           that lands here without coordinates is, nine times in ten, the very
+           file the input above wants. Saying where it belongs beats restating
+           what this input requires, and doubly so when a lookup table is
+           already loaded and nothing was needed here at all. */
+        throw new Error(pointReference
+          ? 'This file has addresses rather than coordinates, so it is something to be '
+            + 'looked up, not something to look up against — and the lookup table is '
+            + 'already loaded. Load this file under “Places to count” above instead.'
+          : 'A lookup table needs coordinates of its own — this one would itself need '
+            + 'looking up, so it belongs under “Places to count” above. What goes here is '
+            + 'the City of Vancouver property addresses, which carry both.');
       }
       const ref = Points.buildReference(table, layout);
       pointReference = ref;
+      /* Names itself, because once the input above it collapses this line is
+         all there is: under a heading that reads "Places to count", an
+         unlabelled "2 keys from 2 rows" reads as a report on the roll. */
       setStatus('status-points-ref', 'ok', [
-        `${fmtInt(ref.keys)} keys from ${fmtInt(table.rows.length)} rows.`,
+        `Address lookup table: ${fmtInt(ref.keys)} keys from `
+        + `${fmtInt(table.rows.length)} rows.`,
         el('p', 'text-small text-muted',
           `${fmtInt(ref.duplicates)} rows share a key with an earlier one and keep the first `
           + 'coordinate; two properties at one address sit beside each other, so the area is the '
           + 'same either way, but the point is one of the two.'),
       ]);
       $('clear-points-ref').hidden = false;
+      showReferenceLoaded(true);
       /* A roll already loaded can be joined now that the reference exists. */
       if (state.pointsTable) applyPointFile(state.pointsTable);
       return;
@@ -13270,9 +13344,16 @@ if ($('file-points')) {
     updatePointControls();
     draw(); renderReadout(); refreshTurnout();
   });
+  if ($('replace-points-ref')) {
+    $('replace-points-ref').addEventListener('click', () => {
+      showReferenceLoaded(false);
+      $('file-points-ref').click();
+    });
+  }
   $('clear-points-ref').addEventListener('click', () => {
     pointReference = null;
     $('clear-points-ref').hidden = true;
+    showReferenceLoaded(false);
     setStatus('status-points-ref', 'idle', []);
     if (state.pointsTable) applyPointFile(state.pointsTable);
   });
