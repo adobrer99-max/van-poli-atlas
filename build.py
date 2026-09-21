@@ -95,7 +95,13 @@ want_stamp = "--stamp" in sys.argv or "--payload" in sys.argv
 stamp = {
     "built": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
     "commit": _git("rev-parse", "--short", "HEAD"),
-    "dirty": bool(_git("status", "--porcelain")),
+    # Tracked files only. --porcelain reports untracked ones too, and a payload
+    # build REQUIRES untracked local data -- the census directory, the downloads
+    # -- so every such build declared itself unreproducible. A flag that is
+    # always on says nothing, and this one has a job: telling a reader whether
+    # the file in front of them matches the commit it names. Local data sitting
+    # beside the source does not change what was built from it.
+    "dirty": bool(_git("status", "--porcelain", "--untracked-files=no")),
 }
 stamp_block = ('\n<script id="build-stamp" type="application/json">'
                + json.dumps(stamp) + '</script>') if want_stamp else ""
