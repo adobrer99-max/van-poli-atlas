@@ -980,6 +980,44 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
      pointsRows.every((r) => r.length === pointsHead.length),
      `${pointsHead.length} vs ${[...new Set(pointsRows.map((r) => r.length))].join('/')}`);
 
+  /* The mailer list: one row per address, with why it is on the list.
+
+     Deliberately not the roll. A mail drop needs the door and the quantity, not
+     who is behind it, so this carries the address, the count, the coordinate
+     and the areas -- no names, no identifiers.
+
+     The justification columns take the measure from whatever the map is
+     coloured by, so the export can never disagree with what the reader was
+     looking at when they chose it. The percentile is what makes "high"
+     defensible: 42.7% means nothing alone, 42.7% at the 94th does.
+
+     The gate on those columns was DATA_MODES at first, which sounds right and
+     is not: that set exists to say whether a ramp is scaled to its data, so it
+     omits the party shares, which use a fixed scale. The justification silently
+     vanished for exactly the measure a campaign is most likely to target on. */
+  await page.locator('#tab-data').click();
+  await page.waitForTimeout(300);
+  ok('a roll placed by address offers the address list',
+     !(await page.locator('#points-export-row').evaluate((n) => n.hidden)));
+  const addrDl = page.waitForEvent('download', { timeout: 15000 });
+  await page.locator('#export-addresses').click();
+  const addrCsv = require('fs').readFileSync(await (await addrDl).path(), 'utf8')
+    .split(/\r?\n/).filter(Boolean);
+  const addrHead = addrCsv[0].replace(/^\ufeff/, '').split(',');
+  ok(`the address list leads with the address and the count (${addrHead.slice(0, 2).join(',')})`,
+     addrHead[0] === 'address' && Boolean(addrHead[1]), addrHead.join(','));
+  ok('and carries no name or identifier column',
+     !/name|elector|first|last|surname/i.test(addrHead.join(',')), addrHead.join(','));
+  ok('and names the areas each address falls in',
+     addrHead.includes('federal_poll'), addrHead.join(','));
+  ok('and says what it was selected on, with a percentile behind the word "high"',
+     addrHead.includes('selected_on') && addrHead.includes('selected_value')
+     && addrHead.includes('selected_percentile'), addrHead.join(','));
+  /* One row per address, not one per elector: the file that went in had more
+     rows than this one has. */
+  ok(`one row per address rather than per row read (${addrCsv.length - 1})`,
+     addrCsv.length - 1 > 0 && addrCsv.length - 1 <= 6, String(addrCsv.length - 1));
+
   /* The export left us on the Turnout tab; the clear buttons are on Data. */
   await page.locator('#tab-data').click();
   await page.waitForTimeout(300);

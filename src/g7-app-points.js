@@ -256,6 +256,14 @@ function applyPointFile(table) {
   const assigned = assignPoints(read.points);
   state.points = {
     ...assigned,
+    /* Pooled to one entry per address at load, not at export.
+
+       A roll is hundreds of thousands of rows and the aggregate is a few tens
+       of thousands, so keeping the pooled form costs a fraction of keeping the
+       rows -- and the rows themselves stay out of state entirely, which is the
+       point: what is held after the file has been read is a count per building,
+       never a record per person. */
+    places: read.report.joined ? Points.byAddress(read.points) : [],
     report: read.report,
     weighted: layout.weight >= 0,
     joined: read.report.joined,
@@ -267,6 +275,12 @@ function applyPointFile(table) {
     [{ value: '', label: 'Count the rows' }].concat(
       table.header.map((h) => ({ value: h, label: `Sum ${h}` }))), weightColumn);
   $('points-controls').hidden = false;
+  /* Only when the rows were placed by address: a file that carried its own
+     coordinates has no addresses to pool by, so there is no list to offer. */
+  if ($('points-export-row')) {
+    $('points-export-row').hidden = !(state.points && state.points.report
+      && state.points.report.joined && state.points.report.matched > 0);
+  }
   $('clear-points').hidden = false;
   renderPointsReport();
   updatePointControls();
@@ -275,6 +289,111 @@ function applyPointFile(table) {
 
 /* The shade options appear only once a file is loaded, and the weighted one
    only once a weight column is chosen. */
+/* The mailer list: one row per address, with how many to drop there.
+
+   This is the artefact the roll exists to produce, and it is deliberately not
+   the roll. It carries the address, the count, the coordinate and the areas the
+   address falls in -- no names, no elector identifiers, nothing about any
+   individual. A mail house needs the door and the quantity; it has no use for
+   who is behind it, and neither does a canvass plan.
+
+   Sorted largest first, because a building with three hundred electors is one
+   visit and forty houses are forty. */
+function exportAddresses() {
+  const p = state.points;
+  if (!p) return;
+  const places = p.places || [];
+  if (!places.length) {
+    setStatus('status-points', 'error',
+      ['These rows carried their own coordinates, so there are no addresses to pool them by.']);
+    return;
+  }
+  const targets = pointTargets();
+  const indexes = targets.map((t) => ({ ...t, index: Geo.buildIndex(t.features) }));
+  const noun = (state.points.noun || 'rows').replace(/\s+/g, '_').toLowerCase();
+  const basis = exportBasis();
+  const head = ['address', noun];
+  if (p.report && p.report.weighted) head.push('weight');
+  head.push('longitude', 'latitude');
+  for (const t of indexes) head.push(LAYER_COLUMN[t.key] || t.key);
+  if (basis) head.push('selected_on', 'selected_value', 'selected_percentile');
+  const rows = [head];
+  for (const a of places) {
+    const row = [a.key, a.rows];
+    if (p.report && p.report.weighted) row.push(round5(a.weight));
+    row.push(round5(a.lon), round5(a.lat));
+    let onFeature = null;
+    for (const t of indexes) {
+      const i = t.index.hit(a.lon, a.lat);
+      row.push(i < 0 ? '' : t.idOf(t.features[i]));
+      if (basis && t.key === basis.layer && i >= 0) onFeature = t.features[i];
+    }
+    if (basis) {
+      const v = onFeature ? basis.valueOf(onFeature) : null;
+      row.push(basis.label, basis.format(v), basis.percentile(v));
+    }
+    rows.push(row);
+  }
+  downloadCsv('addresses.csv', rows);
+}
+
+/* Why an address is on the list, taken from what the map is currently
+   coloured by.
+
+   A campaign needs to be able to say why a door was chosen, and the honest
+   answer names the measure, the election and the year rather than an adjective.
+   So the column carries the measure's own label -- "Conservative share, federal
+   2025" -- the value for the area that address sits in, and its percentile
+   among the areas being charted.
+
+   The percentile is what makes "high" defensible. A share of 41% means nothing
+   on its own; 41% at the 94th percentile is a sentence somebody can stand
+   behind. And taking all of it from the map's own setting means the export can
+   never disagree with what the reader was looking at when they chose it: change
+   the colouring, change the justification.
+
+   Returns null when the map is showing nothing, in which case the columns are
+   simply absent rather than empty. */
+/* Every colouring that puts a NUMBER on an area. Deliberately not DATA_MODES,
+   which exists for a different question -- whether the ramp is scaled to the
+   data -- and therefore leaves out the party shares, which use a fixed scale.
+   Gating on it silently dropped the justification columns for exactly the
+   measure a campaign is most likely to target on. The test is the one
+   shadeValue itself applies. */
+const UNSHADED = new Set(['none', 'type', 'flat', 'catchment']);
+
+function exportBasis() {
+  const mode = $('shade-by').value;
+  if (UNSHADED.has(mode)) return null;
+  const sel = $('shade-by').selectedOptions[0];
+  const fedParty = $('shade-party-fed').value;
+  const provParty = $('shade-party-prov').value;
+  const label = (sel ? sel.textContent.trim() : mode)
+    + (mode.includes('fed-party') && fedParty ? ` — ${fedParty}`
+      : mode.includes('prov-party') && provParty ? ` — ${provParty}` : '');
+  const valueOf = (f) => shadeValue('fed', f, mode, fedParty, provParty);
+  /* Ranked against every area the map is drawing, which is the same population
+     the colour ramp is scaled to. */
+  const all = activeFederal().map(valueOf).filter((v) => v != null && isFinite(v)).sort((a, b) => a - b);
+  const isRate = /turnout|party|share|part-|gap|delta/.test(mode);
+  return {
+    layer: 'fed',
+    label,
+    valueOf,
+    format: (v) => (v == null || !isFinite(v) ? ''
+      : isRate ? `${(v * 100).toFixed(1)}%` : String(Math.round(v * 1000) / 1000)),
+    percentile: (v) => {
+      if (v == null || !isFinite(v) || !all.length) return '';
+      let below = 0;
+      while (below < all.length && all[below] < v) below++;
+      return Math.round((below / all.length) * 100);
+    },
+  };
+}
+
+const LAYER_COLUMN = { fed: 'federal_poll', prov: 'provincial_area', da: 'dissemination_area' };
+const round5 = (v) => (typeof v === 'number' && isFinite(v) ? Math.round(v * 1e5) / 1e5 : '');
+
 function updatePointControls() {
   const p = state.points;
   for (const sel of ['shade-by', 'shade-prov-by', 'shade-da-by']) {
@@ -297,6 +416,9 @@ if ($('file-points')) {
     if (e.target.files.length) loadPointFile(e.target.files[0], {});
     e.target.value = '';
   });
+  if ($('export-addresses')) {
+    $('export-addresses').addEventListener('click', exportAddresses);
+  }
   $('file-points-ref').addEventListener('change', (e) => {
     if (e.target.files.length) loadPointFile(e.target.files[0], { asReference: true });
     e.target.value = '';
@@ -314,6 +436,7 @@ if ($('file-points')) {
     state.points = null; state.pointsTable = null;
     $('clear-points').hidden = true;
     $('points-controls').hidden = true;
+    if ($('points-export-row')) $('points-export-row').hidden = true;
     setStatus('status-points', 'idle', []);
     updatePointControls();
     draw(); renderReadout(); refreshTurnout();

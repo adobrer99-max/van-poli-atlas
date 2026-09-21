@@ -483,6 +483,14 @@
       <button type="button" class="btn" id="clear-points" hidden>Remove</button>
     </div>
     <div id="status-points" class="status"></div>
+    <div class="viz-controls" id="points-export-row" hidden>
+      <button type="button" class="btn" id="export-addresses">Download the address list (CSV)</button>
+      <p class="text-small text-muted" style="margin:0; flex:1 1 22rem;">
+        One row per address with how many are there, plus the areas it falls in. No names and no
+        identifiers &mdash; a mail drop needs the door and the quantity. It is still derived from
+        a roll, so it says which buildings hold electors and how many.
+      </p>
+    </div>
     <div class="viz-controls" id="points-controls" hidden>
       <label class="form-label grow" for="points-weight-col">Count by
         <select class="form-select" id="points-weight-col">

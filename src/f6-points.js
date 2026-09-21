@@ -416,6 +416,12 @@ const Points = (() => {
         lon, lat,
         weight: w == null ? 1 : w,
         label: layout.label >= 0 ? String(cell(r, layout.label)).trim() : '',
+        /* The address this row was placed by, when it was placed by one. Kept
+           so rows can be pooled back to the building they came from without a
+           second pass over the file: a mailer goes to an address, not to a
+           person, and the count at that address is the drop quantity. Empty
+           for rows that carried their own coordinates. */
+        key,
       });
     }
     return {
@@ -455,6 +461,27 @@ const Points = (() => {
         classified: Boolean(knownStreets),
       },
     };
+  }
+
+  /* Rows pooled back to the address that placed them.
+
+     A mailer is addressed to a building, not to a person: what a mail house
+     needs is the address and how many pieces to drop there. So this returns one
+     entry per distinct address with its coordinate and its count -- which
+     carries no names, no identifiers and nothing about any individual, and is
+     the artefact the roll exists to produce.
+
+     Sorted by count so the biggest buildings lead, because that is the order a
+     canvass would work them in. */
+  function byAddress(points) {
+    const out = new Map();
+    for (const p of points) {
+      if (!p.key) continue;
+      const at = out.get(p.key);
+      if (at) { at.rows += 1; at.weight += p.weight; }
+      else out.set(p.key, { key: p.key, rows: 1, weight: p.weight, lon: p.lon, lat: p.lat });
+    }
+    return [...out.values()].sort((a, b) => b.rows - a.rows || a.key.localeCompare(b.key));
   }
 
   /* --- The reference table ------------------------------------------------- */
@@ -560,7 +587,7 @@ const Points = (() => {
   return w;                                                   // anything else, left alone
   }
 
-  return { PATTERNS, detectPointLayout, readPoints, buildReference, assignToLayer, singular,
+  return { PATTERNS, detectPointLayout, readPoints, buildReference, assignToLayer, byAddress, singular,
            coverage, normalizeStreet, addressKey, splitAddress, postalKey,
            detectPairOrder, NEEDS_REFERENCE };
 })();
