@@ -8265,7 +8265,16 @@ const Points = (() => {
         missRate: NEEDS_REFERENCE.has(layout.kind) && rows.length
           ? (rows.length - matched) / rows.length : null,
         misses,
-        missRows: rows.length - matched,
+        /* Rows that were not placed AT ALL -- so the snapped ones come off too.
+           `matched` deliberately counts only what the reference held, which is
+           right for `matched` and wrong here: leaving the snapped in made this
+           the count of rows the lookup missed rather than the count still
+           without a location, and then dividing it by an address count that
+           HAD dropped them produced 28.42 rows per unmatched address against a
+           true 5.40. The atlas printed "whole buildings are missing from the
+           reference" on the strength of it, which was an artefact of the
+           arithmetic and not a fact about the city. */
+        missRows: rows.length - matched - snapped,
         missKeys: missCounts.size,
         /* The addresses that swallowed the most electors, which name the
            buildings to check by hand when the shape above says buildings. */
