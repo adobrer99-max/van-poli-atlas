@@ -394,6 +394,198 @@ const BinaryFormats = (() => {
     return files;
   }
 
+  /* --- What a file actually is -------------------------------------------
+
+     Because an extension is a claim and the first bytes are evidence, and
+     because the alternative failed badly: decodeBytes tries UTF-8 and falls
+     back to windows-1252, which maps EVERY byte to some character. It can
+     never produce a replacement character, so it can never fail. A workbook
+     handed to it came back as plausible text, went through the delimited
+     parser, and its mojibake was quoted back to the reader as the file's
+     column names -- screenfuls of it, with no hint that the real problem was
+     "this is a spreadsheet, not a CSV".
+
+     So: name the format before decoding anything. Only the signatures somebody
+     might plausibly drop on this atlas by mistake, because a list that guesses
+     is worse than a list that says "not text". */
+  const MAGIC = [
+    [[0x50, 0x4b, 0x03, 0x04], 'zip', 'a ZIP archive'],
+    [[0x50, 0x4b, 0x05, 0x06], 'zip', 'an empty ZIP archive'],
+    [[0xd0, 0xcf, 0x11, 0xe0], 'ole', 'an older Office file (.xls or .doc)'],
+    [[0x25, 0x50, 0x44, 0x46], 'pdf', 'a PDF'],
+    [[0x89, 0x50, 0x4e, 0x47], 'png', 'a PNG image'],
+    [[0xff, 0xd8, 0xff], 'jpeg', 'a JPEG image'],
+    [[0x1f, 0x8b], 'gzip', 'a gzip archive'],
+    [[0x53, 0x51, 0x4c, 0x69, 0x74, 0x65], 'sqlite', 'a SQLite database'],
+  ];
+
+  /* A zip is a container, so the interesting answer is what is inside it. */
+  const ZIP_CONTENTS = [
+    ['xl/workbook.xml', 'xlsx', 'an Excel workbook'],
+    ['word/document.xml', 'docx', 'a Word document'],
+    ['ppt/presentation.xml', 'pptx', 'a PowerPoint deck'],
+    ['content.xml', 'odf', 'an OpenDocument file'],
+  ];
+
+  function sniffFormat(bytes) {
+    for (const [sig, id, label] of MAGIC) {
+      if (bytes.length >= sig.length && sig.every((b, i) => bytes[i] === b)) {
+        return { id, label };
+      }
+    }
+    return null;
+  }
+
+  /* Refines a 'zip' verdict once the entry names are known. */
+  function sniffZipContents(names) {
+    for (const [marker, id, label] of ZIP_CONTENTS) {
+      if (names.some((n) => n === marker || n.endsWith(`/${marker}`))) return { id, label };
+    }
+    return { id: 'zip', label: 'a ZIP archive' };
+  }
+
+  /* --- Excel workbooks ----------------------------------------------------
+
+     An .xlsx is a ZIP of XML, so this needs nothing new: readZip above already
+     inflates deflate, and the parts are regular enough to scan directly.
+
+     Scanned rather than parsed into a tree on purpose. A roll can run to
+     hundreds of thousands of rows, and building an object per cell to throw it
+     away again is the difference between a file that opens and one that does
+     not. The format is rigid enough that a scan is not a shortcut. */
+  const XML_ENTITY = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+  const unescapeXml = (s) => s.replace(/&(#x?[0-9a-fA-F]+|amp|lt|gt|quot|apos);/g, (m, e) => {
+    if (e[0] !== '#') return XML_ENTITY[e] ?? m;
+    const code = e[1] === 'x' || e[1] === 'X'
+      ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+    return Number.isFinite(code) ? String.fromCodePoint(code) : m;
+  });
+
+  /* "C" -> 2, "AA" -> 26. The column letters in a cell's r="C7" are the only
+     reliable source of position: an empty cell is OMITTED from the XML, not
+     written as blank, so counting cells as they arrive shifts every value after
+     the first gap into the wrong column. That is the classic way to read a
+     spreadsheet wrong while producing a perfectly plausible table. */
+  function columnIndex(ref) {
+    let n = 0;
+    for (let i = 0; i < ref.length; i++) {
+      const c = ref.charCodeAt(i);
+      if (c < 65 || c > 90) break;
+      n = n * 26 + (c - 64);
+    }
+    return n - 1;
+  }
+
+  function sharedStrings(xml) {
+    const out = [];
+    /* One <si> per string, but rich text splits it across several <t> runs, so
+       the runs are concatenated rather than the first one taken. */
+    for (const si of xml.match(/<si\b[^>]*>[\s\S]*?<\/si>|<si\b[^>]*\/>/g) || []) {
+      let text = '';
+      for (const t of si.match(/<t\b[^>]*>[\s\S]*?<\/t>/g) || []) {
+        text += unescapeXml(t.replace(/^<t\b[^>]*>/, '').replace(/<\/t>$/, ''));
+      }
+      out.push(text);
+    }
+    return out;
+  }
+
+  function sheetGrid(xml, strings) {
+    const grid = [];
+    const cell = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g;
+    let m;
+    while ((m = cell.exec(xml)) !== null) {
+      const attrs = m[1] || '';
+      const body = m[2] || '';
+      const ref = (/\br="([A-Z]+)(\d+)"/.exec(attrs) || []);
+      if (!ref.length) continue;
+      const col = columnIndex(ref[1]);
+      const row = parseInt(ref[2], 10) - 1;
+      if (col < 0 || !(row >= 0)) continue;
+      const type = (/\bt="([^"]+)"/.exec(attrs) || [, 'n'])[1];
+      let value = '';
+      if (type === 'inlineStr') {
+        for (const t of body.match(/<t\b[^>]*>[\s\S]*?<\/t>/g) || []) {
+          value += unescapeXml(t.replace(/^<t\b[^>]*>/, '').replace(/<\/t>$/, ''));
+        }
+      } else {
+        const v = /<v\b[^>]*>([\s\S]*?)<\/v>/.exec(body);
+        const raw = v ? unescapeXml(v[1]) : '';
+        if (type === 's') value = strings[parseInt(raw, 10)] ?? '';
+        else if (type === 'b') value = raw === '1' ? 'TRUE' : 'FALSE';
+        else value = raw;
+      }
+      while (grid.length <= row) grid.push([]);
+      const line = grid[row];
+      while (line.length <= col) line.push('');
+      line[col] = value;
+    }
+    const width = grid.reduce((w, r) => Math.max(w, r.length), 0);
+    for (const r of grid) while (r.length < width) r.push('');
+    return grid;
+  }
+
+  /* Where the table starts, because it is not always row 1.
+
+     The roll this was written for carries a four-line disclaimer above its
+     header, so taking the first row would name every column after a sentence
+     about postal codes. The rule: the first row that is about as full as the
+     fullest row in the sheet AND is followed by another such row -- which
+     distinguishes a header from a stray title or a merged note, both of which
+     occupy one cell. The chosen row is reported, never assumed silently. */
+  function findHeaderRow(grid) {
+    const filled = grid.map((r) => r.reduce((n, c) => n + (c === '' ? 0 : 1), 0));
+    const max = filled.reduce((a, b) => Math.max(a, b), 0);
+    if (!max) return 0;
+    const enough = Math.max(2, Math.ceil(max * 0.6));
+    for (let i = 0; i < filled.length - 1; i++) {
+      if (filled[i] >= enough && filled[i + 1] >= enough) return i;
+    }
+    const only = filled.findIndex((n) => n >= enough);
+    return only < 0 ? 0 : only;
+  }
+
+  async function readXlsx(bytes, { sheet = null } = {}) {
+    const zip = readZip(bytes);
+    const names = [...zip.keys()];
+    const sheetPaths = names.filter((n) => /^xl\/worksheets\/[^/]+\.xml$/i.test(n)).sort();
+    if (!sheetPaths.length) {
+      throw new Error('This workbook holds no worksheets. '
+        + `It contains: ${names.slice(0, 8).join(', ') || '(nothing)'}.`);
+    }
+    /* Sheet names live in workbook.xml in document order; the worksheet files
+       are sheet1.xml, sheet2.xml and so on but the two orders are related only
+       through the rels file. Names are read for the REPORT -- so a reader can
+       see which of several sheets was taken -- while the sheet actually read is
+       chosen by path, which cannot mismatch. */
+    let labels = [];
+    if (zip.has('xl/workbook.xml')) {
+      const wb = TextFormats.decodeBytes(await zip.get('xl/workbook.xml')());
+      labels = (wb.match(/<sheet\b[^>]*\bname="([^"]*)"/g) || [])
+        .map((s) => unescapeXml((/name="([^"]*)"/.exec(s) || [, ''])[1]));
+    }
+    let index = 0;
+    if (sheet != null) {
+      const byName = labels.findIndex((n) => n === sheet);
+      index = byName >= 0 ? byName : (typeof sheet === 'number' ? sheet : 0);
+    }
+    if (index < 0 || index >= sheetPaths.length) index = 0;
+
+    const strings = zip.has('xl/sharedStrings.xml')
+      ? sharedStrings(TextFormats.decodeBytes(await zip.get('xl/sharedStrings.xml')()))
+      : [];
+    const grid = sheetGrid(TextFormats.decodeBytes(await zip.get(sheetPaths[index])()), strings);
+    const headerRow = findHeaderRow(grid);
+    const header = (grid[headerRow] || []).map((h) => String(h).trim());
+    return {
+      header,
+      rows: grid.slice(headerRow + 1),
+      headerRow,
+      sheet: labels[index] ?? sheetPaths[index].replace(/^xl\/worksheets\//, ''),
+      sheets: labels.length ? labels : sheetPaths.map((p) => p.replace(/^xl\/worksheets\//, '')),
+    };
+  }
+
   return { readZip, readZipBlob, readDbf, readDbfStream, readShp, readShpStream, shpHeaderBox,
-           inflateRaw, groupRings };
+           inflateRaw, groupRings, sniffFormat, sniffZipContents, readXlsx, columnIndex };
 })();

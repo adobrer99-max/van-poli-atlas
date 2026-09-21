@@ -190,5 +190,128 @@ with zipfile.ZipFile("fixtures/da_lcc.zip", "w", zipfile.ZIP_DEFLATED) as z:
     for ext in ("shp", "dbf", "prj"):
         z.write(f"fixtures/da_lcc.{ext}", f"da_lcc.{ext}")
 
+# --- An Excel workbook, built by hand ---------------------------------------
+#
+# Written as raw XML in a zip rather than with a library, so the fixture needs
+# no dependency and so the parts under test are the parts actually written here.
+# It is shaped like the real electors roll it was written for, and every awkward
+# thing in that file is reproduced deliberately:
+#
+#   * the header is NOT row 1 -- a disclaimer occupies rows 2-3, exactly as the
+#     City's export does
+#   * an empty cell is OMITTED from the XML rather than written blank, which is
+#     what makes cell position have to come from r="C7" and not from counting
+#   * strings are shared and indexed, with one rich-text run split across two
+#     <t> elements, one inline string, one number and one boolean
+#   * a second sheet exists, so choosing the first is a choice rather than a
+#     coincidence
+
+def xlsx_escape(t):
+    return (str(t).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace('"', "&quot;"))
+
+
+def col_letters(i):
+    out = ""
+    i += 1
+    while i:
+        i, r = divmod(i - 1, 26)
+        out = chr(65 + r) + out
+    return out
+
+
+def write_xlsx(path, sheets):
+    """sheets: [(name, [[cell, ...], ...])]. A cell of None is omitted entirely."""
+    shared, index = [], {}
+
+    def share(text):
+        if text not in index:
+            index[text] = len(shared)
+            shared.append(text)
+        return index[text]
+
+    sheet_xml = []
+    for _, grid in sheets:
+        rows = []
+        for r, line in enumerate(grid, start=1):
+            cells = []
+            for c, value in enumerate(line):
+                if value is None:                      # omitted, not blank
+                    continue
+                ref = f"{col_letters(c)}{r}"
+                if isinstance(value, bool):
+                    cells.append(f'<c r="{ref}" t="b"><v>{1 if value else 0}</v></c>')
+                elif isinstance(value, (int, float)):
+                    cells.append(f'<c r="{ref}"><v>{value}</v></c>')
+                elif isinstance(value, tuple):         # ("inline", text)
+                    cells.append(f'<c r="{ref}" t="inlineStr"><is><t>'
+                                 f'{xlsx_escape(value[1])}</t></is></c>')
+                else:
+                    cells.append(f'<c r="{ref}" t="s"><v>{share(value)}</v></c>')
+            if cells:
+                rows.append(f'<row r="{r}">' + "".join(cells) + "</row>")
+        sheet_xml.append('<?xml version="1.0" encoding="UTF-8"?>'
+                         '<worksheet xmlns="http://schemas.openxmlformats.org/'
+                         'spreadsheetml/2006/main"><sheetData>'
+                         + "".join(rows) + "</sheetData></worksheet>")
+
+    # One shared string is split across two runs, which is how Excel stores a
+    # string whose formatting changes part way through.
+    si = []
+    for text in shared:
+        if text == "RICH TEXT CELL":
+            si.append("<si><r><t>RICH </t></r><r><t>TEXT CELL</t></r></si>")
+        else:
+            si.append(f"<si><t>{xlsx_escape(text)}</t></si>")
+    shared_xml = ('<?xml version="1.0" encoding="UTF-8"?>'
+                  '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                  f'count="{len(shared)}" uniqueCount="{len(shared)}">'
+                  + "".join(si) + "</sst>")
+
+    book = "".join(f'<sheet name="{xlsx_escape(n)}" sheetId="{i}" r:id="rId{i}"/>'
+                   for i, (n, _) in enumerate(sheets, start=1))
+    workbook_xml = ('<?xml version="1.0" encoding="UTF-8"?>'
+                    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                    'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/'
+                    'relationships"><sheets>' + book + "</sheets></workbook>")
+
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml",
+                   '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.'
+                   'openxmlformats.org/package/2006/content-types"/>')
+        z.writestr("_rels/.rels", '<?xml version="1.0" encoding="UTF-8"?><Relationships '
+                   'xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>')
+        z.writestr("xl/workbook.xml", workbook_xml)
+        z.writestr("xl/sharedStrings.xml", shared_xml)
+        for i, xml in enumerate(sheet_xml, start=1):
+            z.writestr(f"xl/worksheets/sheet{i}.xml", xml)
+
+
+DISCLAIMER = ("Disclaimer: postal codes are taken from mailing addresses and are "
+              "left blank when the mailing and property addresses differ.")
+ROLL_HEADER = ["Elector", "FirstName", "LastName", "PropertyAddress",
+               "StreetNumb", "StreetName", "StreetTyp", "LocalArea"]
+write_xlsx("fixtures/roll_shaped.xlsx", [
+    ("Query1", [
+        [],                                            # 1: empty
+        [DISCLAIMER],                                  # 2: one cell, a note
+        [],                                            # 3: empty
+        [],                                            # 4: empty
+        [],                                            # 5: empty
+        ROLL_HEADER,                                   # 6: the header
+        [110155, "DOMENICO", "ANTONIETTI", "807-131 REGIMENT SQ",
+         131, "REGIMENT", "SQ", "Downtown"],
+        # MiddleName equivalent omitted entirely: the gap that breaks a reader
+        # which counts cells instead of reading r="C7".
+        [540029, None, "WI-AFEDZI", "706-1833 FRANCES ST",
+         1833, "FRANCES", "ST", "Grandview-Woodland"],
+        [242267, ("inline", "DIRAN"), "GUMUCHIAN", "7307 ELLIOTT ST",
+         7307, "ELLIOTT", "ST", "Victoria-Fraserview"],
+        [419608, "RICH TEXT CELL", "OGBO", "203-8643 MONTCALM ST",
+         8643, "MONTCALM", "ST", "Marpole"],
+    ]),
+    ("Notes", [["not the sheet to read"]]),
+])
+
 for f in sorted(os.listdir("fixtures")):
     print(f"  {f:26s} {os.path.getsize('fixtures/'+f):8d} bytes")

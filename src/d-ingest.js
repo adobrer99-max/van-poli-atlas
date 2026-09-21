@@ -279,10 +279,31 @@ const Ingest = (() => {
 
   /* --- Tables ------------------------------------------------------------ */
 
+  /* A table out of whatever was dropped on it.
+
+     Sniffed by its first bytes rather than trusted by its extension. The
+     extension used to decide alone, and a workbook named .xlsx therefore skipped
+     the unzip branch entirely -- an .xlsx IS a zip -- was decoded as text by a
+     fallback that cannot fail, and had its mojibake quoted back to the reader as
+     its column names. Both halves of that are fixed here: the bytes decide, and
+     a binary file that is not a table says what it is instead of being read
+     anyway. */
   async function loadTable(fileName, bytes) {
     let name = fileName, data = bytes;
-    if (extensionOf(fileName) === 'zip') {
+    const format = BinaryFormats.sniffFormat(bytes);
+
+    if (format && format.id === 'zip') {
       const zip = BinaryFormats.readZip(bytes);
+      const inside = BinaryFormats.sniffZipContents([...zip.keys()]);
+      if (inside.id === 'xlsx') {
+        const book = await BinaryFormats.readXlsx(bytes);
+        if (!book.header.length) throw new Error(`${baseName(fileName)} has no header row.`);
+        return { ...book, name: baseName(fileName), delimiter: null, format: 'xlsx' };
+      }
+      if (inside.id !== 'zip') {
+        throw new Error(`${baseName(fileName)} is ${inside.label}, which this cannot read. `
+          + 'A table has to arrive as CSV, TSV, a plain text file, or an Excel workbook.');
+      }
       const inner = await firstMatchingEntry(zip, (n) => /\.(csv|tsv|txt)$/i.test(n));
       if (!inner) {
         throw new Error('The archive holds no .csv. '
@@ -290,7 +311,16 @@ const Ingest = (() => {
       }
       name = baseName(inner.name);
       data = inner.bytes;
+    } else if (format) {
+      /* Everything the sniffer recognises that is not a zip is binary and not a
+         table. Saying so beats decoding it: windows-1252 maps every byte, so the
+         decode always "succeeds" and the failure surfaces as nonsense columns. */
+      throw new Error(`${baseName(fileName)} is ${format.label}, not a table. `
+        + 'This reads CSV, TSV, plain text, and Excel workbooks.'
+        + (format.id === 'ole'
+          ? ' For an older .xls, open it in Excel and save as .xlsx or CSV UTF-8.' : ''));
     }
+
     const text = TextFormats.decodeBytes(data);
     const table = TextFormats.parseDelimited(text);
     if (!table.header.length) throw new Error(`${name} has no header row.`);

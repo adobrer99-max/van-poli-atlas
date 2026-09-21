@@ -32,18 +32,48 @@ const Points = (() => {
     pair: [/^geo_point_2d$/i, /^coordinates$/i, /^point$/i, /^lat[_ ]?lon[g]?$/i, /^lon[g]?[_ ]?lat$/i],
     /* One column holding GeoJSON. */
     geometry: [/^geom$/i, /^geometry$/i, /^geo_shape$/i, /^shape$/i],
-    number: [/^civic_number$/i, /civic.?number/i, /^house.?number$/i, /^street.?number$/i, /^number$/i],
+    /* Anchored at both ends on purpose. An electors roll carries StreetNumb AND
+       StreetNumberSuf side by side, and an unanchored /street.?num/ matches the
+       suffix column too -- so which one wins would depend on column order,
+       which is the kind of thing that works on the file you tested and not on
+       the next one. */
+    number: [/^civic_number$/i, /civic.?number/i, /^house.?numb(er)?$/i,
+             /^street.?numb(er)?$/i, /^number$/i],
     street: [/^std_street$/i, /^street_name$/i, /^street$/i, /street.?name/i],
+    /* An agency that splits the street across columns: REGIMENT | SQ | E, which
+       has to be reassembled before it can be keyed on. Reading StreetName alone
+       gives "131 REGIMENT" against a reference holding "131 REGIMENT SQ", which
+       misses every row while looking like a clean read. */
+    streetType: [/^street.?typ(e)?$/i, /^st.?type$/i, /^thoroughfare.?type$/i],
+    streetDir: [/^street.?dir(ection)?$/i, /^st.?dir$/i, /^quadrant$/i],
+    numberSuffix: [/^street.?number.?suf(fix)?$/i, /^civic.?suf(fix)?$/i, /^number.?suf(fix)?$/i],
     /* A single column carrying the whole address. */
-    address: [/^full[_ ]?address$/i, /^address$/i, /civic.?address/i, /street.?address/i],
+    address: [/^property.?address$/i, /^full[_ ]?address$/i, /^address$/i,
+              /civic.?address/i, /street.?address/i, /property.?address/i],
     postal: [/^postal[_ ]?code$/i, /^postcode$/i, /^pc$/i, /postal/i],
     label: [/^name$/i, /^label$/i, /building/i, /^description$/i],
   };
 
+  /* Columns a pattern must never choose, whatever it is called.
+
+     A mailing address is not where somebody lives, and on an electors roll the
+     difference is not incidental: the City's own export says postal codes are
+     "left blank when the mailing and property addresses differ or when the
+     mailing address is outside Vancouver". So a file can carry both, and
+     picking the mailing one would place electors at their accountant's office
+     and call it a count of residents. */
+  const AVOID = {
+    address: /mail/i,
+    number: /mail/i,
+    street: /mail/i,
+    postal: /mail/i,
+  };
+
   const find = (header, key) => {
     const H = header.map((h) => String(h == null ? '' : h).trim());
+    const avoid = AVOID[key];
     for (const re of PATTERNS[key]) {
-      const i = H.findIndex((h) => re.test(h));
+      const i = H.findIndex((h) => re.test(h) && !(avoid && avoid.test(h)));
       if (i >= 0) return i;
     }
     return -1;
@@ -131,6 +161,24 @@ const Points = (() => {
     if (parts.length > 1 && DIRECTIONS.has(parts[0])) {
       prefix = DIRECTIONS.get(parts.shift());
     }
+    /* A lone direction goes to the front, wherever it was written.
+
+       "E 10TH AVENUE" and "10TH AVE E" are one street in Vancouver, and two
+       agencies write it two ways: the City's property file leads with the
+       direction, the electors roll trails it in a column of its own. Keeping
+       the written position would key them differently and miss every
+       directional avenue in the city -- which is most of the East Side -- while
+       reporting a clean read and a plausible row count.
+
+       The rehearsal could not catch this: it respelled the property file's own
+       addresses, so both sides of that join shared one convention. A real
+       second agency is what surfaced it.
+
+       Only when there is exactly one. "W KENT AV NORTH" carries a prefix AND a
+       suffix that mean different things, so both stay where they were: folding
+       them together would produce "KENT AVE W N" and lose which was which. */
+    if (prefix && !suffix) { /* already canonical */ }
+    else if (suffix && !prefix) { prefix = suffix; suffix = ''; }
     return [prefix, parts.join(' '), type, suffix].filter(Boolean).join(' ');
   }
 
@@ -142,6 +190,28 @@ const Points = (() => {
       .replace(/[^0-9A-Z]/g, '').trim();
     const s = normalizeStreet(street);
     return n && s ? `${n} ${s}` : '';
+  }
+
+  /* The street, reassembled from however many columns the agency split it
+     across. REGIMENT | SQ | E becomes "REGIMENT SQ E", which normalizeStreet
+     then folds exactly as it folds a street that arrived whole -- the trailing
+     direction popped before the type. Joining the parts here rather than
+     teaching the key about them keeps one definition of what a street is. */
+  function streetOf(row, layout, cell) {
+    const parts = [cell(row, layout.street)];
+    if (layout.streetType >= 0) parts.push(cell(row, layout.streetType));
+    if (layout.streetDir >= 0) parts.push(cell(row, layout.streetDir));
+    return parts.map((p) => String(p == null ? '' : p).trim()).filter(Boolean).join(' ');
+  }
+
+  /* Likewise 1234 + A -> "1234A". Kept separate from the street because a
+     suffix that the reference does not carry is a miss worth counting, not a
+     reason to drop the digits. */
+  function civicNumberOf(row, layout, cell) {
+    const n = String(cell(row, layout.number) == null ? '' : cell(row, layout.number)).trim();
+    if (layout.numberSuffix < 0) return n;
+    const suf = String(cell(row, layout.numberSuffix) == null ? '' : cell(row, layout.numberSuffix)).trim();
+    return suf ? `${n}${suf}` : n;
   }
 
   /* One column holding the lot: "101-3449 ANZIO DRIVE" or "3449 Anzio Dr". */
@@ -197,11 +267,14 @@ const Points = (() => {
     const pair = find(h, 'pair'), geometry = find(h, 'geometry');
     const number = find(h, 'number'), street = find(h, 'street');
     const address = find(h, 'address'), postal = find(h, 'postal');
+    const streetType = find(h, 'streetType'), streetDir = find(h, 'streetDir');
+    const numberSuffix = find(h, 'numberSuffix');
     /* The address columns are kept whatever wins below. A reference file locates
        its own rows by coordinates AND is keyed by address, so dropping them
        when coordinates are present leaves it with nothing to join on. */
     const base = { header: h, label: find(h, 'label'),
-                   number, street, address, postal, weight: -1 };
+                   number, street, address, postal,
+                   streetType, streetDir, numberSuffix, weight: -1 };
     if (options.weightColumn) {
       const i = h.findIndex((c) => c === options.weightColumn);
       base.weight = i;
@@ -280,7 +353,9 @@ const Points = (() => {
           if (layout.order.order === 'lat,lon') { lat = a; lon = b; } else { lon = a; lat = b; }
         }
       } else if (NEEDS_REFERENCE.has(layout.kind)) {
-        if (layout.kind === 'address') key = addressKey(cell(r, layout.number), cell(r, layout.street));
+        if (layout.kind === 'address') {
+          key = addressKey(civicNumberOf(r, layout, cell), streetOf(r, layout, cell));
+        }
         else if (layout.kind === 'address1') {
           const { number, street } = splitAddress(cell(r, layout.address));
           key = addressKey(number, street);
