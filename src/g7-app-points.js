@@ -89,6 +89,49 @@ function renderPointsReport() {
           + `does not cover. For example: ${r.unknownStreet.sample.slice(0, 4).join('; ')}.`));
       }
     }
+    /* The shape of the misses, which says what KIND of failure this is and so
+       which fix would be wasted effort.
+
+       A roll has one row per elector, so a tower is hundreds of rows at a
+       single address. Tens of thousands of rows collapsing to a couple of
+       thousand addresses means big buildings whose registered parcel address is
+       not the one their residents write -- a reference problem, and no amount
+       of work on the normaliser touches it. Misses spread across nearly as many
+       addresses as rows means the keying itself is wrong. The row count cannot
+       tell those apart, and they call for opposite work. */
+    if (r.missKeys) {
+      const per = r.missRows / r.missKeys;
+      lines.push(el('p', 'text-small text-muted',
+        `Those ${fmtInt(r.missRows)} rows sit at ${fmtInt(r.missKeys)} distinct addresses, `
+        + `${per >= 10 ? fmtNum(per, 1) : fmtNum(per, 2)} rows each on average. `
+        + (per >= 10
+          ? 'That many to an address means whole buildings are missing from the reference, not '
+            + 'individual doors — so a newer extract or the addresses those buildings actually '
+            + 'use would recover them in blocks.'
+          : 'Close to one row per address, so this is the keying rather than whole buildings.')));
+      if (r.topMisses && r.topMisses.length) {
+        lines.push(el('p', 'text-small text-muted',
+          'Most electors at one unmatched address: '
+          + r.topMisses.slice(0, 5).map((m) => `${m.key} (${fmtInt(m.rows)})`).join('; ') + '.'));
+      }
+    }
+  }
+  /* The buildings, which is the useful side of the same count.
+
+     Several electors at one address is not something to explain away: a tower
+     is one door for a canvass and hundreds of electors behind it. So the
+     addresses carrying the most rows are named, largest first, and the count of
+     distinct addresses says how many separate places the list really is. */
+  if (r.placeKeys) {
+    lines.push(el('p', 'text-small text-muted',
+      `${fmtInt(r.matched)} located rows sit at ${fmtInt(r.placeKeys)} distinct addresses — `
+      + `${fmtNum(r.matched / r.placeKeys, 1)} each on average.`));
+    if (r.topPlaces && r.topPlaces.length > 1 && r.topPlaces[0].rows > 1) {
+      lines.push(el('p', 'text-small text-muted',
+        'Largest: '
+        + r.topPlaces.slice(0, 6).map((m) => `${m.key} (${fmtInt(m.rows)})`).join('; ')
+        + '. One address, one visit.'));
+    }
   }
   if (r.unreadable) {
     lines.push(el('p', 'text-small text-muted',
@@ -114,6 +157,23 @@ function renderPointsReport() {
   setStatus('status-points', 'ok', lines);
 }
 
+/* A lookup table that is already loaded should not look like a question.
+
+   In a build with the property addresses baked in, this slot arrives satisfied:
+   leaving an empty file input sitting under a heading that asks for one is an
+   invitation to fill it, and the file nearest to hand on the day is the roll --
+   which is exactly what must not go there. So once a reference exists the input
+   is put away behind "Replace", and the status line below it says what is
+   loaded. */
+function showReferenceLoaded(loaded) {
+  const slot = $('points-ref-slot');
+  const hint = $('points-ref-hint');
+  if (slot) slot.hidden = Boolean(loaded);
+  if (hint) hint.hidden = Boolean(loaded);
+  const swap = $('replace-points-ref');
+  if (swap) swap.hidden = !loaded;
+}
+
 /* rethrow is for the payload adopt step. This function handles its own errors
    so that a person who picks the wrong file sees why beside the input -- which
    is right for a file input and wrong for a baked dataset, because adoptPayloads
@@ -135,19 +195,35 @@ async function loadPointFile(file, { asReference, rethrow } = {}) {
     }
     if (asReference) {
       if (Points.NEEDS_REFERENCE.has(layout.kind)) {
-        throw new Error('A reference file needs coordinates of its own — this one would itself '
-          + 'need looking up. Load the City of Vancouver property addresses, which carry both.');
+        /* Almost always the roll, in the wrong box. A lookup table needs
+           coordinates; a roll has addresses and needs looking up -- so a file
+           that lands here without coordinates is, nine times in ten, the very
+           file the input above wants. Saying where it belongs beats restating
+           what this input requires, and doubly so when a lookup table is
+           already loaded and nothing was needed here at all. */
+        throw new Error(pointReference
+          ? 'This file has addresses rather than coordinates, so it is something to be '
+            + 'looked up, not something to look up against — and the lookup table is '
+            + 'already loaded. Load this file under “Places to count” above instead.'
+          : 'A lookup table needs coordinates of its own — this one would itself need '
+            + 'looking up, so it belongs under “Places to count” above. What goes here is '
+            + 'the City of Vancouver property addresses, which carry both.');
       }
       const ref = Points.buildReference(table, layout);
       pointReference = ref;
+      /* Names itself, because once the input above it collapses this line is
+         all there is: under a heading that reads "Places to count", an
+         unlabelled "2 keys from 2 rows" reads as a report on the roll. */
       setStatus('status-points-ref', 'ok', [
-        `${fmtInt(ref.keys)} keys from ${fmtInt(table.rows.length)} rows.`,
+        `Address lookup table: ${fmtInt(ref.keys)} keys from `
+        + `${fmtInt(table.rows.length)} rows.`,
         el('p', 'text-small text-muted',
           `${fmtInt(ref.duplicates)} rows share a key with an earlier one and keep the first `
           + 'coordinate; two properties at one address sit beside each other, so the area is the '
           + 'same either way, but the point is one of the two.'),
       ]);
       $('clear-points-ref').hidden = false;
+      showReferenceLoaded(true);
       /* A roll already loaded can be joined now that the reference exists. */
       if (state.pointsTable) applyPointFile(state.pointsTable);
       return;
@@ -180,6 +256,14 @@ function applyPointFile(table) {
   const assigned = assignPoints(read.points);
   state.points = {
     ...assigned,
+    /* Pooled to one entry per address at load, not at export.
+
+       A roll is hundreds of thousands of rows and the aggregate is a few tens
+       of thousands, so keeping the pooled form costs a fraction of keeping the
+       rows -- and the rows themselves stay out of state entirely, which is the
+       point: what is held after the file has been read is a count per building,
+       never a record per person. */
+    places: read.report.joined ? Points.byAddress(read.points) : [],
     report: read.report,
     weighted: layout.weight >= 0,
     joined: read.report.joined,
@@ -191,6 +275,12 @@ function applyPointFile(table) {
     [{ value: '', label: 'Count the rows' }].concat(
       table.header.map((h) => ({ value: h, label: `Sum ${h}` }))), weightColumn);
   $('points-controls').hidden = false;
+  /* Only when the rows were placed by address: a file that carried its own
+     coordinates has no addresses to pool by, so there is no list to offer. */
+  if ($('points-export-row')) {
+    $('points-export-row').hidden = !(state.points && state.points.report
+      && state.points.report.joined && state.points.report.matched > 0);
+  }
   $('clear-points').hidden = false;
   renderPointsReport();
   updatePointControls();
@@ -199,6 +289,111 @@ function applyPointFile(table) {
 
 /* The shade options appear only once a file is loaded, and the weighted one
    only once a weight column is chosen. */
+/* The mailer list: one row per address, with how many to drop there.
+
+   This is the artefact the roll exists to produce, and it is deliberately not
+   the roll. It carries the address, the count, the coordinate and the areas the
+   address falls in -- no names, no elector identifiers, nothing about any
+   individual. A mail house needs the door and the quantity; it has no use for
+   who is behind it, and neither does a canvass plan.
+
+   Sorted largest first, because a building with three hundred electors is one
+   visit and forty houses are forty. */
+function exportAddresses() {
+  const p = state.points;
+  if (!p) return;
+  const places = p.places || [];
+  if (!places.length) {
+    setStatus('status-points', 'error',
+      ['These rows carried their own coordinates, so there are no addresses to pool them by.']);
+    return;
+  }
+  const targets = pointTargets();
+  const indexes = targets.map((t) => ({ ...t, index: Geo.buildIndex(t.features) }));
+  const noun = (state.points.noun || 'rows').replace(/\s+/g, '_').toLowerCase();
+  const basis = exportBasis();
+  const head = ['address', noun];
+  if (p.report && p.report.weighted) head.push('weight');
+  head.push('longitude', 'latitude');
+  for (const t of indexes) head.push(LAYER_COLUMN[t.key] || t.key);
+  if (basis) head.push('selected_on', 'selected_value', 'selected_percentile');
+  const rows = [head];
+  for (const a of places) {
+    const row = [a.key, a.rows];
+    if (p.report && p.report.weighted) row.push(round5(a.weight));
+    row.push(round5(a.lon), round5(a.lat));
+    let onFeature = null;
+    for (const t of indexes) {
+      const i = t.index.hit(a.lon, a.lat);
+      row.push(i < 0 ? '' : t.idOf(t.features[i]));
+      if (basis && t.key === basis.layer && i >= 0) onFeature = t.features[i];
+    }
+    if (basis) {
+      const v = onFeature ? basis.valueOf(onFeature) : null;
+      row.push(basis.label, basis.format(v), basis.percentile(v));
+    }
+    rows.push(row);
+  }
+  downloadCsv('addresses.csv', rows);
+}
+
+/* Why an address is on the list, taken from what the map is currently
+   coloured by.
+
+   A campaign needs to be able to say why a door was chosen, and the honest
+   answer names the measure, the election and the year rather than an adjective.
+   So the column carries the measure's own label -- "Conservative share, federal
+   2025" -- the value for the area that address sits in, and its percentile
+   among the areas being charted.
+
+   The percentile is what makes "high" defensible. A share of 41% means nothing
+   on its own; 41% at the 94th percentile is a sentence somebody can stand
+   behind. And taking all of it from the map's own setting means the export can
+   never disagree with what the reader was looking at when they chose it: change
+   the colouring, change the justification.
+
+   Returns null when the map is showing nothing, in which case the columns are
+   simply absent rather than empty. */
+/* Every colouring that puts a NUMBER on an area. Deliberately not DATA_MODES,
+   which exists for a different question -- whether the ramp is scaled to the
+   data -- and therefore leaves out the party shares, which use a fixed scale.
+   Gating on it silently dropped the justification columns for exactly the
+   measure a campaign is most likely to target on. The test is the one
+   shadeValue itself applies. */
+const UNSHADED = new Set(['none', 'type', 'flat', 'catchment']);
+
+function exportBasis() {
+  const mode = $('shade-by').value;
+  if (UNSHADED.has(mode)) return null;
+  const sel = $('shade-by').selectedOptions[0];
+  const fedParty = $('shade-party-fed').value;
+  const provParty = $('shade-party-prov').value;
+  const label = (sel ? sel.textContent.trim() : mode)
+    + (mode.includes('fed-party') && fedParty ? ` — ${fedParty}`
+      : mode.includes('prov-party') && provParty ? ` — ${provParty}` : '');
+  const valueOf = (f) => shadeValue('fed', f, mode, fedParty, provParty);
+  /* Ranked against every area the map is drawing, which is the same population
+     the colour ramp is scaled to. */
+  const all = activeFederal().map(valueOf).filter((v) => v != null && isFinite(v)).sort((a, b) => a - b);
+  const isRate = /turnout|party|share|part-|gap|delta/.test(mode);
+  return {
+    layer: 'fed',
+    label,
+    valueOf,
+    format: (v) => (v == null || !isFinite(v) ? ''
+      : isRate ? `${(v * 100).toFixed(1)}%` : String(Math.round(v * 1000) / 1000)),
+    percentile: (v) => {
+      if (v == null || !isFinite(v) || !all.length) return '';
+      let below = 0;
+      while (below < all.length && all[below] < v) below++;
+      return Math.round((below / all.length) * 100);
+    },
+  };
+}
+
+const LAYER_COLUMN = { fed: 'federal_poll', prov: 'provincial_area', da: 'dissemination_area' };
+const round5 = (v) => (typeof v === 'number' && isFinite(v) ? Math.round(v * 1e5) / 1e5 : '');
+
 function updatePointControls() {
   const p = state.points;
   for (const sel of ['shade-by', 'shade-prov-by', 'shade-da-by']) {
@@ -221,6 +416,9 @@ if ($('file-points')) {
     if (e.target.files.length) loadPointFile(e.target.files[0], {});
     e.target.value = '';
   });
+  if ($('export-addresses')) {
+    $('export-addresses').addEventListener('click', exportAddresses);
+  }
   $('file-points-ref').addEventListener('change', (e) => {
     if (e.target.files.length) loadPointFile(e.target.files[0], { asReference: true });
     e.target.value = '';
@@ -238,13 +436,21 @@ if ($('file-points')) {
     state.points = null; state.pointsTable = null;
     $('clear-points').hidden = true;
     $('points-controls').hidden = true;
+    if ($('points-export-row')) $('points-export-row').hidden = true;
     setStatus('status-points', 'idle', []);
     updatePointControls();
     draw(); renderReadout(); refreshTurnout();
   });
+  if ($('replace-points-ref')) {
+    $('replace-points-ref').addEventListener('click', () => {
+      showReferenceLoaded(false);
+      $('file-points-ref').click();
+    });
+  }
   $('clear-points-ref').addEventListener('click', () => {
     pointReference = null;
     $('clear-points-ref').hidden = true;
+    showReferenceLoaded(false);
     setStatus('status-points-ref', 'idle', []);
     if (state.pointsTable) applyPointFile(state.pointsTable);
   });

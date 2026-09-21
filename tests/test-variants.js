@@ -762,6 +762,64 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
        advancedShut === false, String(advancedShut));
     ok('and the roll input is still reachable without opening it',
        rollReachable === true, String(rollReachable));
+    /* A baked lookup table that WORKS, and is then actually used.
+
+       The suite covered a baked points-ref that fails, and nothing covered one
+       that succeeds -- so "the address lookup table is built in and ready" had
+       never been asserted end to end. That gap is how somebody came to load
+       their electors roll into the lookup-table input: the slot still looked
+       like it wanted a file, and the label described the condition for needing
+       one rather than naming the file itself. Both halves are checked here. */
+    const refDir = path.join(work, 'goodref');
+    fs.mkdirSync(path.join(refDir, 'points-ref'), { recursive: true });
+    fs.writeFileSync(path.join(refDir, 'points-ref', 'civic-addresses.csv'),
+      'CIVIC_NUMBER,STD_STREET,longitude,latitude\n'
+      + '131,REGIMENT SQ,-123.10,49.28\n'
+      + '1483,KING EDWARD AVE E,-123.09,49.25\n'
+      + '1883,E 10TH AVENUE,-123.07,49.26\n');
+    const refOut = path.join(work, 'goodref.html');
+    spawnSync('python3', ['build.py', '--payload', refDir, '--out', refOut], { encoding: 'utf8' });
+    const refPage = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    await stubTiles(refPage);
+    await refPage.goto('file://' + refOut);
+    await refPage.waitForTimeout(1500);
+    await refPage.locator('#tab-data').click();
+    await refPage.waitForTimeout(300);
+    ok('a baked lookup table is adopted, not merely carried',
+       /keys from/.test(await refPage.locator('#status-points-ref').innerText()),
+       (await refPage.locator('#status-points-ref').innerText()).replace(/\s+/g, ' ').slice(0, 160));
+    /* And it stops asking. An empty file input under a heading that asks for
+       one is an invitation to fill it, and the file nearest to hand on the day
+       is the roll -- which is exactly what must not go there. */
+    ok('and the input is put away rather than left looking unfilled',
+       await refPage.locator('#points-ref-slot').evaluate((n) => n.hidden) === true);
+    ok('with a way back to it',
+       await refPage.locator('#replace-points-ref').evaluate((n) => n.hidden) === false);
+
+    /* The join itself: a roll with addresses and no coordinates, loaded into
+       "Places to count", must land on the baked lookup table with no second
+       file chosen by hand. This is the thing the day depends on. */
+    await refPage.locator('#file-points').setInputFiles({
+      name: 'roll.csv', mimeType: 'text/csv',
+      buffer: Buffer.from('Elector,StreetNumb,StreetName,StreetTyp,StreetDirection\n'
+        + '1,131,REGIMENT,SQ,\n2,1483,KING EDWARD,AVE,E\n3,1883,10TH,AVE,E\n') });
+    await refPage.waitForTimeout(1500);
+    const rollStatus = (await refPage.locator('#status-points').innerText()).replace(/\s+/g, ' ');
+    ok('a roll of addresses joins against the baked lookup table with no second file',
+       /3 of 3 rows located/.test(rollStatus), rollStatus.slice(0, 240));
+
+    /* And the wrong box redirects rather than restating its own requirement. */
+    await refPage.locator('#replace-points-ref').click();
+    await refPage.waitForTimeout(200);
+    await refPage.locator('#file-points-ref').setInputFiles({
+      name: 'roll.csv', mimeType: 'text/csv',
+      buffer: Buffer.from('Elector,StreetNumb,StreetName\n1,131,REGIMENT\n') });
+    await refPage.waitForTimeout(800);
+    const wrongBox = (await refPage.locator('#status-points-ref').innerText()).replace(/\s+/g, ' ');
+    ok('the roll in the lookup-table input is told where it belongs',
+       /Places to count/.test(wrongBox), wrongBox.slice(0, 240));
+    await refPage.close();
+
     /* A baked dataset that fails to load must say so where the reader looks.
        loadPointFile handles its own errors, which is right beside a file input
        and wrong for a payload: adoptPayloads can only record what it is told,

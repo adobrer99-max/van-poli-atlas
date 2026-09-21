@@ -95,6 +95,11 @@ const Points = (() => {
     ['N', 'N'], ['NORTH', 'N'], ['S', 'S'], ['SOUTH', 'S'],
     ['E', 'E'], ['EAST', 'E'], ['W', 'W'], ['WEST', 'W'],
     ['NE', 'NE'], ['NW', 'NW'], ['SE', 'SE'], ['SW', 'SW'],
+    /* Written out, because SW Marine Drive is a real street and an agency that
+       spells it "Southwest Marine Drive" was meeting one that spells it "SW"
+       and missing. The four compounds were the only spellings absent. */
+    ['NORTHEAST', 'NE'], ['NORTHWEST', 'NW'],
+    ['SOUTHEAST', 'SE'], ['SOUTHWEST', 'SW'],
   ]);
 
   /* Many spellings in, one out. The canonical token is arbitrary; what matters
@@ -148,7 +153,21 @@ const Points = (() => {
     /* A direction at the end comes off first: in "W KENT AV NORTH" the type is
        the token before it, not the last one. */
     let suffix = '';
-    if (parts.length > 2 && DIRECTIONS.has(parts[parts.length - 1])) {
+    /* Two tokens is enough, and the guard used to require three.
+
+       That excluded exactly the streets with no type at all -- BROADWAY,
+       KINGSWAY -- which is where it hurt most in this city. "BROADWAY E" is two
+       tokens, so its direction was never taken off, while the same street
+       written "E BROADWAY" had its prefix read normally. The two keyed
+       differently and every address on East and West Broadway missed, landing
+       in the "street the reference has never heard of" bucket as though
+       Broadway were unknown.
+
+       Popping here leaves at least one token for the name, and a street whose
+       name genuinely ends in a direction word would have to exist alongside
+       the same name carrying that direction as a prefix before this could
+       conflate anything. */
+    if (parts.length > 1 && DIRECTIONS.has(parts[parts.length - 1])) {
       suffix = DIRECTIONS.get(parts.pop());
     }
     /* Now the last token may be a street type -- or may be the whole name, as
@@ -333,6 +352,18 @@ const Points = (() => {
        samples, because they call for different action. */
     const knownStreets = options.referenceStreets || null;
     const newOnKnownStreet = [], unknownStreet = [];
+    /* How many DISTINCT addresses the misses represent, which is the measure
+       that says what kind of failure this is.
+
+       A roll has one row per elector, so a tower is hundreds of rows at one
+       address. If tens of thousands of unmatched rows collapse to a couple of
+       thousand keys, the misses are big buildings whose registered parcel
+       address differs from the one their residents use -- and the fix is the
+       reference, not the normaliser. If they stay spread across nearly as many
+       keys as rows, something is wrong with the keying itself. The row count
+       alone cannot tell those apart, and they call for opposite work. */
+    const missCounts = new Map();
+    const hitCounts = new Map();
     let unreadable = 0, matched = 0;
     const cell = (r, i) => (i >= 0 && i < r.length ? r[i] : '');
 
@@ -361,9 +392,17 @@ const Points = (() => {
           key = addressKey(number, street);
         } else key = postalKey(cell(r, layout.postal));
         const hit = key && reference ? reference.get(key) : null;
-        if (hit) { lon = hit.lon; lat = hit.lat; matched++; }
+        if (hit) {
+          lon = hit.lon; lat = hit.lat; matched++;
+          /* Many electors at one address is not a defect to be explained away:
+             a tower is one door for a canvass and four hundred electors behind
+             it, so the addresses carrying the most rows are the most valuable
+             list this join produces. Counted here so they can be ranked. */
+          hitCounts.set(key, (hitCounts.get(key) || 0) + 1);
+        }
         else if (key) {
           if (misses.length < 25) misses.push(key);
+          missCounts.set(key, (missCounts.get(key) || 0) + 1);
           const street = /^[0-9A-Z]+ (.+)$/.exec(key);
           const bucket = knownStreets && street && knownStreets.has(street[1])
             ? newOnKnownStreet : unknownStreet;
@@ -377,6 +416,12 @@ const Points = (() => {
         lon, lat,
         weight: w == null ? 1 : w,
         label: layout.label >= 0 ? String(cell(r, layout.label)).trim() : '',
+        /* The address this row was placed by, when it was placed by one. Kept
+           so rows can be pooled back to the building they came from without a
+           second pass over the file: a mailer goes to an address, not to a
+           person, and the count at that address is the drop quantity. Empty
+           for rows that carried their own coordinates. */
+        key,
       });
     }
     return {
@@ -394,6 +439,20 @@ const Points = (() => {
         missRate: NEEDS_REFERENCE.has(layout.kind) && rows.length
           ? (rows.length - matched) / rows.length : null,
         misses,
+        missRows: rows.length - matched,
+        missKeys: missCounts.size,
+        /* The addresses that swallowed the most electors, which name the
+           buildings to check by hand when the shape above says buildings. */
+        topMisses: [...missCounts.entries()]
+          .sort((a, b) => b[1] - a[1]).slice(0, 8)
+          .map(([key, n]) => ({ key, rows: n })),
+        /* The matched side of the same count: distinct addresses located, and
+           the busiest of them. One address holding hundreds of rows is a
+           building, and a building is one visit. */
+        placeKeys: hitCounts.size,
+        topPlaces: [...hitCounts.entries()]
+          .sort((a, b) => b[1] - a[1]).slice(0, 25)
+          .map(([key, n]) => ({ key, rows: n })),
         /* Counted whether or not the caller supplied the street set: with no
            set every miss falls to unknownStreet, which is the honest answer
            when there is nothing to tell them apart with. */
@@ -402,6 +461,27 @@ const Points = (() => {
         classified: Boolean(knownStreets),
       },
     };
+  }
+
+  /* Rows pooled back to the address that placed them.
+
+     A mailer is addressed to a building, not to a person: what a mail house
+     needs is the address and how many pieces to drop there. So this returns one
+     entry per distinct address with its coordinate and its count -- which
+     carries no names, no identifiers and nothing about any individual, and is
+     the artefact the roll exists to produce.
+
+     Sorted by count so the biggest buildings lead, because that is the order a
+     canvass would work them in. */
+  function byAddress(points) {
+    const out = new Map();
+    for (const p of points) {
+      if (!p.key) continue;
+      const at = out.get(p.key);
+      if (at) { at.rows += 1; at.weight += p.weight; }
+      else out.set(p.key, { key: p.key, rows: 1, weight: p.weight, lon: p.lon, lat: p.lat });
+    }
+    return [...out.values()].sort((a, b) => b.rows - a.rows || a.key.localeCompare(b.key));
   }
 
   /* --- The reference table ------------------------------------------------- */
@@ -507,7 +587,7 @@ const Points = (() => {
   return w;                                                   // anything else, left alone
   }
 
-  return { PATTERNS, detectPointLayout, readPoints, buildReference, assignToLayer, singular,
+  return { PATTERNS, detectPointLayout, readPoints, buildReference, assignToLayer, byAddress, singular,
            coverage, normalizeStreet, addressKey, splitAddress, postalKey,
            detectPairOrder, NEEDS_REFERENCE };
 })();

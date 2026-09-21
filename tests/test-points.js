@@ -220,6 +220,49 @@ const cov = P.coverage(a.per, ['A', 'B', 'C'], { disclosureBelow: 2 });
 eq('coverage names the empty areas', [cov.areas, cov.empty], [3, 1]);
 ok(`and how many are small enough to be disclosive (${cov.sparse})`, cov.sparse === 1);
 
+console.log('\n== The shape of the misses ==');
+/* 80.1% against the real roll, and the row count alone could not say what kind
+   of failure it was. A roll has one row per elector, so a tower is hundreds of
+   rows at one address: tens of thousands of unmatched rows collapsing to a
+   couple of thousand addresses means the reference lacks the address those
+   residents write, and no work on the normaliser would touch it. Spread across
+   nearly as many addresses as rows means the keying is wrong. Opposite fixes,
+   so the report has to tell them apart. */
+const shapeRef = P.buildReference(
+  { header: ['CIVIC_NUMBER', 'STD_STREET', 'longitude', 'latitude'],
+    rows: [['1', 'KNOWN ST', '-123.1', '49.28']] },
+  P.detectPointLayout(['CIVIC_NUMBER', 'STD_STREET', 'longitude', 'latitude'],
+                      [['1', 'KNOWN ST', '-123.1', '49.28']]));
+const rollHeader = ['CIVIC_NUMBER', 'STD_STREET'];
+const tower = { header: rollHeader, rows: [] };
+for (let i = 0; i < 40; i++) tower.rows.push(['999', 'KNOWN ST']);   // one address
+const spread = { header: rollHeader, rows: [] };
+for (let i = 0; i < 40; i++) spread.rows.push([String(2000 + i), 'KNOWN ST']); // forty
+const shapeLayout = P.detectPointLayout(rollHeader, tower.rows);
+const towerReport = P.readPoints(tower, shapeLayout,
+  { reference: shapeRef.map, referenceStreets: shapeRef.streets }).report;
+const spreadReport = P.readPoints(spread, shapeLayout,
+  { reference: shapeRef.map, referenceStreets: shapeRef.streets }).report;
+eq('forty electors at one unmatched address are forty rows', towerReport.missRows, 40);
+eq('but one distinct address', towerReport.missKeys, 1);
+eq('while forty at separate addresses are forty of each',
+   [spreadReport.missRows, spreadReport.missKeys], [40, 40]);
+ok('and the busiest unmatched address is named, with its count',
+   towerReport.topMisses[0].key === '999 KNOWN ST' && towerReport.topMisses[0].rows === 40,
+   JSON.stringify(towerReport.topMisses[0]));
+
+/* The matched side of the same count, which is the useful one: a tower is one
+   door and hundreds of electors behind it, so the busiest located addresses are
+   a canvassing list rather than an anomaly to explain. */
+const together = { header: rollHeader, rows: [] };
+for (let i = 0; i < 12; i++) together.rows.push(['1', 'KNOWN ST']);
+const togetherReport = P.readPoints(together, shapeLayout,
+  { reference: shapeRef.map, referenceStreets: shapeRef.streets }).report;
+eq('twelve electors at one located address are twelve rows', togetherReport.matched, 12);
+eq('at one distinct address', togetherReport.placeKeys, 1);
+eq('and the address is named with its count, largest first',
+   togetherReport.topPlaces[0], { key: '1 KNOWN ST', rows: 12 });
+
 console.log('\n== A lone direction has one canonical position ==');
 /* "E 10TH AVENUE" and "10TH AVE E" are one street. The City's property file
    leads with the direction; the electors roll trails it in a column of its own.
@@ -235,6 +278,23 @@ for (const [a, b] of [['10TH AVE E', 'E 10TH AVENUE'],
                       ['41ST AVE W', 'WEST 41ST AVENUE']]) {
   eq(`"${a}" and "${b}" are the same street`, P.addressKey('1883', a), P.addressKey('1883', b));
 }
+/* Two tokens is enough. The guard used to require three, which excluded
+   exactly the streets with no type at all -- and in Vancouver that is Broadway.
+   "BROADWAY E" never had its direction taken off while "E BROADWAY" did, so the
+   two keyed differently and every address on East and West Broadway missed,
+   reported as a street the reference had never heard of. Found against the real
+   roll at an 80.1% match rate, not against any fixture. */
+for (const [a, b] of [['BROADWAY E', 'E BROADWAY'], ['BROADWAY W', 'W BROADWAY']]) {
+  eq(`"${a}" and "${b}" are the same street, with no type between them`,
+     P.addressKey('1209', a), P.addressKey('1209', b));
+}
+/* And the compound directions written out: SW Marine Drive is a real street,
+   and an agency spelling it "Southwest" was missing one spelling it "SW". */
+for (const [a, b] of [['SW MARINE DR', 'SOUTHWEST MARINE DRIVE'],
+                      ['NE MARINE DR', 'NORTHEAST MARINE DRIVE']]) {
+  eq(`"${a}" and "${b}" are the same street`, P.addressKey('1', a), P.addressKey('1', b));
+}
+
 /* But only when there is exactly one. A prefix and a suffix on the same street
    mean different things, and folding them together would produce "KENT AVE W N"
    and lose which was which. */

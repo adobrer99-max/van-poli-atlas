@@ -467,8 +467,8 @@
       Any list of locations, counted onto every layer that is loaded. Rows can carry
       their own coordinates &mdash; longitude and latitude columns, a GeoJSON geometry
       column, or one column holding both numbers &mdash; or they can carry a civic
-      number and a street, in which case load a reference file below and they are
-      joined against it. Nothing is uploaded: like every other file here, it is read
+      number and a street, in which case they are joined against the address lookup
+      table below. Nothing is uploaded: like every other file here, it is read
       in this browser tab and stays on this machine.
     </p>
     <p class="text-small text-muted">
@@ -483,6 +483,14 @@
       <button type="button" class="btn" id="clear-points" hidden>Remove</button>
     </div>
     <div id="status-points" class="status"></div>
+    <div class="viz-controls" id="points-export-row" hidden>
+      <button type="button" class="btn" id="export-addresses">Download the address list (CSV)</button>
+      <p class="text-small text-muted" style="margin:0; flex:1 1 22rem;">
+        One row per address with how many are there, plus the areas it falls in. No names and no
+        identifiers &mdash; a mail drop needs the door and the quantity. It is still derived from
+        a roll, so it says which buildings hold electors and how many.
+      </p>
+    </div>
     <div class="viz-controls" id="points-controls" hidden>
       <label class="form-label grow" for="points-weight-col">Count by
         <select class="form-select" id="points-weight-col">
@@ -493,13 +501,35 @@
         <input class="form-control" type="text" id="points-noun" value="addresses" maxlength="24">
       </label>
     </div>
-    <div class="viz-controls">
-      <label class="form-label grow" for="file-points-ref">Reference file, if the rows carry addresses rather than coordinates
+    <!-- The label names the FILE, not the condition.
+
+         It used to read "Reference file, if the rows carry addresses rather
+         than coordinates", which describes when a lookup table is needed and
+         reads as a description of the file you are about to load. An electors
+         roll carries addresses rather than coordinates, so the file that most
+         exactly matches those words is the one that must never go here -- and
+         somebody duly loaded theirs into this input and got told their roll
+         was not a reference file. -->
+    <div class="viz-controls" id="points-ref-slot">
+      <label class="form-label grow" for="file-points-ref">Address lookup table
         <input class="form-control" type="file" id="file-points-ref" accept=".csv,.tsv,.txt,.xlsx,.zip">
       </label>
+    </div>
+    <p class="text-small text-muted" id="points-ref-hint">
+      Only needed when the file above carries addresses rather than coordinates, and only
+      once: the City of Vancouver
+      <a href="https://opendata.vancouver.ca/explore/dataset/property-addresses/" target="_blank"
+         rel="noopener">property addresses</a> turn a civic number and a street into a point.
+      This is <b>not</b> where the roll goes.
+    </p>
+    <div id="status-points-ref" class="status"></div>
+    <!-- Outside the slot above, which collapses once a lookup table is loaded.
+         Inside it, Remove went invisible the moment there was something to
+         remove -- which an existing test caught by clicking it. -->
+    <div class="viz-controls">
+      <button type="button" class="btn" id="replace-points-ref" hidden>Replace the lookup table</button>
       <button type="button" class="btn" id="clear-points-ref" hidden>Remove</button>
     </div>
-    <div id="status-points-ref" class="status"></div>
   </div>
 </section>
 
