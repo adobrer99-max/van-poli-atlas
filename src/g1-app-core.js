@@ -71,6 +71,19 @@ const state = {
      the readout read it without knowing which tab produced it. */
   nonvoters: { unit: 'fed', roll: '', ballots: 'fed', minRoll: 50, party: '', weight: 1,
                rows: null, on: {}, below: {}, pairing: null, basket: new Set(),
+               /* What the reader asked for, as distinct from what is in force.
+                  Null until they touch the picker, and written only by them.
+
+                  A payload build loads its datasets one after another, so this
+                  tab runs before a roll has been read and falls back to
+                  whatever elector count exists by then. Keeping the fallback as
+                  if it were a choice pinned the tab to federal electors minus
+                  federal ballots with a roll of half a million people loaded
+                  and unused. Holding the ASK rather than a was-touched flag
+                  also survives the source going away and coming back: clearing
+                  a roll drops `roll` to what still resolves, and loading the
+                  next one returns to what was asked for. */
+               rollWanted: null, ballotsWanted: null,
                sortKey: 'g.notVoted', sortDir: 'desc' },
 };
 
