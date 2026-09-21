@@ -250,6 +250,14 @@ eq('while forty at separate addresses are forty of each',
 ok('and the busiest unmatched address is named, with its count',
    towerReport.topMisses[0].key === '999 KNOWN ST' && towerReport.topMisses[0].rows === 40,
    JSON.stringify(towerReport.topMisses[0]));
+/* The reading is a RATIO against the rows that matched, not an absolute number.
+   Against the real roll the misses averaged 3.75 rows per address and the hits
+   4.81 -- nearly the same -- and a threshold comparing 3.75 to 1 announced
+   "close to one row per address, so this is the keying". Both halves wrong: it
+   is not close to one, and the question was never how it compares to one. The
+   baseline was in the next sentence the whole time. */
+eq('the miss report carries both sides of the comparison, not just one',
+   [towerReport.missKeys > 0, towerReport.placeKeys >= 0].every(Boolean), true);
 
 /* The matched side of the same count, which is the useful one: a tower is one
    door and hundreds of electors behind it, so the busiest located addresses are
