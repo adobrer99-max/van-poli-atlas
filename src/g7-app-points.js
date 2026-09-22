@@ -642,6 +642,30 @@ function measureCatalogue() {
   return out;
 }
 
+/* Where a measure's value sits among its peers, in the direction the reader
+   asked for.
+
+   The composite has always assumed more is better, which is wrong for half the
+   measures somebody would reasonably target on. A campaign whose support runs
+   against renters wants FEWER electors at the door, not more; a list built on
+   renter share wants a low one. Ranking those the only way the code could
+   express put the worst doors first, and nothing on screen said so.
+
+   So direction belongs to the measure rather than to the code. Inverting the
+   standing rather than negating the value keeps the arithmetic in the same
+   0..1 space the mean is taken over, and leaves the value and percentile
+   columns reading as themselves. */
+function directed(m, all) {
+  const raw = (v) => {
+    if (v == null || !isFinite(v) || !all.length) return 0;
+    let below = 0;
+    while (below < all.length && all[below] < v) below++;
+    return below / all.length;
+  };
+  if (!m.invert) return raw;
+  return (v) => (v == null || !isFinite(v) || !all.length ? 0 : 1 - raw(v));
+}
+
 /* One chosen measure, turned into the thing the export ranks with. */
 function basisFor(m) {
   /* Address-scoped measures rank against the other doors rather than against
@@ -653,15 +677,10 @@ function basisFor(m) {
     const valueOf = m.kind === 'weight' ? (a) => a.weight : (a) => a.rows;
     const all = places.map(valueOf)
       .filter((v) => v != null && isFinite(v)).sort((a, b) => a - b);
-    const fraction = (v) => {
-      if (v == null || !isFinite(v) || !all.length) return 0;
-      let below = 0;
-      while (below < all.length && all[below] < v) below++;
-      return below / all.length;
-    };
+    const fraction = directed(m, all);
     return {
       id: m.id, scope: 'address', layer: null,
-      label: `${m.label} · ${m.on}`,
+      label: `${m.label} · ${m.on}${m.invert ? ' · fewer first' : ''}`,
       valueOf, fraction,
       format: (v) => (v == null || !isFinite(v) ? '' : String(Math.round(v * 1000) / 1000)),
       percentile: (v) => (v == null || !isFinite(v) || !all.length
@@ -705,12 +724,7 @@ function basisFor(m) {
      displayed percentile is a whole number and three hundred addresses can
      share one; averaging the rounded figure throws away the ordering inside
      every tie before the mean is even taken. */
-  const fraction = (v) => {
-    if (v == null || !isFinite(v) || !all.length) return 0;
-    let below = 0;
-    while (below < all.length && all[below] < v) below++;
-    return below / all.length;
-  };
+  const fraction = directed(m, all);
   return {
     id: m.id,
     layer: m.layer,
@@ -835,6 +849,23 @@ function refreshTargetPicker() {
       name.className = 'target-name';
       name.textContent = `${i + 1}. ${m.label} · ${m.on}`;
       li.appendChild(name);
+      /* Which end of the measure is the good end. More is better for a party
+         share and worse for anything a campaign runs against -- renter share,
+         or the size of a building when its support skews to owners. Ranking
+         those the only direction the code could express put the worst doors
+         first, so the direction is the reader's and it is on the row rather
+         than in a setting somewhere else. */
+      const dir = document.createElement('button');
+      dir.type = 'button';
+      dir.className = 'btn btn-small';
+      dir.textContent = m.invert ? 'Fewer is better' : 'More is better';
+      dir.addEventListener('click', () => {
+        state.targets = state.targets.map(
+          (x) => (x.id === m.id ? { ...x, invert: !x.invert } : x));
+        refreshTargetPicker();
+        renderExportBasis();
+      });
+      li.appendChild(dir);
       const drop = document.createElement('button');
       drop.type = 'button';
       drop.className = 'btn btn-small';

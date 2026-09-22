@@ -223,11 +223,19 @@ median block of 237 doors becomes 2.
 
 It is worth being exact about what that buys. The extra ordering is *by
 building size*, because that is the only door-level fact in the data. It is
-real information, not smoothing, and it is the right axis if your reason is
-delivery cost — one stop, many pieces. It is a **bet** if your reason is
-persuasion: large buildings skew renter, and if renters skew away from the
-party, ranking them up puts your weakest doors first. Check the direction on
-the **Compare** tab before leaning on it, rather than assuming.
+real information, not smoothing.
+
+**Which end is the good end is yours to set, and for this campaign it is the
+small end.** Large buildings skew renter and renters skew against the party, so
+ranking big buildings up puts the weakest doors first. Each measure on the list
+carries a **More is better / Fewer is better** button; set the elector-count
+measure to *Fewer is better*. Set the tie-break below it to **Smallest building
+first** for the same reason.
+
+If your reason for the measure is delivery cost rather than persuasion — one
+stop, many pieces — then largest-first is right and you want the opposite of
+both. Decide which reason you are using; the file records whichever you chose,
+so it can be defended either way.
 
 Where the list still cannot separate doors — same area, same elector count —
 it genuinely cannot. Nothing in these sources distinguishes them, and the file
