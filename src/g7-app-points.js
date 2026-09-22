@@ -217,6 +217,147 @@ function showReferenceLoaded(loaded) {
    can only record what it is told. A build whose reference failed to load
    reported "built into this file, with nothing to load" while the reason sat in
    a drawer no reader has cause to open. */
+/* --- Canvass results ------------------------------------------------------
+
+   Read by the same machinery that places a roll: addresses joined against the
+   same lookup table, pooled to one entry per door. What differs is the column
+   it carries -- a support answer rather than a quantity -- and that the answer
+   is priced by the reader instead of parsed, because campaign databases agree
+   on nothing and this code has never seen the file it will be given.
+
+   What survives the read is a score and a contact count per address. Names,
+   notes and numbers are read and dropped in the same pass, and there is no
+   flag in make-payload.js that would let any of it into a shared build -- a
+   test asserts that by every name such a flag might take. */
+let canvassTable = null;
+
+async function loadCanvassFile(file) {
+  setStatus('status-canvass', 'busy', `Reading ${file.name}…`);
+  try {
+    const table = await Ingest.loadTable(file.name, await readFile(file));
+    const layout = Points.detectPointLayout(table.header, table.rows, { extent: pointsExtent() });
+    if (!layout) {
+      throw new Error('No way to locate these rows. Wanted a civic number and a street, one '
+        + 'column holding a whole address, or coordinates. '
+        + `This file has: ${table.header.slice(0, 10).join(', ')}.`);
+    }
+    if (Points.NEEDS_REFERENCE.has(layout.kind) && !pointReference) {
+      canvassTable = table;
+      setStatus('status-canvass', 'error', ['These rows carry addresses rather than '
+        + 'coordinates, so they need the same lookup table the roll does. Load the City of '
+        + 'Vancouver property addresses above and this file will join against it.']);
+      return;
+    }
+    canvassTable = table;
+    applyCanvassFile(table);
+  } catch (err) {
+    setStatus('status-canvass', 'error', [String(err.message || err)]);
+  }
+}
+
+/* Which column to read the answer from. Guessed by name where the name gives
+   it away, and always overridable, since "the column called Support" is a
+   convention rather than a rule. */
+const CANVASS_COLUMN_HINTS = [/support/i, /canvass/i, /disposition/i, /response/i,
+                              /result/i, /^level$/i, /^score$/i];
+
+function applyCanvassFile(table) {
+  const wanted = $('canvass-column') ? $('canvass-column').value : '';
+  const header = table.header || [];
+  const column = header.includes(wanted) ? wanted
+    : (CANVASS_COLUMN_HINTS.map((re) => header.find((h) => re.test(h))).find(Boolean) || header[0]);
+  const layout = Points.detectPointLayout(header, table.rows,
+    { extent: pointsExtent(), weightColumn: '' });
+  if (!layout) return;
+  const read = Points.readPoints(table, { ...layout, label: header.indexOf(column) }, {
+    reference: pointReference && pointReference.map,
+    referenceStreets: pointReference && pointReference.streets,
+    snapToStreet: $('points-snap') ? $('points-snap').checked : false,
+    byStreet: pointReference && pointReference.byStreet,
+  });
+  const values = Canvass.values(read.points);
+  /* The reader's own prices survive a column change or a reload; only values
+     they have never seen get a fresh guess. */
+  const previous = (state.canvass && state.canvass.scale) || new Map();
+  const scale = Canvass.guess(values);
+  for (const { value } of values) if (previous.has(value)) scale.set(value, previous.get(value));
+  state.canvass = { column, values, scale, points: read.points, report: read.report,
+                    pooled: Canvass.pool(read.points, scale) };
+  fillSelect($('canvass-column'), header.map((h) => ({ value: h, label: h })), column);
+  $('canvass-controls').hidden = false;
+  $('clear-canvass').hidden = false;
+  renderCanvassScale();
+  renderCanvassReport();
+  refreshTargetPicker();
+  renderExportBasis();
+}
+
+/* Re-price without re-reading: the points are already in hand. */
+function rescoreCanvass() {
+  if (!state.canvass) return;
+  state.canvass.pooled = Canvass.pool(state.canvass.points, state.canvass.scale);
+  renderCanvassReport();
+  refreshTargetPicker();
+  renderExportBasis();
+}
+
+function renderCanvassScale() {
+  const wrap = $('canvass-scale');
+  const list = $('canvass-values');
+  if (!wrap || !list || !state.canvass) return;
+  wrap.hidden = false;
+  list.innerHTML = '';
+  for (const { value, rows } of state.canvass.values) {
+    const li = document.createElement('li');
+    const name = document.createElement('span');
+    name.className = 'target-name';
+    name.textContent = `${value === '' ? '(blank)' : value} — ${fmtInt(rows)} row${rows === 1 ? '' : 's'}`;
+    li.appendChild(name);
+    const box = document.createElement('input');
+    box.type = 'number';
+    box.className = 'form-control target-direction';
+    box.min = '0'; box.max = '1'; box.step = '0.05';
+    box.style.width = '6rem';
+    const at = state.canvass.scale.get(value);
+    box.value = at == null ? '' : String(at);
+    box.addEventListener('change', () => {
+      const n = box.value.trim() === '' ? null : Number(box.value);
+      state.canvass.scale.set(value, n != null && isFinite(n) ? Math.max(0, Math.min(1, n)) : null);
+      box.value = state.canvass.scale.get(value) == null ? '' : String(state.canvass.scale.get(value));
+      rescoreCanvass();
+    });
+    li.appendChild(box);
+    list.appendChild(li);
+  }
+}
+
+function renderCanvassReport() {
+  if (!state.canvass) { setStatus('status-canvass', 'idle', []); return; }
+  const s = Canvass.summary(state.canvass.values, state.canvass.scale, state.canvass.pooled);
+  const r = state.canvass.report;
+  const lines = [`${fmtInt(r.read)} of ${fmtInt(r.rows)} rows located, over `
+    + `${fmtInt(s.doors)} addresses. ${fmtInt(s.scoredDoors)} of those carry a support score.`];
+  if (r.joined && r.missRate) {
+    lines.push(el('p', 'text-small' + (r.missRate > 0.1 ? ' text-warning' : ' text-muted'),
+      `${fmtPct(1 - r.missRate)} of rows matched the lookup table.`));
+  }
+  /* The three ways a row can fail to reach a score, kept apart because they
+     call for different things: a blank means nobody answered, an unmapped
+     value means the scale below is incomplete, and neither is a zero. */
+  if (s.unmapped) {
+    lines.push(el('p', 'text-small text-warning',
+      `${fmtInt(s.unmapped)} rows carry a value with no score set — they are out of the `
+      + 'ranking until one is given below. Numbers are always left for you, since no scale '
+      + 'can be read off them safely.'));
+  }
+  if (s.blank) {
+    lines.push(el('p', 'text-small text-muted',
+      `${fmtInt(s.blank)} rows have nothing in that column at all — knocked and unanswered, `
+      + 'usually, and counted as a contact without a score.'));
+  }
+  setStatus('status-canvass', s.scoredDoors ? 'ok' : 'idle', lines);
+}
+
 async function loadPointFile(file, { asReference, rethrow } = {}) {
   const id = asReference ? 'status-points-ref' : 'status-points';
   setStatus(id, 'busy', `Reading ${file.name}…`);
@@ -263,6 +404,9 @@ async function loadPointFile(file, { asReference, rethrow } = {}) {
       showReferenceLoaded(true);
       /* A roll already loaded can be joined now that the reference exists. */
       if (state.pointsTable) applyPointFile(state.pointsTable);
+      /* And a canvass held back for want of it, which is the likelier order:
+         both files carry addresses, and whichever was dropped first waited. */
+      if (canvassTable) applyCanvassFile(canvassTable);
       return;
     }
     state.pointsTable = table;
@@ -365,6 +509,16 @@ function exportAddresses() {
      who wants only the addresses the city actually lists can have them. */
   head.push('located_by');
   head.push('longitude', 'latitude');
+  /* Whether this door has already been knocked, and what it said.
+
+     The campaign's own throughput is "export the list, check it against the
+     canvassing database, drop the ones already identified, target the rest" --
+     three steps of which two are a join this already has. Carrying the answer
+     out means the filtering happens on one file rather than across two, and
+     `canvass_contacts` is there because a door knocked twice and still
+     unscored is a different problem from one never visited. */
+  const canvassed = (state.canvass && state.canvass.pooled) || null;
+  if (canvassed) head.push('canvass_contacts', 'canvass_support');
   for (const t of indexes) head.push(LAYER_COLUMN[t.key] || t.key);
   if (basis) {
     /* One triple per measure, numbered in the order they were chosen.
@@ -409,6 +563,11 @@ function exportAddresses() {
     if (p.report && p.report.weighted) cells.push(round5(a.weight));
     cells.push(a.route === 'interpolated' ? 'nearest on street' : 'address lookup');
     cells.push(round5(a.lon), round5(a.lat));
+    if (canvassed) {
+      const at = canvassed.get(a.key);
+      cells.push(at ? at.contacts : 0,
+                 at && at.support != null ? Math.round(at.support * 1000) / 1000 : '');
+    }
     const onLayer = {};
     for (const t of indexes) {
       const i = t.index.hit(a.lon, a.lat);
@@ -623,6 +782,14 @@ function addressMeasures() {
     out.push({ id: 'address|weight|', scope: 'address', kind: 'weight',
                label: `${p.weightNoun || 'Weighted'} total at the address`, on: 'each address' });
   }
+  /* The only measure here that is about the people rather than the building.
+     Offered once a canvass has been priced -- before that every score is null
+     and it would rank nothing, which is a worse answer than not appearing. */
+  const c = state.canvass;
+  if (c && [...c.pooled.values()].some((a) => a.support != null)) {
+    out.push({ id: 'address|canvass|', scope: 'address', kind: 'canvass',
+               label: 'Canvass support at the address', on: 'each address' });
+  }
   return out;
 }
 
@@ -688,7 +855,15 @@ function basisFor(m) {
   if (m.scope === 'address') {
     const places = (state.points && state.points.places) || [];
     if (!places.length) return null;
-    const valueOf = m.kind === 'weight' ? (a) => a.weight : (a) => a.rows;
+    /* A canvassed door that was never scored has no value here, not a zero:
+       "nobody answered" and "they said no" are opposite facts and only one of
+       them belongs at the bottom of a target list. An address with no value is
+       left out of the ranking entirely, which is what the composite already
+       does with any measure it cannot fill. */
+    const canvassed = (state.canvass && state.canvass.pooled) || new Map();
+    const valueOf = m.kind === 'canvass'
+      ? (a) => { const at = canvassed.get(a.key); return at ? at.support : null; }
+      : m.kind === 'weight' ? (a) => a.weight : (a) => a.rows;
     const all = places.map(valueOf)
       .filter((v) => v != null && isFinite(v)).sort((a, b) => a - b);
     const fraction = directed(m, all);
@@ -1014,6 +1189,28 @@ if ($('file-points')) {
     updatePointControls();
     draw(); renderReadout(); refreshTurnout();
   });
+  if ($('file-canvass')) {
+    $('file-canvass').addEventListener('change', (e) => {
+      if (e.target.files.length) loadCanvassFile(e.target.files[0]);
+      e.target.value = '';
+    });
+    $('canvass-column').addEventListener('change', () => {
+      if (canvassTable) applyCanvassFile(canvassTable);
+    });
+    $('clear-canvass').addEventListener('click', () => {
+      canvassTable = null;
+      state.canvass = null;
+      /* Any target list ranking on it goes with it, rather than being left
+         pointing at a measure that no longer has values. */
+      state.targets = (state.targets || []).filter((m) => m.kind !== 'canvass');
+      $('canvass-controls').hidden = true;
+      $('canvass-scale').hidden = true;
+      $('clear-canvass').hidden = true;
+      setStatus('status-canvass', 'idle', []);
+      refreshTargetPicker();
+      renderExportBasis();
+    });
+  }
   if ($('replace-points-ref')) {
     $('replace-points-ref').addEventListener('click', () => {
       showReferenceLoaded(false);

@@ -626,6 +626,22 @@ An address is ranked only where every selected measure has a value for it:
 averaging over whichever measures happened to resolve lets a door reach the top
 of a target list for the reason that it is missing data.
 
+**Canvass results are read here too**, and they are the only input that orders
+two doors in the same polling division by anything but their size. The file is
+somebody else's, so nothing about its schema is assumed: the distinct answers in
+the chosen column are listed with their row counts and priced by the reader from
+0 to 1. Words that say their own direction are filled in; **bare numbers never
+are**, because databases disagree about whether 1 means strongest support or
+strongest opposition, and a wrong guess inverts an entire canvass in a way
+nothing downstream can detect. A value left blank stays out of the score, which
+is what a refusal or an unanswered door should be — scoring either as zero would
+rank a door that said nothing below one that said no.
+
+Only the mean score and a contact count survive the read. Names, notes and
+numbers are dropped in the same pass, and `tools/make-payload.js` has no flag
+that would bake any of it into a shared build by any name such a flag might
+take.
+
 The output carries the door and the quantity, never a name or an elector
 identifier. It is still roll-derived — it says which buildings hold electors and
 how many — so it belongs on the same device, under the same handling, as the

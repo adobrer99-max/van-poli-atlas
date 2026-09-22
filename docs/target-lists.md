@@ -246,8 +246,63 @@ It defaults to largest building first, which is the delivery-cost argument;
 *Address, alphabetically* is there for when you would rather the file admit it
 has no preference.
 
-To order doors on anything better, you need door-level data: canvass results,
-or a roll carrying vote history. Neither is in the current inputs.
+To order doors on anything better than their size, you need door-level data. A
+roll carrying vote history would do it; yours carries names and addresses only.
+**Canvass results do it, and the atlas reads them now** — see below.
+
+## Canvass results
+
+*Data tab → Canvass results.* Drop in whatever your canvassing database
+exports. It joins against the same address lookup the roll uses, so load that
+first (or afterwards — a canvass dropped in early waits for it).
+
+**The support column is yours to price.** Campaign databases agree on nothing,
+so nothing is assumed: the atlas lists the distinct answers actually in your
+file, with a row count each, and you give each one a number from 0 to 1. Words
+it recognises — *Strong Support*, *Lean Against*, *Undecided* and their
+variants — are filled in for you.
+
+**Numbers are deliberately left blank.** Some databases count 1 as strongest
+support, others count 1 as strongest opposition. Guessing wrong inverts your
+entire canvass — every supporter becomes an opponent and the list ranks the
+doors that told you no — and nothing downstream could detect it, because an
+inverted scale is a perfectly well-formed scale. Ten seconds of typing removes
+a failure mode that would otherwise be invisible.
+
+**Leave a value blank to keep it out of the score.** That is what a refusal or
+an unanswered door should usually be. A refusal is not weak support: scoring it
+zero would rank a door that said nothing *below* a door that said no. Doors
+with contacts but no score keep their rows and their contact count, and sit
+unranked rather than last.
+
+A door canvassed more than once averages what it said.
+
+Then add **Canvass support at the address** under *Rank this list on*, like any
+other measure. It is address-scoped, so it does what no area measure can: order
+two doors in the same polling division by what they actually told you.
+
+### What comes out
+
+Two extra columns whenever a canvass is loaded:
+
+| column | what it is |
+|---|---|
+| `canvass_contacts` | How many times this door appears in the file, scored or not. A door knocked twice and still unscored is a different problem from one never visited. |
+| `canvass_support` | The mean of the scores you assigned, or blank where nothing there was scorable. |
+
+That is the whole of it. **No name, no note, no phone number, no date reaches
+the export** — they are read and dropped in the same pass, and a test asserts
+it against a fixture carrying all of them. There is also no flag in
+`tools/make-payload.js` that would bake canvass data into a shared build, by
+any name such a flag might plausibly take, and a test asserts that too.
+
+### Using it for the campaign's own filtering
+
+The stated workflow is: export the list, check it against the canvassing
+database, drop the already-identified, target the rest. Two of those three
+steps are a join this now does for you. Sort or filter on `canvass_contacts`
+in the exported file rather than across two files — `= 0` is never knocked,
+`> 0` with a blank `canvass_support` is knocked and unresolved.
 
 ## What it claims, and what it does not
 

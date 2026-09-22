@@ -78,6 +78,11 @@ const state = {
      and one variable picker on the map and therefore one measure however many
      the reader wants. */
   targets: [],
+  /* What was heard at the door: a support score and a contact count per
+     address, and the reader's own price list for the answers in their file.
+     Never the file itself -- names, notes and numbers are dropped in the read
+     and there is no flag that would bake any of it into a shared build. */
+  canvass: null,
   nonvoters: { unit: 'fed', roll: '', ballots: 'fed', minRoll: 50, party: '', weight: 1,
                rows: null, on: {}, below: {}, pairing: null, basket: new Set(),
                /* What the reader asked for, as distinct from what is in force.

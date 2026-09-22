@@ -1145,7 +1145,7 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
   const IDENTIFIERS = /^name$|(first|last|given|middle|sur|full|voter|person|elector)_?name|elector_?id|voter_?id|(^|_)dob$|birth|phone|email|postal_?code$/i;
   ok('no column carries a per-person identifier',
      !addrHead.some((h) => IDENTIFIERS.test(h)), addrHead.join(','));
-  const EXPECTED_COLS = /^(rank|address|located_by|longitude|latitude|weight|federal_poll|provincial_area|dissemination_area|target_score|measure_\d+_(name|value|percentile)|cumulative_.+|addresses|electors|rows)$/;
+  const EXPECTED_COLS = /^(rank|address|located_by|longitude|latitude|weight|canvass_contacts|canvass_support|federal_poll|provincial_area|dissemination_area|target_score|measure_\d+_(name|value|percentile)|cumulative_.+|addresses|electors|rows)$/;
   ok('and every column in the file is one this export is known to write',
      addrHead.every((h) => EXPECTED_COLS.test(h)),
      addrHead.filter((h) => !EXPECTED_COLS.test(h)).join(',') || 'all known');
@@ -1480,6 +1480,81 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
   ok('clearing the list hands ranking back to the map',
      /what the map is showing/i.test(await page.locator('#points-export-basis').innerText()),
      await page.locator('#points-export-basis').innerText());
+
+  console.log('\n== Canvass results ==');
+  /* The only measure here that is about the people rather than the building,
+     read from a file this code has never seen. The fixture is awkward in the
+     ways a real export is: a support column not called "support", word answers
+     mixed with a numeric one, a refusal, a door knocked twice, and a name and
+     a note that must not survive the read. */
+  const CANVASS = 'House Number,Street Name,Voter Name,Disposition,Notes\n'
+    + '101-3449,Anzio Dr,Jane Doe,Strong Support,likes the candidate\n'
+    + '101-3449,Anzio Dr,John Doe,Undecided,call back\n'
+    + '3451,Anzio Dr,A Renter,Strongly Opposed,\n'
+    + '1234,West 16th Avenue,Someone,Refused,\n'
+    + '500,Saint Catherines Street,Nobody,3,\n';
+  await page.locator('#file-canvass').setInputFiles(
+    { name: 'canvass.csv', mimeType: 'text/csv', buffer: Buffer.from(CANVASS) });
+  await page.waitForTimeout(1200);
+  const cv = await page.evaluate(() => {
+    const c = window.vanPoliAtlas.state.canvass;
+    return { column: c && c.column,
+             scale: c && Object.fromEntries([...c.scale.entries()]),
+             pooled: c && Object.fromEntries(
+               [...c.pooled.entries()].map(([k, a]) => [k, [a.contacts, a.support]])) };
+  });
+  ok(`the support column is found without being named "support" (${cv.column})`,
+     cv.column === 'Disposition', String(cv.column));
+  ok('words that say their own direction are priced',
+     cv.scale['Strong Support'] === 1 && cv.scale.Undecided === 0.5
+     && cv.scale['Strongly Opposed'] === 0, JSON.stringify(cv.scale));
+  /* The one that matters most. VAN counts 1 as strong support; plenty of
+     home-grown sheets count the other way. A wrong guess inverts the whole
+     canvass and nothing downstream can detect it, because an inverted scale is
+     a perfectly well-formed scale. */
+  ok('but a bare number is left for the reader rather than guessed',
+     cv.scale['3'] === null, JSON.stringify(cv.scale));
+  ok('and the status says so rather than leaving it to be noticed',
+     /no score set/i.test(await page.locator('#status-canvass').innerText()),
+     (await page.locator('#status-canvass').innerText()).replace(/\s+/g, ' ').slice(0, 200));
+  ok('a door canvassed twice averages what it said (0.75 from 1 and 0.5)',
+     cv.pooled['3449 ANZIO DR'][1] === 0.75, JSON.stringify(cv.pooled['3449 ANZIO DR']));
+  /* A refusal is not weak support: scoring it 0 would rank a door that said
+     nothing below one that said no. */
+  ok('a refusal is a contact without a score, not a zero',
+     cv.pooled['1234 W 16TH AVE'][0] === 1 && cv.pooled['1234 W 16TH AVE'][1] === null,
+     JSON.stringify(cv.pooled['1234 W 16TH AVE']));
+
+  const canvassOffered = (await page.$$eval('#target-measure option', (os) => os.map((o) => o.value)))
+    .includes('address|canvass|');
+  ok('it is offered as a measure of the door', canvassOffered);
+  await addMeasure(/^address\|canvass\|/);
+  const cvDl = page.waitForEvent('download', { timeout: 15000 });
+  await page.locator('#export-addresses').click();
+  const cvCsvRaw = require('fs').readFileSync(await (await cvDl).path(), 'utf8');
+  const cvCsv = cvCsvRaw.split(/\r?\n/).filter(Boolean);
+  const cvHead = splitCsv(cvCsv[0].replace(/^﻿/, ''));
+  ok('the export carries what was heard and how often it was knocked',
+     cvHead.includes('canvass_support') && cvHead.includes('canvass_contacts'),
+     cvHead.join(','));
+  /* The assertion this whole feature stands on. A canvass file is the most
+     disclosive input here -- a support level attached to a named person at a
+     home address -- and only the score and the contact count may leave. */
+  const leaked = ['Jane Doe', 'John Doe', 'A Renter', 'Someone', 'Nobody',
+                  'likes the candidate', 'call back'].filter((s) => cvCsvRaw.includes(s));
+  ok('and no name or note from the canvass file reaches the export',
+     leaked.length === 0, leaked.join(', '));
+  const cvBody = cvCsv.slice(1).map(splitCsv);
+  ok('a door with contacts but no score is left unranked rather than ranked last',
+     cvBody.some((r) => r[1] === '1234 W 16TH AVE' && r[0] === ''),
+     (cvBody.find((r) => r[1] === '1234 W 16TH AVE') || []).slice(0, 3).join(','));
+  await page.locator('#clear-canvass').click();
+  await page.waitForTimeout(300);
+  ok('removing the canvass takes any measure resting on it with it',
+     await page.evaluate(() => (window.vanPoliAtlas.state.targets || [])
+       .every((m) => m.kind !== 'canvass')));
+  await page.locator('#target-clear').click();
+  await page.waitForTimeout(200);
 
   await page.locator('#tab-map').click();
   await page.waitForTimeout(200);
