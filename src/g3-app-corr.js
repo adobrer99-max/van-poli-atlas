@@ -639,6 +639,192 @@ for (const id of ['shade-prov-by', 'shade-party-prov']) {
     renderLegend();
   });
 }
+/* --- Show and Measure ------------------------------------------------------
+
+   The two controls the Map tab opens with, sitting on top of the three shade
+   selectors rather than replacing them.
+
+   Show names a source and Measure names a number, which is how a reader holds
+   the question. The selectors underneath hold it the way the data does: one per
+   geography, each offering measures from whatever source can reach that
+   geography, so "provincial party share" appears twice -- once natively and
+   once redistributed onto federal polls -- and the difference between them is a
+   crosswalk the reader has not been told about yet.
+
+   Writing to the selectors rather than around them is the whole trick. Every
+   restyle, legend, readout and tab that reads shade-by keeps working untouched,
+   and anyone who wants two layers shaded at once still has the old controls in
+   Map options. What they lose is having to start there. */
+const MAP_SHOW = {
+  fed: { layer: 'fed', modes: ['fed-party', 'turnout-fed', 'type'] },
+  prov: { layer: 'prov',
+          modes: ['prov-party', 'turnout-prov', 'prov-per-elector', 'prov-per-resident',
+                  'catchment'] },
+  muni: { layer: 'fed', modes: ['muni-party', 'muni-ballots'] },
+  census: { layer: 'da', modes: ['variable'] },
+  /* Deliberately its own heading. A measure that subtracts one election from
+     another is not a federal result or a provincial one, and filing it under
+     either invites it to be quoted as that election's number. */
+  both: { layer: 'fed', modes: ['turnout-agg', 'turnout-delta', 'gap'] },
+  roll: { layer: 'fed',
+          modes: ['nonvoters-count', 'nonvoters-share', 'points-count', 'points-weight'] },
+};
+const SHOW_SELECT = { fed: 'shade-by', prov: 'shade-prov-by', da: 'shade-da-by' };
+const SHOW_PARTY = { 'fed-party': 'shade-party-fed', 'prov-party': 'shade-party-prov',
+                     'muni-party': 'muni-party' };
+/* Set while Show/Measure are writing to the selectors, so the listener that
+   keeps Show in step with the selectors does not fight the write that caused
+   it and land on "Several layers" halfway through setting one. */
+let writingShow = false;
+
+/* A measure is the mode plus whatever second choice that mode needs, because a
+   half-made choice is what the old controls left on screen: "Federal party
+   share" with the party picker two controls away and set to something else. */
+const measureValue = (mode, extra) => (extra ? `${mode}|${extra}` : mode);
+
+function showOptionsAvailable() {
+  const out = {};
+  for (const [key, spec] of Object.entries(MAP_SHOW)) {
+    const node = $(SHOW_SELECT[spec.layer]);
+    out[key] = Boolean(node) && spec.modes.some((m) => {
+      const opt = node.querySelector(`option[value="${m}"]`);
+      return opt && !opt.hidden;
+    });
+  }
+  return out;
+}
+
+/* Fill Measure for whatever Show is set to, with every choice already made.
+
+   Party-bearing modes are expanded against the parties in the loaded results
+   and a census variable becomes one entry per variable, so picking from this
+   list never leaves a second control to remember. */
+function refreshMapMeasure() {
+  const showNode = $('map-show');
+  const node = $('map-measure');
+  if (!showNode || !node) return;
+  const available = showOptionsAvailable();
+  for (const [key, ok] of Object.entries(available)) {
+    const opt = showNode.querySelector(`option[value="${key}"]`);
+    if (opt) opt.hidden = !ok;
+  }
+  const show = showNode.value;
+  const spec = MAP_SHOW[show];
+  if (!spec) {
+    node.innerHTML = '';
+    node.appendChild(new Option(show === 'custom'
+      ? 'Set in Map options' : 'Nothing to measure', ''));
+    node.disabled = true;
+    return;
+  }
+  const layerSelect = $(SHOW_SELECT[spec.layer]);
+  const previous = node.value;
+  const options = [];
+  for (const mode of spec.modes) {
+    const opt = layerSelect && layerSelect.querySelector(`option[value="${mode}"]`);
+    if (!opt || opt.hidden) continue;
+    const text = opt.textContent.trim();
+    if (mode === 'variable') {
+      for (const v of socioVariables()) options.push([measureValue(mode, v.key), v.label]);
+      continue;
+    }
+    const partyNode = SHOW_PARTY[mode] ? $(SHOW_PARTY[mode]) : null;
+    if (partyNode) {
+      for (const o of partyNode.options) {
+        if (o.value) options.push([measureValue(mode, o.value), `${text} — ${o.value}`]);
+      }
+      continue;
+    }
+    options.push([measureValue(mode), text]);
+  }
+  node.innerHTML = '';
+  if (!options.length) {
+    node.appendChild(new Option('Load the data for this first', ''));
+    node.disabled = true;
+    return;
+  }
+  node.disabled = false;
+  for (const [value, label] of options) node.appendChild(new Option(label, value));
+  if (options.some(([v]) => v === previous)) node.value = previous;
+}
+
+/* Push Show + Measure down onto the selectors, and blank the other layers.
+
+   Blanking is the simplification. Three ramps at once is a GIS; the reader who
+   wants that opens Map options and sets them, and Show then says so. */
+function applyMapShow() {
+  const show = $('map-show') ? $('map-show').value : 'none';
+  if (show === 'custom') return;
+  const spec = MAP_SHOW[show];
+  const [mode, extra] = ($('map-measure') ? $('map-measure').value : '').split('|');
+  writingShow = true;
+  const fire = (id, value) => {
+    const n = $(id);
+    if (!n || n.value === value) return;
+    if (![...n.options].some((o) => o.value === value)) return;
+    n.value = value;
+    n.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  if (spec && mode) {
+    if (SHOW_PARTY[mode] && extra) fire(SHOW_PARTY[mode], extra);
+    if (mode === 'variable' && extra) fire('shade-da-var', extra);
+  }
+  for (const [layer, id] of Object.entries(SHOW_SELECT)) {
+    fire(id, spec && layer === spec.layer && mode ? mode : 'none');
+  }
+  writingShow = false;
+}
+
+/* And the other direction: keep Show honest about what the selectors say.
+
+   Somebody can reach a state these two controls cannot describe -- two layers
+   shaded, or a mode Show files under no heading -- and the honest answer is to
+   say which, not to show one of the two and let it read as all of it. */
+function syncShowFromSelects() {
+  if (writingShow) return;
+  const showNode = $('map-show');
+  if (!showNode) return;
+  const live = [];
+  for (const [layer, id] of Object.entries(SHOW_SELECT)) {
+    const n = $(id);
+    if (n && !UNSHADED.has(n.value)) live.push([layer, n.value]);
+  }
+  if (!live.length) { showNode.value = 'none'; refreshMapMeasure(); return; }
+  if (live.length > 1) { showNode.value = 'custom'; refreshMapMeasure(); return; }
+  const [layer, mode] = live[0];
+  const match = Object.entries(MAP_SHOW)
+    .find(([, spec]) => spec.layer === layer && spec.modes.includes(mode));
+  if (!match) { showNode.value = 'custom'; refreshMapMeasure(); return; }
+  showNode.value = match[0];
+  refreshMapMeasure();
+  const partyNode = SHOW_PARTY[mode] ? $(SHOW_PARTY[mode]) : null;
+  const extra = mode === 'variable' ? ($('shade-da-var') ? $('shade-da-var').value : '')
+    : partyNode ? partyNode.value : '';
+  const want = measureValue(mode, extra);
+  const node = $('map-measure');
+  if (node && [...node.options].some((o) => o.value === want)) node.value = want;
+}
+
+for (const id of ['map-show', 'map-measure']) {
+  const node = $(id);
+  if (!node) continue;
+  node.addEventListener('change', () => {
+    if (id === 'map-show') refreshMapMeasure();
+    applyMapShow();
+  });
+}
+/* The selectors can move without Show touching them -- Map options, another
+   tab's "show this on the map" button, a file arriving and unhiding a mode. */
+for (const id of ['shade-by', 'shade-prov-by', 'shade-da-by', 'shade-da-var',
+                  'shade-party-fed', 'shade-party-prov', 'muni-party']) {
+  const node = $(id);
+  if (node) node.addEventListener('change', syncShowFromSelects);
+}
+if ($('tab-map')) $('tab-map').addEventListener('click', syncShowFromSelects);
+/* Measure starts empty otherwise, and an empty select next to a filled one
+   reads as broken rather than as "nothing is being shown". */
+refreshMapMeasure();
+
 /* The slider is read by styleLayer for every overlay, which is the provincial
    layer AND the census one. Restyling only the provincial paths left a shaded
    census layer at its old opacity until something else forced a redraw. */

@@ -321,6 +321,7 @@ function applyPointFile(table) {
   if ($('points-export-row')) {
     $('points-export-row').hidden = !(state.points && state.points.report
       && state.points.report.joined && state.points.report.matched > 0);
+    refreshTargetPicker();
     renderExportBasis();
   }
   $('clear-points').hidden = false;
@@ -366,12 +367,17 @@ function exportAddresses() {
   head.push('longitude', 'latitude');
   for (const t of indexes) head.push(LAYER_COLUMN[t.key] || t.key);
   if (basis) {
-    /* One triple per measure, named for the layer it came from rather than
-       numbered, so a column heading still says what it is six weeks later to
-       somebody who was not in the room when it was chosen. */
-    for (const b of bases) {
-      head.push(`${b.column}_measure`, `${b.column}_value`, `${b.column}_percentile`);
-    }
+    /* One triple per measure, numbered in the order they were chosen.
+
+       They were named for their layer while only one measure per layer was
+       possible. Three census indicators at once is the case the target list
+       exists for, and three columns called census_value is not a spreadsheet.
+       The number is only an index; measure_N_name carries the full label --
+       measure, party, and the areas it was ranked against -- so a heading still
+       says what it is to somebody who was not in the room when it was chosen. */
+    bases.forEach((b, i) => {
+      head.push(`measure_${i + 1}_name`, `measure_${i + 1}_value`, `measure_${i + 1}_percentile`);
+    });
     /* The composite the rank is taken on, whenever there is more than one
        measure to compose. With a single measure the rank runs down that
        measure's own percentile and a second column saying the same thing
@@ -511,19 +517,145 @@ function exportAddresses() {
    shadeValue itself applies. */
 const UNSHADED = new Set(['none', 'type', 'flat', 'catchment']);
 
-/* The three map layers, their selectors, and the areas each is drawing. The
-   column prefix is the layer in the language of the tab rather than of the
-   geography: "census" is what a reader picking median income thinks they are
-   picking, whatever the boundary underneath is called. */
+/* The three map layers, their selectors, and the areas each is drawing. */
 const BASIS_LAYERS = [
-  { key: 'fed', select: 'shade-by', column: 'federal', features: () => activeFederal() },
-  { key: 'prov', select: 'shade-prov-by', column: 'provincial',
+  { key: 'fed', select: 'shade-by', on: 'federal polls', features: () => activeFederal() },
+  { key: 'prov', select: 'shade-prov-by', on: 'provincial areas',
     features: () => (state.prov && state.prov.active) || [] },
-  { key: 'da', select: 'shade-da-by', column: 'census',
+  { key: 'da', select: 'shade-da-by', on: 'census areas',
     features: () => (state.da && state.da.active) || [] },
 ];
+const BASIS_LAYER = Object.fromEntries(BASIS_LAYERS.map((l) => [l.key, l]));
 
+/* Which shade modes name a party rather than being a measure on their own, and
+   which side's party list fills them in. */
+const PARTY_MODES = { 'fed-party': 'fed', 'prov-party': 'prov', 'muni-party': 'muni' };
+
+/* Left out of the target list on purpose. `gap` is a federal party share minus
+   a provincial one: it needs TWO parties, and offering every pairing would be
+   thirty-six entries of which one is wanted. Nothing is lost for targeting --
+   "high provincially and high federally" is two measures, which the list holds
+   natively and reports separately, and separately is how a campaign reads it. */
+const NOT_A_TARGET = new Set(['gap']);
+
+function partiesFor(side) {
+  if (side === 'muni') {
+    const node = $('muni-party');
+    return node ? [...node.options].filter((o) => o.value).map((o) => [o.value]) : [];
+  }
+  const store = side === 'fed' ? state.fedResults : state.provResults;
+  return (store && store.parties) || [];
+}
+
+/* Every concrete measure the export could rank on as things stand.
+
+   Concrete is the point. A shade mode is not a measure until its party is
+   filled in -- "Federal party share" ranks nothing, "Federal party share,
+   Liberal" ranks something -- so the party-bearing modes are expanded against
+   the parties actually present in the loaded results, and a census variable
+   becomes one entry per variable. What comes back can be put in a select and
+   chosen from without consulting anything else on screen, which is the whole
+   reason the list exists. */
+function measureCatalogue() {
+  const out = [];
+  for (const layer of BASIS_LAYERS) {
+    const node = $(layer.select);
+    if (!node || !layer.features().length) continue;
+    for (const opt of node.options) {
+      const mode = opt.value;
+      if (UNSHADED.has(mode) || NOT_A_TARGET.has(mode) || opt.hidden) continue;
+      const text = opt.textContent.trim();
+      if (mode === 'variable') {
+        for (const v of socioVariables()) {
+          out.push({ id: `${layer.key}|${mode}|${v.key}`, layer: layer.key, mode,
+                     censusVar: v.key, label: v.label, on: layer.on });
+        }
+        continue;
+      }
+      const side = PARTY_MODES[mode];
+      if (side) {
+        for (const [name] of partiesFor(side)) {
+          out.push({ id: `${layer.key}|${mode}|${name}`, layer: layer.key, mode, party: name,
+                     label: `${text} — ${name}`, on: layer.on });
+        }
+        continue;
+      }
+      out.push({ id: `${layer.key}|${mode}|`, layer: layer.key, mode, label: text, on: layer.on });
+    }
+  }
+  return out;
+}
+
+/* One chosen measure, turned into the thing the export ranks with. */
+function basisFor(m) {
+  const layer = BASIS_LAYER[m.layer];
+  const features = layer ? layer.features() : [];
+  if (!features.length) return null;
+  const side = PARTY_MODES[m.mode];
+  /* A census variable is selected by a second control rather than by the mode,
+     so the value lookup needs that variable's own table rather than whatever
+     the map happens to be showing. */
+  const censusTable = m.censusVar
+    ? (socioVariables().find((v) => v.key === m.censusVar) || {}).byFeature : null;
+  if (m.censusVar && !censusTable) return null;
+  /* Each side's party is passed on its own line rather than by sharing one
+     value across all three. A measure names the party it means, and a lookup
+     that falls through to a selector would rank a file by a party nobody chose
+     for it -- the exact disagreement between file and intent this list exists
+     to remove. */
+  const fedParty = side === 'fed' ? m.party : '';
+  const provParty = side === 'prov' ? m.party : '';
+  const muniParty = side === 'muni' ? m.party : undefined;
+  const valueOf = censusTable
+    ? (f) => (censusTable.get(f.__idx) ?? null)
+    : (f) => shadeValue(m.layer, f, m.mode, fedParty, provParty, muniParty);
+  /* What the option name leaves out. A non-voter figure means nothing without
+     both halves of its subtraction, and this column is the one that leaves the
+     tab, so it is the last place it may go unsaid. */
+  const qualifier = NONVOTER_MODES.has(m.mode) && state.nonvoters.pairing
+    ? ` — ${state.nonvoters.pairing.label}, ${state.nonvoters.pairing.route}` : '';
+  const label = `${m.label}${qualifier} · ${m.on}`;
+  /* Ranked against every area this layer is drawing, which is the same
+     population its colour ramp is scaled to. */
+  const all = features.map(valueOf)
+    .filter((v) => v != null && isFinite(v)).sort((a, b) => a - b);
+  const isRate = m.censusVar
+    ? false : /turnout|party|share|part-|gap|delta/.test(m.mode);
+  /* The unrounded standing, which is what the composite is built from. The
+     displayed percentile is a whole number and three hundred addresses can
+     share one; averaging the rounded figure throws away the ordering inside
+     every tie before the mean is even taken. */
+  const fraction = (v) => {
+    if (v == null || !isFinite(v) || !all.length) return 0;
+    let below = 0;
+    while (below < all.length && all[below] < v) below++;
+    return below / all.length;
+  };
+  return {
+    id: m.id,
+    layer: m.layer,
+    label,
+    valueOf,
+    fraction,
+    format: (v) => (v == null || !isFinite(v) ? ''
+      : isRate ? `${(v * 100).toFixed(1)}%` : String(Math.round(v * 1000) / 1000)),
+    percentile: (v) => (v == null || !isFinite(v) || !all.length
+      ? '' : Math.round(fraction(v) * 100)),
+  };
+}
+
+/* What the download will be ranked on: the target list where the reader has
+   built one, and otherwise whatever the map is showing.
+
+   The fallback is not a convenience. Before the list existed the export took
+   its measures from the map's three shade selectors, which made the file
+   impossible to disagree with what the reader was looking at -- a real property
+   and worth keeping for the one-measure case, where setting the map and hitting
+   download is still the shortest honest path. The list wins when it has
+   anything in it, because an explicit choice beats an inferred one. */
 function exportBases() {
+  const chosen = (state.targets || []).map(basisFor).filter(Boolean);
+  if (chosen.length) return chosen;
   const out = [];
   const fedParty = $('shade-party-fed') ? $('shade-party-fed').value : '';
   const provParty = $('shade-party-prov') ? $('shade-party-prov').value : '';
@@ -531,46 +663,23 @@ function exportBases() {
     const node = $(layer.select);
     if (!node) continue;
     const mode = node.value;
-    if (UNSHADED.has(mode)) continue;
-    const features = layer.features();
-    if (!features.length) continue;
+    if (UNSHADED.has(mode) || !layer.features().length) continue;
     const sel = node.selectedOptions[0];
-    /* What the option name leaves out. A party share means nothing without the
-       party, and a non-voter figure means nothing without both halves of its
-       subtraction -- and this column is the one that leaves the tab, so it is
-       the last place either may go unsaid. */
-    const qualifier = NONVOTER_MODES.has(mode) && state.nonvoters.pairing
-      ? ` — ${state.nonvoters.pairing.label}, ${state.nonvoters.pairing.route}`
-      : mode.includes('fed-party') && fedParty ? ` — ${fedParty}`
-        : mode.includes('prov-party') && provParty ? ` — ${provParty}` : '';
-    const label = (sel ? sel.textContent.trim() : mode) + qualifier;
-    const valueOf = (f) => shadeValue(layer.key, f, mode, fedParty, provParty);
-    /* Ranked against every area this layer is drawing, which is the same
-       population its colour ramp is scaled to. */
-    const all = features.map(valueOf)
-      .filter((v) => v != null && isFinite(v)).sort((a, b) => a - b);
-    const isRate = /turnout|party|share|part-|gap|delta/.test(mode);
-    /* The unrounded standing, which is what the composite is built from. The
-       displayed percentile is a whole number and three hundred addresses can
-       share one; averaging the rounded figure throws away the ordering inside
-       every tie before the mean is even taken. */
-    const fraction = (v) => {
-      if (v == null || !isFinite(v) || !all.length) return 0;
-      let below = 0;
-      while (below < all.length && all[below] < v) below++;
-      return below / all.length;
-    };
-    out.push({
-      layer: layer.key,
-      column: layer.column,
-      label,
-      valueOf,
-      fraction,
-      format: (v) => (v == null || !isFinite(v) ? ''
-        : isRate ? `${(v * 100).toFixed(1)}%` : String(Math.round(v * 1000) / 1000)),
-      percentile: (v) => (v == null || !isFinite(v) || !all.length
-        ? '' : Math.round(fraction(v) * 100)),
+    const text = sel ? sel.textContent.trim() : mode;
+    const side = PARTY_MODES[mode];
+    const party = side === 'fed' ? fedParty : side === 'prov' ? provParty
+      : side === 'muni' && $('muni-party') ? $('muni-party').value : '';
+    const censusVar = mode === 'variable' && $('shade-da-var') ? $('shade-da-var').value : null;
+    const basis = basisFor({
+      id: `${layer.key}|${mode}|${censusVar || party}`,
+      layer: layer.key, mode, party: party || undefined,
+      censusVar: censusVar || undefined,
+      label: censusVar
+        ? ((socioVariables().find((v) => v.key === censusVar) || {}).label || text)
+        : party ? `${text} — ${party}` : text,
+      on: layer.on,
     });
+    if (basis) out.push(basis);
   }
   return out;
 }
@@ -588,18 +697,73 @@ function renderExportBasis() {
   const node = $('points-export-basis');
   if (!node) return;
   const bases = exportBases();
+  const explicit = (state.targets || []).length > 0;
   if (!bases.length) {
     node.className = 'text-small text-warning';
     node.textContent = 'Nothing is selected to rank on, so this downloads in address order rather '
-      + 'than priority order. Colour the map by a measure on the Map tab to rank it.';
+      + 'than priority order. Add a measure above, or colour the map by one.';
     return;
   }
+  /* Which of the two paths is in force, said in as many words. They produce
+     different files from the same button, and a reader who thinks the map is
+     driving it when the list is has no way to tell from the rows. */
+  const source = explicit ? '' : ' Taken from what the map is showing, since no measure is chosen.';
   node.className = 'text-small text-muted';
-  node.textContent = bases.length === 1
+  node.textContent = (bases.length === 1
     ? `Ranked on ${bases[0].label}.`
     : `Ranked on the average standing across ${bases.length} measures: `
       + `${bases.map((b) => b.label).join('; ')}. An address is ranked only where all `
-      + `${bases.length} have a value for it.`;
+      + `${bases.length} have a value for it.`) + source;
+}
+
+/* The measures on offer, minus the ones already chosen. Re-read every time it
+   is shown: parties arrive with the results file and census variables with the
+   profile, so a list built at load would be empty and stay empty. */
+function refreshTargetPicker() {
+  const sel = $('target-measure');
+  if (!sel) return;
+  const taken = new Set((state.targets || []).map((m) => m.id));
+  const all = measureCatalogue().filter((m) => !taken.has(m.id));
+  const previous = sel.value;
+  sel.innerHTML = '';
+  if (!all.length) {
+    sel.appendChild(new Option(taken.size ? 'Every available measure is on the list'
+      : 'Load results or a census profile first', ''));
+    sel.disabled = true;
+  } else {
+    sel.disabled = false;
+    /* Grouped by the areas each is measured on, because the same measure on two
+       geographies is two different numbers and the group heading is the only
+       place that distinction fits without doubling every option's length. */
+    for (const on of [...new Set(all.map((m) => m.on))]) {
+      const group = document.createElement('optgroup');
+      group.label = `On ${on}`;
+      for (const m of all.filter((x) => x.on === on)) group.appendChild(new Option(m.label, m.id));
+      sel.appendChild(group);
+    }
+    if (all.some((m) => m.id === previous)) sel.value = previous;
+  }
+  const list = $('target-list');
+  if (list) {
+    list.innerHTML = '';
+    (state.targets || []).forEach((m, i) => {
+      const li = document.createElement('li');
+      li.textContent = `${i + 1}. ${m.label} · ${m.on}`;
+      const drop = document.createElement('button');
+      drop.type = 'button';
+      drop.className = 'btn btn-small';
+      drop.textContent = 'Remove';
+      drop.style.marginLeft = '0.5rem';
+      drop.addEventListener('click', () => {
+        state.targets = state.targets.filter((x) => x.id !== m.id);
+        refreshTargetPicker();
+        renderExportBasis();
+      });
+      li.appendChild(drop);
+      list.appendChild(li);
+    });
+  }
+  if ($('target-clear')) $('target-clear').hidden = !(state.targets || []).length;
 }
 
 function updatePointControls() {
@@ -638,8 +802,29 @@ if ($('file-points')) {
     /* And again whenever the tab is opened. A census variable can change the
        measure behind shade-da-by without anybody firing a change event on the
        select itself, and a line that is right at load and wrong by the time it
-       is read is worse than no line: it would be believed. */
-    if ($('tab-data')) $('tab-data').addEventListener('click', renderExportBasis);
+       is read is worse than no line: it would be believed. The picker is
+       refreshed on the same beat, since parties and census variables arrive
+       with their files rather than at load. */
+    if ($('tab-data')) {
+      $('tab-data').addEventListener('click', () => { refreshTargetPicker(); renderExportBasis(); });
+    }
+    if ($('target-add')) {
+      $('target-add').addEventListener('click', () => {
+        const id = $('target-measure').value;
+        const found = measureCatalogue().find((m) => m.id === id);
+        if (!found || (state.targets || []).some((m) => m.id === id)) return;
+        state.targets = (state.targets || []).concat([found]);
+        refreshTargetPicker();
+        renderExportBasis();
+      });
+    }
+    if ($('target-clear')) {
+      $('target-clear').addEventListener('click', () => {
+        state.targets = [];
+        refreshTargetPicker();
+        renderExportBasis();
+      });
+    }
   }
   $('file-points-ref').addEventListener('change', (e) => {
     if (e.target.files.length) loadPointFile(e.target.files[0], { asReference: true });

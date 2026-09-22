@@ -2253,6 +2253,22 @@ html>body{padding:0}
        and how to find a place. Everything below those is a setting rather than a
        question, so it sits under Map options. Walking past four rows of switches
        and sliders to reach the map is the analyst's route, not a reader's. -->
+  <!-- Three questions, in the order somebody actually has them: where am I
+       looking, what am I looking at, and which number about it.
+
+       What used to sit here was six controls deep and every one of them assumed
+       the data model. "Colour map by" offered fifteen options that mixed the
+       source, the measure and the geography into one list -- "Provincial party
+       share (redistributed onto polls)" is three decisions in one line -- and
+       then two more selects asked which party, which only some of those fifteen
+       even use. A senior reader had to understand the crosswalk before they
+       could look at a map.
+
+       Show names the source. Measure names the number, with the party already
+       filled in, so a choice is never half-made. The selects underneath in Map
+       options still exist, still carry their own ids, and still drive every
+       layer independently for anyone who wants two shadings at once; these two
+       write to them. -->
   <div class="viz-controls">
     <label class="form-label grow" for="area-filter">Area
       <select class="form-select" id="area-filter">
@@ -2261,52 +2277,79 @@ html>body{padding:0}
         <option value="all">Everything in the file (Metro Vancouver)</option>
       </select>
     </label>
-    <label class="form-label grow" for="shade-by"
-           title="Colours the 2025 federal polling divisions, the base layer of the map.">Colour map by
-      <select class="form-select" id="shade-by">
+    <label class="form-label grow" for="map-show">Show
+      <select class="form-select" id="map-show">
         <option value="none">Nothing (plain boundaries)</option>
-        <option value="type">Poll type</option>
-        <option value="fed-party">Federal party share</option>
-        <option value="turnout-fed">Federal turnout</option>
-        <option value="prov-party">Provincial party share (redistributed onto polls)</option>
-        <option value="turnout-prov">Provincial turnout (redistributed onto polls)</option>
-        <option value="turnout-agg">Aggregate turnout, both elections</option>
-        <option value="turnout-delta">Federal minus provincial turnout</option>
-        <option value="gap">Federal minus provincial party share</option>
-        <option value="muni-party" hidden>Municipal (2022) party share</option>
-        <option value="muni-ballots" hidden>Municipal (2022) ballots cast (smoothed)</option>
-        <option value="points-count" hidden>Places loaded (count)</option>
-        <option value="points-weight" hidden>Places loaded (weighted)</option>
-        <option value="nonvoters-count" hidden>Did not vote (count)</option>
-        <option value="nonvoters-share" hidden>Did not vote (share of roll)</option>
+        <option value="fed">Federal result (2025)</option>
+        <option value="prov">Provincial result (2024)</option>
+        <option value="muni" hidden>Municipal result (2022)</option>
+        <option value="census">Census indicator</option>
+        <option value="both">Both elections compared</option>
+        <!-- "The roll" rather than "the loaded roll": these modes resolve as
+             soon as federal results are in, because a results file carries its
+             own elector count and that is the roll the subtraction uses until a
+             real one is loaded. -->
+        <option value="roll" hidden>The roll and who did not vote</option>
+        <!-- Reachable only by setting two layers by hand in Map options. It is
+             not offered as a choice, it is reported as a state: the two controls
+             above cannot describe what is on screen, and saying so beats showing
+             one of the two and letting a reader think that is all of it. -->
+        <option value="custom" hidden>Several layers &mdash; set in Map options</option>
       </select>
     </label>
-    <label class="form-label grow" for="shade-party-fed">Federal (2025) party
-      <select class="form-select" id="shade-party-fed" disabled><option>Load 2025 federal results</option></select>
-    </label>
-    <label class="form-label grow" for="shade-party-prov">Provincial (2024) party
-      <select class="form-select" id="shade-party-prov" disabled><option>Load 2024 provincial results</option></select>
-    </label>
-    <label class="form-label grow" for="muni-party" id="muni-party-label" hidden>Municipal (2022) party
-      <select class="form-select" id="muni-party"><option value="">Load the municipal results</option></select>
-    </label>
-  </div>
-
-  <div class="viz-controls">
-    <label class="form-label grow" for="find-poll">Find a federal (2025) polling division
-      <select class="form-select" id="find-poll"><option value="">Select a division&hellip;</option></select>
-    </label>
-    <label class="form-label grow" for="find-va">Find a provincial (2024) voting area
-      <select class="form-select" id="find-va" disabled><option value="">No provincial layer loaded</option></select>
-    </label>
-    <label class="form-label grow" for="find-da" id="find-da-wrap" hidden>Find a dissemination area
-      <select class="form-select" id="find-da"><option value="">Select an area&hellip;</option></select>
+    <label class="form-label grow" for="map-measure">Measure
+      <select class="form-select" id="map-measure"></select>
     </label>
     <button type="button" class="btn" id="zoom-reset">Full view</button>
   </div>
 
   <details class="disclosure" id="map-options">
     <summary>Map options</summary>
+    <!-- The controls Show and Measure write to. A reader who wants two layers
+         shaded at once, or a measure the pair above does not reach, sets them
+         here and Show reports "Several layers" rather than lying about it. -->
+    <div class="viz-controls">
+      <label class="form-label grow" for="shade-by"
+             title="Colours the 2025 federal polling divisions, the base layer of the map.">Colour federal polls by
+        <select class="form-select" id="shade-by">
+          <option value="none">Nothing (plain boundaries)</option>
+          <option value="type">Poll type</option>
+          <option value="fed-party">Federal party share</option>
+          <option value="turnout-fed">Federal turnout</option>
+          <option value="prov-party">Provincial party share (redistributed onto polls)</option>
+          <option value="turnout-prov">Provincial turnout (redistributed onto polls)</option>
+          <option value="turnout-agg">Aggregate turnout, both elections</option>
+          <option value="turnout-delta">Federal minus provincial turnout</option>
+          <option value="gap">Federal minus provincial party share</option>
+          <option value="muni-party" hidden>Municipal (2022) party share</option>
+          <option value="muni-ballots" hidden>Municipal (2022) ballots cast (smoothed)</option>
+          <option value="points-count" hidden>Places loaded (count)</option>
+          <option value="points-weight" hidden>Places loaded (weighted)</option>
+          <option value="nonvoters-count" hidden>Did not vote (count)</option>
+          <option value="nonvoters-share" hidden>Did not vote (share of roll)</option>
+        </select>
+      </label>
+      <label class="form-label grow" for="shade-party-fed">Federal (2025) party
+        <select class="form-select" id="shade-party-fed" disabled><option>Load 2025 federal results</option></select>
+      </label>
+      <label class="form-label grow" for="shade-party-prov">Provincial (2024) party
+        <select class="form-select" id="shade-party-prov" disabled><option>Load 2024 provincial results</option></select>
+      </label>
+      <label class="form-label grow" for="muni-party" id="muni-party-label" hidden>Municipal (2022) party
+        <select class="form-select" id="muni-party"><option value="">Load the municipal results</option></select>
+      </label>
+    </div>
+    <div class="viz-controls">
+      <label class="form-label grow" for="find-poll">Find a federal (2025) polling division
+        <select class="form-select" id="find-poll"><option value="">Select a division&hellip;</option></select>
+      </label>
+      <label class="form-label grow" for="find-va">Find a provincial (2024) voting area
+        <select class="form-select" id="find-va" disabled><option value="">No provincial layer loaded</option></select>
+      </label>
+      <label class="form-label grow" for="find-da" id="find-da-wrap" hidden>Find a dissemination area
+        <select class="form-select" id="find-da"><option value="">Select an area&hellip;</option></select>
+      </label>
+    </div>
     <div class="viz-controls">
       <label class="form-label grow" for="shade-prov-by">Colour provincial areas by
         <select class="form-select" id="shade-prov-by">
@@ -2674,13 +2717,25 @@ html>body{padding:0}
         identifiers &mdash; a mail drop needs the door and the quantity. It is still derived from
         a roll, so it says which buildings hold electors and how many.
       </p>
-      <!-- What the file will be ranked on, read off the map as it stands.
+      <!-- The measures the list is ranked on, chosen here rather than inferred
+           from the map.
 
-           The measures are set on the Map tab and the file is downloaded here,
-           and nothing on this screen used to say which ones were in force. Two
-           lists that differ only in the provincial selector come out with the
-           same columns and different rows, and the way that error surfaces is
-           a client asking why the crossover list is full of safe areas. -->
+           The map can express one measure per layer, which is three, and they
+           have to be set on another tab. A list resting on three census
+           indicators at once cannot be said that way at all, and two lists that
+           differ only in the provincial selector come out with the same columns
+           and different rows -- an error that surfaces as a client asking why
+           the crossover list is full of safe areas. Chosen measures are listed
+           below in the order they were added; leave it empty and the export
+           falls back to whatever the map is showing. -->
+      <div class="viz-controls" style="flex:1 1 100%;">
+        <label class="form-label grow" for="target-measure">Rank this list on
+          <select class="form-select" id="target-measure"></select>
+        </label>
+        <button type="button" class="btn" id="target-add">Add measure</button>
+        <button type="button" class="btn" id="target-clear" hidden>Use the map instead</button>
+      </div>
+      <ul class="readiness" id="target-list" style="flex:1 1 100%; margin:0;"></ul>
       <p class="text-small" id="points-export-basis" style="margin:0; flex:1 1 100%;"></p>
     </div>
     <div class="viz-controls" id="points-controls" hidden>
@@ -9399,6 +9454,15 @@ const state = {
      Non-voters tab currently has selected. `on` is keyed by layer and then by
      the feature's own index, the way `points` and `muni` are, so the map and
      the readout read it without knowing which tab produced it. */
+  /* The measures a target list is ranked on, chosen explicitly and in order.
+
+     Empty is not "nothing to rank on": the export falls back to whatever the
+     map is showing, which is how it worked before this existed and is still the
+     shortest path for a single measure. What this list adds is the case the map
+     cannot express -- three census indicators at once, which are one selector
+     and one variable picker on the map and therefore one measure however many
+     the reader wants. */
+  targets: [],
   nonvoters: { unit: 'fed', roll: '', ballots: 'fed', minRoll: 50, party: '', weight: 1,
                rows: null, on: {}, below: {}, pairing: null, basket: new Set(),
                /* What the reader asked for, as distinct from what is in force.
@@ -9787,10 +9851,10 @@ function fitAll() {
    read the 2025 results by feature index; the provincial-on-federal modes need
    the crosswalk (state.provOnFed); the provincial layer's own modes read the
    2024 results by f.__idx and need no crosswalk at all. */
-function shadeValue(layerKey, f, mode, fedParty, provParty) {
+function shadeValue(layerKey, f, mode, fedParty, provParty, muniParty) {
   if (mode === 'none' || mode === 'type' || mode === 'flat') return null;
   if (POINT_MODES.has(mode)) return pointsValue(layerKey, f, mode);
-  if (MUNI_MODES.has(mode)) return muniValue(layerKey, f, mode);
+  if (MUNI_MODES.has(mode)) return muniValue(layerKey, f, mode, muniParty);
   if (NONVOTER_MODES.has(mode)) return nonvotersValue(layerKey, f, mode);
   if (layerKey === 'prov') {
     if (PART_MODES.has(mode)) {
@@ -9867,11 +9931,15 @@ function muniUnit(layerKey, f) {
   return on.get(layerKey === 'fed' ? f.idx : f.__idx) || null;
 }
 
-function muniValue(layerKey, f, mode) {
+/* muniParty is for callers that know which party they mean rather than which
+   party the map is showing -- a target list names its own, and reading the
+   selector there would rank a file by a party nobody chose for it. Omitted, it
+   falls back to the selector, which is what every shading path wants. */
+function muniValue(layerKey, f, mode, muniParty) {
   const u = muniUnit(layerKey, f);
   if (!u) return null;
   if (mode === 'muni-ballots') return u.ballots;
-  const party = $('muni-party') ? $('muni-party').value : '';
+  const party = muniParty != null ? muniParty : ($('muni-party') ? $('muni-party').value : '');
   return party ? Analysis.shareOf(u, party) : null;
 }
 
@@ -12359,6 +12427,192 @@ for (const id of ['shade-prov-by', 'shade-party-prov']) {
     renderLegend();
   });
 }
+/* --- Show and Measure ------------------------------------------------------
+
+   The two controls the Map tab opens with, sitting on top of the three shade
+   selectors rather than replacing them.
+
+   Show names a source and Measure names a number, which is how a reader holds
+   the question. The selectors underneath hold it the way the data does: one per
+   geography, each offering measures from whatever source can reach that
+   geography, so "provincial party share" appears twice -- once natively and
+   once redistributed onto federal polls -- and the difference between them is a
+   crosswalk the reader has not been told about yet.
+
+   Writing to the selectors rather than around them is the whole trick. Every
+   restyle, legend, readout and tab that reads shade-by keeps working untouched,
+   and anyone who wants two layers shaded at once still has the old controls in
+   Map options. What they lose is having to start there. */
+const MAP_SHOW = {
+  fed: { layer: 'fed', modes: ['fed-party', 'turnout-fed', 'type'] },
+  prov: { layer: 'prov',
+          modes: ['prov-party', 'turnout-prov', 'prov-per-elector', 'prov-per-resident',
+                  'catchment'] },
+  muni: { layer: 'fed', modes: ['muni-party', 'muni-ballots'] },
+  census: { layer: 'da', modes: ['variable'] },
+  /* Deliberately its own heading. A measure that subtracts one election from
+     another is not a federal result or a provincial one, and filing it under
+     either invites it to be quoted as that election's number. */
+  both: { layer: 'fed', modes: ['turnout-agg', 'turnout-delta', 'gap'] },
+  roll: { layer: 'fed',
+          modes: ['nonvoters-count', 'nonvoters-share', 'points-count', 'points-weight'] },
+};
+const SHOW_SELECT = { fed: 'shade-by', prov: 'shade-prov-by', da: 'shade-da-by' };
+const SHOW_PARTY = { 'fed-party': 'shade-party-fed', 'prov-party': 'shade-party-prov',
+                     'muni-party': 'muni-party' };
+/* Set while Show/Measure are writing to the selectors, so the listener that
+   keeps Show in step with the selectors does not fight the write that caused
+   it and land on "Several layers" halfway through setting one. */
+let writingShow = false;
+
+/* A measure is the mode plus whatever second choice that mode needs, because a
+   half-made choice is what the old controls left on screen: "Federal party
+   share" with the party picker two controls away and set to something else. */
+const measureValue = (mode, extra) => (extra ? `${mode}|${extra}` : mode);
+
+function showOptionsAvailable() {
+  const out = {};
+  for (const [key, spec] of Object.entries(MAP_SHOW)) {
+    const node = $(SHOW_SELECT[spec.layer]);
+    out[key] = Boolean(node) && spec.modes.some((m) => {
+      const opt = node.querySelector(`option[value="${m}"]`);
+      return opt && !opt.hidden;
+    });
+  }
+  return out;
+}
+
+/* Fill Measure for whatever Show is set to, with every choice already made.
+
+   Party-bearing modes are expanded against the parties in the loaded results
+   and a census variable becomes one entry per variable, so picking from this
+   list never leaves a second control to remember. */
+function refreshMapMeasure() {
+  const showNode = $('map-show');
+  const node = $('map-measure');
+  if (!showNode || !node) return;
+  const available = showOptionsAvailable();
+  for (const [key, ok] of Object.entries(available)) {
+    const opt = showNode.querySelector(`option[value="${key}"]`);
+    if (opt) opt.hidden = !ok;
+  }
+  const show = showNode.value;
+  const spec = MAP_SHOW[show];
+  if (!spec) {
+    node.innerHTML = '';
+    node.appendChild(new Option(show === 'custom'
+      ? 'Set in Map options' : 'Nothing to measure', ''));
+    node.disabled = true;
+    return;
+  }
+  const layerSelect = $(SHOW_SELECT[spec.layer]);
+  const previous = node.value;
+  const options = [];
+  for (const mode of spec.modes) {
+    const opt = layerSelect && layerSelect.querySelector(`option[value="${mode}"]`);
+    if (!opt || opt.hidden) continue;
+    const text = opt.textContent.trim();
+    if (mode === 'variable') {
+      for (const v of socioVariables()) options.push([measureValue(mode, v.key), v.label]);
+      continue;
+    }
+    const partyNode = SHOW_PARTY[mode] ? $(SHOW_PARTY[mode]) : null;
+    if (partyNode) {
+      for (const o of partyNode.options) {
+        if (o.value) options.push([measureValue(mode, o.value), `${text} — ${o.value}`]);
+      }
+      continue;
+    }
+    options.push([measureValue(mode), text]);
+  }
+  node.innerHTML = '';
+  if (!options.length) {
+    node.appendChild(new Option('Load the data for this first', ''));
+    node.disabled = true;
+    return;
+  }
+  node.disabled = false;
+  for (const [value, label] of options) node.appendChild(new Option(label, value));
+  if (options.some(([v]) => v === previous)) node.value = previous;
+}
+
+/* Push Show + Measure down onto the selectors, and blank the other layers.
+
+   Blanking is the simplification. Three ramps at once is a GIS; the reader who
+   wants that opens Map options and sets them, and Show then says so. */
+function applyMapShow() {
+  const show = $('map-show') ? $('map-show').value : 'none';
+  if (show === 'custom') return;
+  const spec = MAP_SHOW[show];
+  const [mode, extra] = ($('map-measure') ? $('map-measure').value : '').split('|');
+  writingShow = true;
+  const fire = (id, value) => {
+    const n = $(id);
+    if (!n || n.value === value) return;
+    if (![...n.options].some((o) => o.value === value)) return;
+    n.value = value;
+    n.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  if (spec && mode) {
+    if (SHOW_PARTY[mode] && extra) fire(SHOW_PARTY[mode], extra);
+    if (mode === 'variable' && extra) fire('shade-da-var', extra);
+  }
+  for (const [layer, id] of Object.entries(SHOW_SELECT)) {
+    fire(id, spec && layer === spec.layer && mode ? mode : 'none');
+  }
+  writingShow = false;
+}
+
+/* And the other direction: keep Show honest about what the selectors say.
+
+   Somebody can reach a state these two controls cannot describe -- two layers
+   shaded, or a mode Show files under no heading -- and the honest answer is to
+   say which, not to show one of the two and let it read as all of it. */
+function syncShowFromSelects() {
+  if (writingShow) return;
+  const showNode = $('map-show');
+  if (!showNode) return;
+  const live = [];
+  for (const [layer, id] of Object.entries(SHOW_SELECT)) {
+    const n = $(id);
+    if (n && !UNSHADED.has(n.value)) live.push([layer, n.value]);
+  }
+  if (!live.length) { showNode.value = 'none'; refreshMapMeasure(); return; }
+  if (live.length > 1) { showNode.value = 'custom'; refreshMapMeasure(); return; }
+  const [layer, mode] = live[0];
+  const match = Object.entries(MAP_SHOW)
+    .find(([, spec]) => spec.layer === layer && spec.modes.includes(mode));
+  if (!match) { showNode.value = 'custom'; refreshMapMeasure(); return; }
+  showNode.value = match[0];
+  refreshMapMeasure();
+  const partyNode = SHOW_PARTY[mode] ? $(SHOW_PARTY[mode]) : null;
+  const extra = mode === 'variable' ? ($('shade-da-var') ? $('shade-da-var').value : '')
+    : partyNode ? partyNode.value : '';
+  const want = measureValue(mode, extra);
+  const node = $('map-measure');
+  if (node && [...node.options].some((o) => o.value === want)) node.value = want;
+}
+
+for (const id of ['map-show', 'map-measure']) {
+  const node = $(id);
+  if (!node) continue;
+  node.addEventListener('change', () => {
+    if (id === 'map-show') refreshMapMeasure();
+    applyMapShow();
+  });
+}
+/* The selectors can move without Show touching them -- Map options, another
+   tab's "show this on the map" button, a file arriving and unhiding a mode. */
+for (const id of ['shade-by', 'shade-prov-by', 'shade-da-by', 'shade-da-var',
+                  'shade-party-fed', 'shade-party-prov', 'muni-party']) {
+  const node = $(id);
+  if (node) node.addEventListener('change', syncShowFromSelects);
+}
+if ($('tab-map')) $('tab-map').addEventListener('click', syncShowFromSelects);
+/* Measure starts empty otherwise, and an empty select next to a filled one
+   reads as broken rather than as "nothing is being shown". */
+refreshMapMeasure();
+
 /* The slider is read by styleLayer for every overlay, which is the provincial
    layer AND the census one. Restyling only the provincial paths left a shaded
    census layer at its old opacity until something else forced a redraw. */
@@ -14108,6 +14362,7 @@ function applyPointFile(table) {
   if ($('points-export-row')) {
     $('points-export-row').hidden = !(state.points && state.points.report
       && state.points.report.joined && state.points.report.matched > 0);
+    refreshTargetPicker();
     renderExportBasis();
   }
   $('clear-points').hidden = false;
@@ -14153,12 +14408,17 @@ function exportAddresses() {
   head.push('longitude', 'latitude');
   for (const t of indexes) head.push(LAYER_COLUMN[t.key] || t.key);
   if (basis) {
-    /* One triple per measure, named for the layer it came from rather than
-       numbered, so a column heading still says what it is six weeks later to
-       somebody who was not in the room when it was chosen. */
-    for (const b of bases) {
-      head.push(`${b.column}_measure`, `${b.column}_value`, `${b.column}_percentile`);
-    }
+    /* One triple per measure, numbered in the order they were chosen.
+
+       They were named for their layer while only one measure per layer was
+       possible. Three census indicators at once is the case the target list
+       exists for, and three columns called census_value is not a spreadsheet.
+       The number is only an index; measure_N_name carries the full label --
+       measure, party, and the areas it was ranked against -- so a heading still
+       says what it is to somebody who was not in the room when it was chosen. */
+    bases.forEach((b, i) => {
+      head.push(`measure_${i + 1}_name`, `measure_${i + 1}_value`, `measure_${i + 1}_percentile`);
+    });
     /* The composite the rank is taken on, whenever there is more than one
        measure to compose. With a single measure the rank runs down that
        measure's own percentile and a second column saying the same thing
@@ -14298,19 +14558,145 @@ function exportAddresses() {
    shadeValue itself applies. */
 const UNSHADED = new Set(['none', 'type', 'flat', 'catchment']);
 
-/* The three map layers, their selectors, and the areas each is drawing. The
-   column prefix is the layer in the language of the tab rather than of the
-   geography: "census" is what a reader picking median income thinks they are
-   picking, whatever the boundary underneath is called. */
+/* The three map layers, their selectors, and the areas each is drawing. */
 const BASIS_LAYERS = [
-  { key: 'fed', select: 'shade-by', column: 'federal', features: () => activeFederal() },
-  { key: 'prov', select: 'shade-prov-by', column: 'provincial',
+  { key: 'fed', select: 'shade-by', on: 'federal polls', features: () => activeFederal() },
+  { key: 'prov', select: 'shade-prov-by', on: 'provincial areas',
     features: () => (state.prov && state.prov.active) || [] },
-  { key: 'da', select: 'shade-da-by', column: 'census',
+  { key: 'da', select: 'shade-da-by', on: 'census areas',
     features: () => (state.da && state.da.active) || [] },
 ];
+const BASIS_LAYER = Object.fromEntries(BASIS_LAYERS.map((l) => [l.key, l]));
 
+/* Which shade modes name a party rather than being a measure on their own, and
+   which side's party list fills them in. */
+const PARTY_MODES = { 'fed-party': 'fed', 'prov-party': 'prov', 'muni-party': 'muni' };
+
+/* Left out of the target list on purpose. `gap` is a federal party share minus
+   a provincial one: it needs TWO parties, and offering every pairing would be
+   thirty-six entries of which one is wanted. Nothing is lost for targeting --
+   "high provincially and high federally" is two measures, which the list holds
+   natively and reports separately, and separately is how a campaign reads it. */
+const NOT_A_TARGET = new Set(['gap']);
+
+function partiesFor(side) {
+  if (side === 'muni') {
+    const node = $('muni-party');
+    return node ? [...node.options].filter((o) => o.value).map((o) => [o.value]) : [];
+  }
+  const store = side === 'fed' ? state.fedResults : state.provResults;
+  return (store && store.parties) || [];
+}
+
+/* Every concrete measure the export could rank on as things stand.
+
+   Concrete is the point. A shade mode is not a measure until its party is
+   filled in -- "Federal party share" ranks nothing, "Federal party share,
+   Liberal" ranks something -- so the party-bearing modes are expanded against
+   the parties actually present in the loaded results, and a census variable
+   becomes one entry per variable. What comes back can be put in a select and
+   chosen from without consulting anything else on screen, which is the whole
+   reason the list exists. */
+function measureCatalogue() {
+  const out = [];
+  for (const layer of BASIS_LAYERS) {
+    const node = $(layer.select);
+    if (!node || !layer.features().length) continue;
+    for (const opt of node.options) {
+      const mode = opt.value;
+      if (UNSHADED.has(mode) || NOT_A_TARGET.has(mode) || opt.hidden) continue;
+      const text = opt.textContent.trim();
+      if (mode === 'variable') {
+        for (const v of socioVariables()) {
+          out.push({ id: `${layer.key}|${mode}|${v.key}`, layer: layer.key, mode,
+                     censusVar: v.key, label: v.label, on: layer.on });
+        }
+        continue;
+      }
+      const side = PARTY_MODES[mode];
+      if (side) {
+        for (const [name] of partiesFor(side)) {
+          out.push({ id: `${layer.key}|${mode}|${name}`, layer: layer.key, mode, party: name,
+                     label: `${text} — ${name}`, on: layer.on });
+        }
+        continue;
+      }
+      out.push({ id: `${layer.key}|${mode}|`, layer: layer.key, mode, label: text, on: layer.on });
+    }
+  }
+  return out;
+}
+
+/* One chosen measure, turned into the thing the export ranks with. */
+function basisFor(m) {
+  const layer = BASIS_LAYER[m.layer];
+  const features = layer ? layer.features() : [];
+  if (!features.length) return null;
+  const side = PARTY_MODES[m.mode];
+  /* A census variable is selected by a second control rather than by the mode,
+     so the value lookup needs that variable's own table rather than whatever
+     the map happens to be showing. */
+  const censusTable = m.censusVar
+    ? (socioVariables().find((v) => v.key === m.censusVar) || {}).byFeature : null;
+  if (m.censusVar && !censusTable) return null;
+  /* Each side's party is passed on its own line rather than by sharing one
+     value across all three. A measure names the party it means, and a lookup
+     that falls through to a selector would rank a file by a party nobody chose
+     for it -- the exact disagreement between file and intent this list exists
+     to remove. */
+  const fedParty = side === 'fed' ? m.party : '';
+  const provParty = side === 'prov' ? m.party : '';
+  const muniParty = side === 'muni' ? m.party : undefined;
+  const valueOf = censusTable
+    ? (f) => (censusTable.get(f.__idx) ?? null)
+    : (f) => shadeValue(m.layer, f, m.mode, fedParty, provParty, muniParty);
+  /* What the option name leaves out. A non-voter figure means nothing without
+     both halves of its subtraction, and this column is the one that leaves the
+     tab, so it is the last place it may go unsaid. */
+  const qualifier = NONVOTER_MODES.has(m.mode) && state.nonvoters.pairing
+    ? ` — ${state.nonvoters.pairing.label}, ${state.nonvoters.pairing.route}` : '';
+  const label = `${m.label}${qualifier} · ${m.on}`;
+  /* Ranked against every area this layer is drawing, which is the same
+     population its colour ramp is scaled to. */
+  const all = features.map(valueOf)
+    .filter((v) => v != null && isFinite(v)).sort((a, b) => a - b);
+  const isRate = m.censusVar
+    ? false : /turnout|party|share|part-|gap|delta/.test(m.mode);
+  /* The unrounded standing, which is what the composite is built from. The
+     displayed percentile is a whole number and three hundred addresses can
+     share one; averaging the rounded figure throws away the ordering inside
+     every tie before the mean is even taken. */
+  const fraction = (v) => {
+    if (v == null || !isFinite(v) || !all.length) return 0;
+    let below = 0;
+    while (below < all.length && all[below] < v) below++;
+    return below / all.length;
+  };
+  return {
+    id: m.id,
+    layer: m.layer,
+    label,
+    valueOf,
+    fraction,
+    format: (v) => (v == null || !isFinite(v) ? ''
+      : isRate ? `${(v * 100).toFixed(1)}%` : String(Math.round(v * 1000) / 1000)),
+    percentile: (v) => (v == null || !isFinite(v) || !all.length
+      ? '' : Math.round(fraction(v) * 100)),
+  };
+}
+
+/* What the download will be ranked on: the target list where the reader has
+   built one, and otherwise whatever the map is showing.
+
+   The fallback is not a convenience. Before the list existed the export took
+   its measures from the map's three shade selectors, which made the file
+   impossible to disagree with what the reader was looking at -- a real property
+   and worth keeping for the one-measure case, where setting the map and hitting
+   download is still the shortest honest path. The list wins when it has
+   anything in it, because an explicit choice beats an inferred one. */
 function exportBases() {
+  const chosen = (state.targets || []).map(basisFor).filter(Boolean);
+  if (chosen.length) return chosen;
   const out = [];
   const fedParty = $('shade-party-fed') ? $('shade-party-fed').value : '';
   const provParty = $('shade-party-prov') ? $('shade-party-prov').value : '';
@@ -14318,46 +14704,23 @@ function exportBases() {
     const node = $(layer.select);
     if (!node) continue;
     const mode = node.value;
-    if (UNSHADED.has(mode)) continue;
-    const features = layer.features();
-    if (!features.length) continue;
+    if (UNSHADED.has(mode) || !layer.features().length) continue;
     const sel = node.selectedOptions[0];
-    /* What the option name leaves out. A party share means nothing without the
-       party, and a non-voter figure means nothing without both halves of its
-       subtraction -- and this column is the one that leaves the tab, so it is
-       the last place either may go unsaid. */
-    const qualifier = NONVOTER_MODES.has(mode) && state.nonvoters.pairing
-      ? ` — ${state.nonvoters.pairing.label}, ${state.nonvoters.pairing.route}`
-      : mode.includes('fed-party') && fedParty ? ` — ${fedParty}`
-        : mode.includes('prov-party') && provParty ? ` — ${provParty}` : '';
-    const label = (sel ? sel.textContent.trim() : mode) + qualifier;
-    const valueOf = (f) => shadeValue(layer.key, f, mode, fedParty, provParty);
-    /* Ranked against every area this layer is drawing, which is the same
-       population its colour ramp is scaled to. */
-    const all = features.map(valueOf)
-      .filter((v) => v != null && isFinite(v)).sort((a, b) => a - b);
-    const isRate = /turnout|party|share|part-|gap|delta/.test(mode);
-    /* The unrounded standing, which is what the composite is built from. The
-       displayed percentile is a whole number and three hundred addresses can
-       share one; averaging the rounded figure throws away the ordering inside
-       every tie before the mean is even taken. */
-    const fraction = (v) => {
-      if (v == null || !isFinite(v) || !all.length) return 0;
-      let below = 0;
-      while (below < all.length && all[below] < v) below++;
-      return below / all.length;
-    };
-    out.push({
-      layer: layer.key,
-      column: layer.column,
-      label,
-      valueOf,
-      fraction,
-      format: (v) => (v == null || !isFinite(v) ? ''
-        : isRate ? `${(v * 100).toFixed(1)}%` : String(Math.round(v * 1000) / 1000)),
-      percentile: (v) => (v == null || !isFinite(v) || !all.length
-        ? '' : Math.round(fraction(v) * 100)),
+    const text = sel ? sel.textContent.trim() : mode;
+    const side = PARTY_MODES[mode];
+    const party = side === 'fed' ? fedParty : side === 'prov' ? provParty
+      : side === 'muni' && $('muni-party') ? $('muni-party').value : '';
+    const censusVar = mode === 'variable' && $('shade-da-var') ? $('shade-da-var').value : null;
+    const basis = basisFor({
+      id: `${layer.key}|${mode}|${censusVar || party}`,
+      layer: layer.key, mode, party: party || undefined,
+      censusVar: censusVar || undefined,
+      label: censusVar
+        ? ((socioVariables().find((v) => v.key === censusVar) || {}).label || text)
+        : party ? `${text} — ${party}` : text,
+      on: layer.on,
     });
+    if (basis) out.push(basis);
   }
   return out;
 }
@@ -14375,18 +14738,73 @@ function renderExportBasis() {
   const node = $('points-export-basis');
   if (!node) return;
   const bases = exportBases();
+  const explicit = (state.targets || []).length > 0;
   if (!bases.length) {
     node.className = 'text-small text-warning';
     node.textContent = 'Nothing is selected to rank on, so this downloads in address order rather '
-      + 'than priority order. Colour the map by a measure on the Map tab to rank it.';
+      + 'than priority order. Add a measure above, or colour the map by one.';
     return;
   }
+  /* Which of the two paths is in force, said in as many words. They produce
+     different files from the same button, and a reader who thinks the map is
+     driving it when the list is has no way to tell from the rows. */
+  const source = explicit ? '' : ' Taken from what the map is showing, since no measure is chosen.';
   node.className = 'text-small text-muted';
-  node.textContent = bases.length === 1
+  node.textContent = (bases.length === 1
     ? `Ranked on ${bases[0].label}.`
     : `Ranked on the average standing across ${bases.length} measures: `
       + `${bases.map((b) => b.label).join('; ')}. An address is ranked only where all `
-      + `${bases.length} have a value for it.`;
+      + `${bases.length} have a value for it.`) + source;
+}
+
+/* The measures on offer, minus the ones already chosen. Re-read every time it
+   is shown: parties arrive with the results file and census variables with the
+   profile, so a list built at load would be empty and stay empty. */
+function refreshTargetPicker() {
+  const sel = $('target-measure');
+  if (!sel) return;
+  const taken = new Set((state.targets || []).map((m) => m.id));
+  const all = measureCatalogue().filter((m) => !taken.has(m.id));
+  const previous = sel.value;
+  sel.innerHTML = '';
+  if (!all.length) {
+    sel.appendChild(new Option(taken.size ? 'Every available measure is on the list'
+      : 'Load results or a census profile first', ''));
+    sel.disabled = true;
+  } else {
+    sel.disabled = false;
+    /* Grouped by the areas each is measured on, because the same measure on two
+       geographies is two different numbers and the group heading is the only
+       place that distinction fits without doubling every option's length. */
+    for (const on of [...new Set(all.map((m) => m.on))]) {
+      const group = document.createElement('optgroup');
+      group.label = `On ${on}`;
+      for (const m of all.filter((x) => x.on === on)) group.appendChild(new Option(m.label, m.id));
+      sel.appendChild(group);
+    }
+    if (all.some((m) => m.id === previous)) sel.value = previous;
+  }
+  const list = $('target-list');
+  if (list) {
+    list.innerHTML = '';
+    (state.targets || []).forEach((m, i) => {
+      const li = document.createElement('li');
+      li.textContent = `${i + 1}. ${m.label} · ${m.on}`;
+      const drop = document.createElement('button');
+      drop.type = 'button';
+      drop.className = 'btn btn-small';
+      drop.textContent = 'Remove';
+      drop.style.marginLeft = '0.5rem';
+      drop.addEventListener('click', () => {
+        state.targets = state.targets.filter((x) => x.id !== m.id);
+        refreshTargetPicker();
+        renderExportBasis();
+      });
+      li.appendChild(drop);
+      list.appendChild(li);
+    });
+  }
+  if ($('target-clear')) $('target-clear').hidden = !(state.targets || []).length;
 }
 
 function updatePointControls() {
@@ -14425,8 +14843,29 @@ if ($('file-points')) {
     /* And again whenever the tab is opened. A census variable can change the
        measure behind shade-da-by without anybody firing a change event on the
        select itself, and a line that is right at load and wrong by the time it
-       is read is worse than no line: it would be believed. */
-    if ($('tab-data')) $('tab-data').addEventListener('click', renderExportBasis);
+       is read is worse than no line: it would be believed. The picker is
+       refreshed on the same beat, since parties and census variables arrive
+       with their files rather than at load. */
+    if ($('tab-data')) {
+      $('tab-data').addEventListener('click', () => { refreshTargetPicker(); renderExportBasis(); });
+    }
+    if ($('target-add')) {
+      $('target-add').addEventListener('click', () => {
+        const id = $('target-measure').value;
+        const found = measureCatalogue().find((m) => m.id === id);
+        if (!found || (state.targets || []).some((m) => m.id === id)) return;
+        state.targets = (state.targets || []).concat([found]);
+        refreshTargetPicker();
+        renderExportBasis();
+      });
+    }
+    if ($('target-clear')) {
+      $('target-clear').addEventListener('click', () => {
+        state.targets = [];
+        refreshTargetPicker();
+        renderExportBasis();
+      });
+    }
   }
   $('file-points-ref').addEventListener('change', (e) => {
     if (e.target.files.length) loadPointFile(e.target.files[0], { asReference: true });
