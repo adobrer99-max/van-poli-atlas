@@ -232,3 +232,9 @@ node_modules/
 boundaries/census_da.geojson
 boundaries/census_starter.csv
 payload/
+# Builds made for other people, written here by `build.py --out`. Keeping them
+# out of the working tree is not only tidiness: vancouver-boundary-atlas.html
+# is tracked, so a payload build written over it makes the next `git pull`
+# abort -- and a pull and a build pasted together will then build the old
+# source without saying so.
+share/

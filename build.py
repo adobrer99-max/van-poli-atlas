@@ -12,7 +12,13 @@ thing it ever fetches is street-basemap tiles, and it works without them.
 subdirectory per dataset. Without it nothing is baked in and every dataset is
 loaded from the Data tab as before. Together the two flags build a copy for
 people who should not have to prepare data before they can read a map, without
-disturbing the committed build."""
+disturbing the committed build.
+
+PAIR --payload WITH --out. This file's default output is tracked in git, so a
+payload build written over it leaves the tree dirty against a tracked file and
+the next `git pull` aborts -- and a pull and a build pasted into a terminal
+together will then build the source the pull failed to update, reporting
+nothing wrong. `--out share/anything.html` is untracked and ignored."""
 import json, os, io, sys, subprocess, datetime
 
 SRC = "src"

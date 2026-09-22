@@ -287,9 +287,28 @@ node tools/make-payload.js --out payload \
     --prov-geo BCGW_voting_areas.zip \
     --prov-results provincial_2024_voting_places.csv \
     --muni-results 2022MunicipalElectionResults.zip \
-    --muni-places voting-places-2022.csv
-python3 build.py --payload payload
+    --muni-places voting-places-2022.csv \
+    --points-ref property-addresses.csv
+python3 build.py --payload payload --out share/vancouver-atlas.html
 ```
+
+Two things in that second line are easy to drop and cost real time.
+
+`--points-ref` is what a roll is geocoded against, so without it the
+**Non-voters** tab has nothing to place an elector list onto and the Data tab
+asks for the address file every time.
+
+`--out` matters for a duller reason: `vancouver-boundary-atlas.html` is
+**tracked in this repository**. A payload build that writes over it leaves your
+tree dirty against a tracked file, and the next `git pull` refuses to run —
+which, if the pull and the build are pasted into a terminal together, means the
+build quietly runs against the source the pull failed to update. Writing the
+copy somewhere untracked avoids the whole sequence. `share/` is in
+`.gitignore`.
+
+Every flag takes exactly one value. For several files, name the directory
+holding them or repeat the flag; `--fed-results a.csv b.csv` is refused rather
+than run, since the rest would be dropped in silence.
 
 Every input is converted to the plainest text the atlas reads — a shapefile
 becomes lon/lat GeoJSON, an archive becomes the CSVs inside it — and written
