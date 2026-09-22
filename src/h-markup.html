@@ -78,6 +78,22 @@
        and how to find a place. Everything below those is a setting rather than a
        question, so it sits under Map options. Walking past four rows of switches
        and sliders to reach the map is the analyst's route, not a reader's. -->
+  <!-- Three questions, in the order somebody actually has them: where am I
+       looking, what am I looking at, and which number about it.
+
+       What used to sit here was six controls deep and every one of them assumed
+       the data model. "Colour map by" offered fifteen options that mixed the
+       source, the measure and the geography into one list -- "Provincial party
+       share (redistributed onto polls)" is three decisions in one line -- and
+       then two more selects asked which party, which only some of those fifteen
+       even use. A senior reader had to understand the crosswalk before they
+       could look at a map.
+
+       Show names the source. Measure names the number, with the party already
+       filled in, so a choice is never half-made. The selects underneath in Map
+       options still exist, still carry their own ids, and still drive every
+       layer independently for anyone who wants two shadings at once; these two
+       write to them. -->
   <div class="viz-controls">
     <label class="form-label grow" for="area-filter">Area
       <select class="form-select" id="area-filter">
@@ -86,52 +102,79 @@
         <option value="all">Everything in the file (Metro Vancouver)</option>
       </select>
     </label>
-    <label class="form-label grow" for="shade-by"
-           title="Colours the 2025 federal polling divisions, the base layer of the map.">Colour map by
-      <select class="form-select" id="shade-by">
+    <label class="form-label grow" for="map-show">Show
+      <select class="form-select" id="map-show">
         <option value="none">Nothing (plain boundaries)</option>
-        <option value="type">Poll type</option>
-        <option value="fed-party">Federal party share</option>
-        <option value="turnout-fed">Federal turnout</option>
-        <option value="prov-party">Provincial party share (redistributed onto polls)</option>
-        <option value="turnout-prov">Provincial turnout (redistributed onto polls)</option>
-        <option value="turnout-agg">Aggregate turnout, both elections</option>
-        <option value="turnout-delta">Federal minus provincial turnout</option>
-        <option value="gap">Federal minus provincial party share</option>
-        <option value="muni-party" hidden>Municipal (2022) party share</option>
-        <option value="muni-ballots" hidden>Municipal (2022) ballots cast (smoothed)</option>
-        <option value="points-count" hidden>Places loaded (count)</option>
-        <option value="points-weight" hidden>Places loaded (weighted)</option>
-        <option value="nonvoters-count" hidden>Did not vote (count)</option>
-        <option value="nonvoters-share" hidden>Did not vote (share of roll)</option>
+        <option value="fed">Federal result (2025)</option>
+        <option value="prov">Provincial result (2024)</option>
+        <option value="muni" hidden>Municipal result (2022)</option>
+        <option value="census">Census indicator</option>
+        <option value="both">Both elections compared</option>
+        <!-- "The roll" rather than "the loaded roll": these modes resolve as
+             soon as federal results are in, because a results file carries its
+             own elector count and that is the roll the subtraction uses until a
+             real one is loaded. -->
+        <option value="roll" hidden>The roll and who did not vote</option>
+        <!-- Reachable only by setting two layers by hand in Map options. It is
+             not offered as a choice, it is reported as a state: the two controls
+             above cannot describe what is on screen, and saying so beats showing
+             one of the two and letting a reader think that is all of it. -->
+        <option value="custom" hidden>Several layers &mdash; set in Map options</option>
       </select>
     </label>
-    <label class="form-label grow" for="shade-party-fed">Federal (2025) party
-      <select class="form-select" id="shade-party-fed" disabled><option>Load 2025 federal results</option></select>
-    </label>
-    <label class="form-label grow" for="shade-party-prov">Provincial (2024) party
-      <select class="form-select" id="shade-party-prov" disabled><option>Load 2024 provincial results</option></select>
-    </label>
-    <label class="form-label grow" for="muni-party" id="muni-party-label" hidden>Municipal (2022) party
-      <select class="form-select" id="muni-party"><option value="">Load the municipal results</option></select>
-    </label>
-  </div>
-
-  <div class="viz-controls">
-    <label class="form-label grow" for="find-poll">Find a federal (2025) polling division
-      <select class="form-select" id="find-poll"><option value="">Select a division&hellip;</option></select>
-    </label>
-    <label class="form-label grow" for="find-va">Find a provincial (2024) voting area
-      <select class="form-select" id="find-va" disabled><option value="">No provincial layer loaded</option></select>
-    </label>
-    <label class="form-label grow" for="find-da" id="find-da-wrap" hidden>Find a dissemination area
-      <select class="form-select" id="find-da"><option value="">Select an area&hellip;</option></select>
+    <label class="form-label grow" for="map-measure">Measure
+      <select class="form-select" id="map-measure"></select>
     </label>
     <button type="button" class="btn" id="zoom-reset">Full view</button>
   </div>
 
   <details class="disclosure" id="map-options">
     <summary>Map options</summary>
+    <!-- The controls Show and Measure write to. A reader who wants two layers
+         shaded at once, or a measure the pair above does not reach, sets them
+         here and Show reports "Several layers" rather than lying about it. -->
+    <div class="viz-controls">
+      <label class="form-label grow" for="shade-by"
+             title="Colours the 2025 federal polling divisions, the base layer of the map.">Colour federal polls by
+        <select class="form-select" id="shade-by">
+          <option value="none">Nothing (plain boundaries)</option>
+          <option value="type">Poll type</option>
+          <option value="fed-party">Federal party share</option>
+          <option value="turnout-fed">Federal turnout</option>
+          <option value="prov-party">Provincial party share (redistributed onto polls)</option>
+          <option value="turnout-prov">Provincial turnout (redistributed onto polls)</option>
+          <option value="turnout-agg">Aggregate turnout, both elections</option>
+          <option value="turnout-delta">Federal minus provincial turnout</option>
+          <option value="gap">Federal minus provincial party share</option>
+          <option value="muni-party" hidden>Municipal (2022) party share</option>
+          <option value="muni-ballots" hidden>Municipal (2022) ballots cast (smoothed)</option>
+          <option value="points-count" hidden>Places loaded (count)</option>
+          <option value="points-weight" hidden>Places loaded (weighted)</option>
+          <option value="nonvoters-count" hidden>Did not vote (count)</option>
+          <option value="nonvoters-share" hidden>Did not vote (share of roll)</option>
+        </select>
+      </label>
+      <label class="form-label grow" for="shade-party-fed">Federal (2025) party
+        <select class="form-select" id="shade-party-fed" disabled><option>Load 2025 federal results</option></select>
+      </label>
+      <label class="form-label grow" for="shade-party-prov">Provincial (2024) party
+        <select class="form-select" id="shade-party-prov" disabled><option>Load 2024 provincial results</option></select>
+      </label>
+      <label class="form-label grow" for="muni-party" id="muni-party-label" hidden>Municipal (2022) party
+        <select class="form-select" id="muni-party"><option value="">Load the municipal results</option></select>
+      </label>
+    </div>
+    <div class="viz-controls">
+      <label class="form-label grow" for="find-poll">Find a federal (2025) polling division
+        <select class="form-select" id="find-poll"><option value="">Select a division&hellip;</option></select>
+      </label>
+      <label class="form-label grow" for="find-va">Find a provincial (2024) voting area
+        <select class="form-select" id="find-va" disabled><option value="">No provincial layer loaded</option></select>
+      </label>
+      <label class="form-label grow" for="find-da" id="find-da-wrap" hidden>Find a dissemination area
+        <select class="form-select" id="find-da"><option value="">Select an area&hellip;</option></select>
+      </label>
+    </div>
     <div class="viz-controls">
       <label class="form-label grow" for="shade-prov-by">Colour provincial areas by
         <select class="form-select" id="shade-prov-by">

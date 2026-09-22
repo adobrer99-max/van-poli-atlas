@@ -40,6 +40,26 @@ const splitCsv = (line) => {
 let fails = 0;
 const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { console.log(`  FAIL  ${n} ${e}`); fails++; } };
 
+/* Click a point on the map, given as a fraction of the map's own box.
+
+   Two things this does that the open-coded version did not. It scrolls the map
+   into view first, because Playwright's mouse takes VIEWPORT coordinates and a
+   map sitting below the fold -- which it is whenever a drawer above it is open
+   -- gets clicked in empty space. And it re-measures every time, because the
+   box was previously captured once and reused hundreds of lines later, by which
+   point layers had loaded and controls had appeared and the saved coordinates
+   pointed somewhere else entirely.
+
+   Both failures look identical from the outside: the readout stays on its
+   placeholder and it reads as a broken hit test. */
+const clickMap = async (page, fx = 0.45, fy = 0.5) => {
+  const map = page.locator('.atlas-map');
+  await map.scrollIntoViewIfNeeded();
+  const box = await map.boundingBox();
+  await page.mouse.click(box.x + box.width * fx, box.y + box.height * fy);
+  return box;
+};
+
 (async () => {
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
@@ -63,8 +83,13 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
     return {
       mapOptions: document.getElementById('map-options').open,
       advancedData: document.getElementById('advanced-data').open,
-      headline: ['area-filter', 'shade-by', 'find-poll'].map(shown),
-      tucked: ['prov-opacity', 'prov-weight', 'basemap', 'carto-key'].map(shown),
+      headline: ['area-filter', 'map-show', 'map-measure'].map(shown),
+      /* shade-by, the party pickers and the three finders moved into the
+         drawer. They are the data model's controls -- one selector per
+         geography, each offering measures from whatever source can reach it --
+         and a reader should not have to hold that to look at a map. */
+      tucked: ['shade-by', 'shade-party-fed', 'shade-party-prov', 'find-poll', 'find-va',
+               'prov-opacity', 'prov-weight', 'basemap', 'carto-key'].map(shown),
     };
   });
   await openDrawers(page);
@@ -89,9 +114,9 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
      a build that already carries everything (asserted in test-variants). */
   ok('the data drawer starts open when nothing is baked in',
      firstLook.advancedData === true, String(firstLook.advancedData));
-  ok('area, colouring and the finder are in front of the reader',
+  ok('area, Show and Measure are the only three in front of the reader',
      firstLook.headline.every(Boolean), JSON.stringify(firstLook.headline));
-  ok('sliders, basemap and the key are not',
+  ok('the shade selectors, party pickers, finders, sliders, basemap and key are not',
      firstLook.tucked.every((v) => v === false), JSON.stringify(firstLook.tucked));
 
   console.log('\n== Basemap ==');
@@ -134,8 +159,7 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   ok('zoom control present, custom zoom buttons gone', (await page.locator('.leaflet-control-zoom').count()) === 1 && (await page.locator('#zoom-in').count()) === 0);
 
   console.log('\n== Map interaction ==');
-  const box = await page.locator('.atlas-map').boundingBox();
-  await page.mouse.click(box.x + box.width * 0.45, box.y + box.height * 0.5);
+  await clickMap(page);
   await page.waitForTimeout(200);
   let readout = await page.locator('#readout').innerText();
   ok('click produces a federal readout', /Vancouver|Riding/.test(readout), readout.slice(0, 120));
@@ -179,7 +203,7 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   ok(`overlay is registered with the federal layer (${(overlapFrac * 100).toFixed(1)}% bbox overlap)`,
      overlapFrac > 0.85, JSON.stringify(bounds));
 
-  await page.mouse.click(box.x + box.width * 0.45, box.y + box.height * 0.5);
+  await clickMap(page);
   await page.waitForTimeout(250);
   readout = await page.locator('#readout').innerText();
   ok('joint readout shows both layers', /federal/i.test(readout) && /Sample District/.test(readout), readout.slice(0, 200));
@@ -213,6 +237,61 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   ok('provincial results joined', /700 \/ 700/.test(status.replace(/\s+/g,' ')), status.replace(/\s+/g,' ').slice(0,200));
   const wideChecked = await page.locator('#map-prov-results input[type=checkbox]:checked').count();
   ok(`wide-format party columns detected (${wideChecked})`, wideChecked === 3, `got ${wideChecked}`);
+
+  console.log('\n== Show and Measure ==');
+  /* The two controls the Map tab opens with, driving the three shade selectors
+     underneath rather than replacing them. Everything downstream -- legend,
+     readout, Compare, census, municipal -- still reads those selectors, so the
+     test that matters is whether these two move them. */
+  await page.locator('#tab-map').click();
+  await page.waitForTimeout(500);
+  await page.locator('#map-show').selectOption('fed');
+  await page.waitForTimeout(400);
+  const measures = await page.$$eval('#map-measure option',
+    (os) => os.map((o) => ({ v: o.value, t: o.textContent.trim() })));
+  ok(`Measure offers the federal measures with the party already in them (${measures.length})`,
+     measures.length > 1 && measures.some((m) => /^fed-party\|\S/.test(m.v) && /—/.test(m.t)),
+     measures.map((m) => m.v).join(' '));
+  const partyMeasure = measures.find((m) => /^fed-party\|/.test(m.v));
+  await page.locator('#map-measure').selectOption(partyMeasure.v);
+  await page.waitForTimeout(500);
+  const drove = await page.evaluate(() => ({
+    shadeBy: document.getElementById('shade-by').value,
+    party: document.getElementById('shade-party-fed').value,
+    prov: document.getElementById('shade-prov-by').value,
+  }));
+  ok(`Show and Measure set the federal selector and its party (${drove.shadeBy}/${drove.party})`,
+     drove.shadeBy === 'fed-party' && drove.party === partyMeasure.v.split('|')[1],
+     JSON.stringify(drove));
+  ok('and leave the other layers unshaded, so one ramp is on screen at a time',
+     drove.prov === 'none', drove.prov);
+
+  /* A reader can still reach a state these two cannot describe. Saying so beats
+     showing one of the two shadings and letting it read as all of them. */
+  await openDrawers(page);
+  await page.locator('#shade-prov-by').selectOption('turnout-prov');
+  await page.waitForTimeout(500);
+  const custom = await page.evaluate(() => ({
+    show: document.getElementById('map-show').value,
+    text: document.getElementById('map-show').selectedOptions[0].textContent.trim(),
+  }));
+  ok(`two layers shaded by hand reports itself rather than lying (${custom.text})`,
+     custom.show === 'custom' && /Several layers/.test(custom.text), JSON.stringify(custom));
+  await page.locator('#shade-prov-by').selectOption('none');
+  await page.waitForTimeout(500);
+  const recovered = await page.evaluate(() => ({
+    show: document.getElementById('map-show').value,
+    measure: document.getElementById('map-measure').value,
+  }));
+  ok('and dropping back to one layer recovers the named Show and Measure',
+     recovered.show === 'fed' && recovered.measure === partyMeasure.v,
+     JSON.stringify(recovered));
+  /* Municipal has no results yet; the heading must not be offered for data that
+     is not there. */
+  const offered = await page.$$eval('#map-show option',
+    (os) => os.filter((o) => !o.hidden).map((o) => o.value));
+  ok('Show offers only the sources that have data behind them',
+     offered.includes('fed') && !offered.includes('muni'), offered.join(','));
 
   console.log('\n== Choropleth shading ==');
   await page.locator('#tab-map').click();
@@ -473,7 +552,7 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   await page.waitForTimeout(300);
   const provPlain = await page.evaluate(() => getComputedStyle(document.querySelector('.layer-prov path')).fill);
   ok('provincial layer returns to outline only', provPlain === 'none', provPlain);
-  await page.mouse.click(box.x + box.width * 0.45, box.y + box.height * 0.5);
+  await clickMap(page);
   await page.waitForTimeout(250);
   const readoutT = await page.locator('#readout').innerText();
   ok('readout shows ballots, electors and turnout on both cards', (readoutT.match(/turnout \d/g) || []).length >= 2, readoutT.slice(0, 300));
@@ -1450,8 +1529,7 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   const nvShaded = await page.$$eval('.layer-fed path', (ps) => ps
     .map((p) => parseFloat(getComputedStyle(p).fillOpacity)).filter((o) => o > 0.07).length);
   ok(`the areas with a gap are shaded (${nvShaded})`, nvShaded > 500, String(nvShaded));
-  const nvBox = await page.locator('.atlas-map').boundingBox();
-  await page.mouse.click(nvBox.x + nvBox.width * 0.45, nvBox.y + nvBox.height * 0.5);
+  await clickMap(page);
   await page.waitForTimeout(300);
   const nvReadout = await page.locator('#readout').innerText();
   ok('the readout carries the pairing beside the figure, never the figure alone',
@@ -1560,8 +1638,7 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   const daOpacities = new Set(await page.$$eval('.layer-da path', (ps) => ps.map((p) => getComputedStyle(p).fillOpacity)));
   ok(`shading by a census variable gives graded fills (${daOpacities.size} distinct)`, daOpacities.size > 10);
   ok('legend names the census layer', /dissemination area/i.test(await page.locator('#map-legend').innerText()));
-  const box2 = await page.locator('.atlas-map').boundingBox();
-  await page.mouse.click(box2.x + box2.width * 0.5, box2.y + box2.height * 0.5);
+  await clickMap(page, 0.5, 0.5);
   await page.waitForTimeout(300);
   readout = await page.locator('#readout').innerText();
   ok('readout shows a census card with the area id and its variables', /Census \(2021\)/i.test(readout) && /DA 5915/.test(readout) && /Population, 2021/.test(readout) && /people/.test(readout), readout.slice(-400));

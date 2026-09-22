@@ -30,9 +30,10 @@ the README — `tools/make-payload.js`, then `python build.py --payload payload
 --out share/vancouver-atlas.html`. Pair `--payload` with `--out` or the build
 overwrites the tracked file and the next pull aborts.
 
-Open the result and check the Data tab offers **Call this list** beside the
-download button. If it does not, the build predates this and the export will not
-be ranked.
+Open the result and check two things: the Data tab offers **Call this list** and
+**Rank this list on** beside the download button, and the Map tab opens with
+just **Area**, **Show** and **Measure**. If either is missing, the build
+predates this and the export will not be ranked.
 
 ---
 
@@ -63,23 +64,27 @@ Areas where the party already polls well *and* turnout is high: the places its
 existing vote lives. The campaign filters this against the canvass database and
 targets whoever is not already identified.
 
-**Map tab → Colour the areas by:**
+**Data tab → Rank this list on**, adding two measures:
 
-| selector | set to | party |
-|---|---|---|
-| provincial | Provincial party share | Conservative |
-| federal | Provincial turnout (redistributed onto polls) | — |
+| add | which |
+|---|---|
+| 1 | *Provincial party share — Conservative* · provincial areas |
+| 2 | *Provincial turnout* · provincial areas |
 
 Both halves are then the same election, 2024 provincial, which is what makes
 "share *and* turnout" one statement about one electorate rather than two
-statements about two. The share sits on its native voting areas; the turnout is
-crosswalked onto federal polls. That is the only way to get two measures from
-one election today, because the export takes one measure per layer.
+statements about two.
 
-If you would rather pair the 2024 share with **2025 federal** turnout, set the
-federal selector to *Federal turnout* instead. It is a defensible list — turnout
-is fairly stable across elections at the area level — but say which you did, and
-build list 2 the same way so the two files compare row for row.
+Add them in the picker rather than setting the map. The map deliberately shows
+one measure at a time now — picking a Measure blanks the other layers, so a
+second one cannot be set there without going into *Map options* — and a list
+built from two map selectors was always the fragile path anyway: nothing on
+screen recorded which two.
+
+If you would rather pair the 2024 share with **2025 federal** turnout, add
+*Federal turnout* as the second measure instead. It is a defensible list —
+turnout is fairly stable across elections at the area level — but say which you
+did, and build list 2 the same way so the two files compare row for row.
 
 **Before exporting, turn apportionment on** for whichever election the turnout
 half comes from. Turnout tab → *Provincial advance & absentee ballots* (or
@@ -109,12 +114,12 @@ beats a clean count of the wrong subset.
 Areas that went Conservative provincially in 2024 and Liberal federally in 2025.
 The largest pool of persuadable voters.
 
-**Map tab → Colour the areas by:**
+**Data tab → Rank this list on**, adding two measures:
 
-| selector | set to | party |
-|---|---|---|
-| provincial | Provincial party share | Conservative |
-| federal | Federal party share | Liberal |
+| add | which |
+|---|---|
+| 1 | *Provincial party share — Conservative* · provincial areas |
+| 2 | *Federal party share — Liberal* · federal polls |
 
 Both are shares, so apportionment moves them much less than it moves turnout —
 it redistributes per-party votes along with the totals. Setting it the same way
@@ -137,15 +142,13 @@ Immigrants, homeowners, above-average median income.
 (census selector) → that variable, alongside whichever election measure you
 want it to sit with.
 
-All three indicators go on one list. Use **Rank this list on** beside the
-download button on the Data tab: pick a measure, press **Add measure**, repeat.
-The chosen measures are listed in order underneath, each with a **Remove**
-button, and the rank runs down the average standing across all of them.
+All three indicators go on one list, the same way as lists 1 and 2: **Rank this
+list on** → pick → **Add measure**, three times. They appear under *On census
+areas* in the picker, one entry per variable in the loaded profile.
 
-This is the control to use whenever a list needs more than one measure from the
-same place — three census indicators, or a party share and a turnout figure on
-the same layer. The map can only hold one measure per layer, so it cannot say
-"immigrants *and* homeowners *and* median income" at all.
+This is the control to use for every list. The map shows one measure at a time
+by design, so it cannot say "immigrants *and* homeowners *and* median income"
+at all — and even for two measures it leaves no record of which two.
 
 Leave the list empty and the export falls back to whatever the map is showing,
 which is still the shortest path for a single measure. The line beside the
