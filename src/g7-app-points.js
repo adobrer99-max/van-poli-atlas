@@ -816,12 +816,37 @@ function renderExportBasis() {
      different files from the same button, and a reader who thinks the map is
      driving it when the list is has no way to tell from the rows. */
   const source = explicit ? '' : ' Taken from what the map is showing, since no measure is chosen.';
-  node.className = 'text-small text-muted';
+  /* The same quantity chosen twice, on two geographies.
+
+     "Provincial party share — Conservative Party" is offered under both "On
+     provincial areas", where the agency reported it, and "On federal polls",
+     where it has been crosswalked. The labels differ by four words in the
+     middle and the two sit in different groups, so adding both is an easy slip
+     -- and it is not a harmless one. The mean weights every entry equally, so
+     the doubled measure takes two shares of the composite while everything else
+     takes one, and the extra share is carried by the crosswalked estimate
+     rather than the reported figure. A list meant to balance share against
+     turnout quietly becomes two thirds share. */
+  const seen = new Map();
+  const doubled = [];
+  for (const m of state.targets || []) {
+    const quantity = `${m.mode}|${m.party || m.censusVar || ''}`;
+    if (m.scope === 'address') continue;
+    if (seen.has(quantity)) doubled.push(m.label);
+    else seen.set(quantity, m.label);
+  }
+  node.className = doubled.length ? 'text-small text-warning' : 'text-small text-muted';
   node.textContent = (bases.length === 1
     ? `Ranked on ${bases[0].label}.`
     : `Ranked on the average standing across ${bases.length} measures: `
       + `${bases.map((b) => b.label).join('; ')}. An address is ranked only where all `
-      + `${bases.length} have a value for it.`) + source;
+      + `${bases.length} have a value for it.`) + source
+    + (doubled.length
+      ? ` ${doubled.length === 1 ? 'One measure is' : `${doubled.length} measures are`} on the `
+        + `list twice on different geographies (${doubled.join('; ')}), so ${doubled.length === 1
+          ? 'it counts' : 'they count'} double against everything else. Remove the crosswalked `
+        + 'copy unless you meant to weight it that way.'
+      : '');
 }
 
 /* The measures on offer, minus the ones already chosen. Re-read every time it
@@ -865,17 +890,28 @@ function refreshTargetPicker() {
       li.appendChild(name);
       /* Which end of the measure is the good end. More is better for a party
          share and worse for anything a campaign runs against -- renter share,
-         or the size of a building when its support skews to owners. Ranking
-         those the only direction the code could express put the worst doors
-         first, so the direction is the reader's and it is on the row rather
-         than in a setting somewhere else. */
-      const dir = document.createElement('button');
-      dir.type = 'button';
-      dir.className = 'btn btn-small';
-      dir.textContent = m.invert ? 'Fewer is better' : 'More is better';
-      dir.addEventListener('click', () => {
+         or the size of a building when its support skews to owners.
+
+         A select rather than a toggle button, because the button was read as an
+         action and not as a state. "More is better" on a clickable control says
+         both "this is how it is ranking" and "click to make it so", and the two
+         readings prescribe opposite clicks. It was got wrong on a real list the
+         first time it was used -- the door measure left ranking big buildings up
+         by a campaign whose support runs the other way -- while the tie-break
+         select directly above it, which can only be read one way, was set
+         correctly. A control whose two readings disagree is a control that will
+         be set wrong, and the evidence arrived within an hour. */
+      const dir = document.createElement('select');
+      dir.className = 'form-select target-direction';
+      for (const [value, label] of [['high', 'More is better'], ['low', 'Fewer is better']]) {
+        const opt = new Option(label, value);
+        if ((value === 'low') === Boolean(m.invert)) opt.selected = true;
+        dir.appendChild(opt);
+      }
+      dir.addEventListener('change', () => {
+        const low = dir.value === 'low';
         state.targets = state.targets.map(
-          (x) => (x.id === m.id ? { ...x, invert: !x.invert } : x));
+          (x) => (x.id === m.id ? { ...x, invert: low } : x));
         refreshTargetPicker();
         renderExportBasis();
       });

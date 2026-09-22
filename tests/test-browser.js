@@ -1429,9 +1429,15 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
      new Set(moreIsBetter).size > 1
      && moreIsBetter.every((v, i) => i === 0 || moreIsBetter[i - 1] >= v),
      moreIsBetter.join(','));
-  const dirButton = page.locator('#target-list li button', { hasText: 'More is better' }).first();
-  ok('the row says which end it is ranking from', await dirButton.count() === 1);
-  await dirButton.click();
+  /* A select, not a toggle. "More is better" on a clickable button says both
+     "this is how it ranks" and "click to make it so", and those prescribe
+     opposite clicks -- it was set wrong on a real list the first time it was
+     used, while the tie-break select above it was set right. */
+  const dirSelect = page.locator('#target-list li select.target-direction').first();
+  ok('the row states its direction in a control with one reading',
+     await dirSelect.count() === 1 && await dirSelect.inputValue() === 'high',
+     await dirSelect.inputValue());
+  await dirSelect.selectOption('low');
   await page.waitForTimeout(250);
   const fewerIsBetter = await orderNow();
   ok(`and flipping it ranks the smallest door first (${fewerIsBetter.join(',')})`,
@@ -1444,6 +1450,29 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
   ok('with the direction named in the measure column, not left to be inferred',
      /fewer first/i.test(await page.locator('#points-export-basis').innerText()),
      await page.locator('#points-export-basis').innerText());
+
+  /* The same quantity on two geographies, which the picker offers under labels
+     four words apart in two different groups. The mean weights every entry
+     equally, so a doubled measure takes two shares of the composite and the
+     extra one is carried by the crosswalked estimate rather than the reported
+     figure -- a list meant to balance share against turnout quietly becomes
+     two thirds share. It happened on the first real list built with this. */
+  await page.locator('#target-clear').click();
+  await page.waitForTimeout(250);
+  const prov = await addMeasure(/^prov\|prov-party\|/);
+  const fedCopy = await addMeasure(/^fed\|prov-party\|/);
+  if (prov && fedCopy) {
+    const warned = await page.locator('#points-export-basis').innerText();
+    ok('the same quantity on two geographies is called out, not silently doubled',
+       /on the list twice/i.test(warned) && /double/i.test(warned), warned.slice(0, 260));
+    ok('and the line is a warning rather than ordinary muted text',
+       /text-warning/.test(await page.locator('#points-export-basis')
+         .evaluate((n) => n.className)),
+       await page.locator('#points-export-basis').evaluate((n) => n.className));
+  } else {
+    ok('the same quantity on two geographies is called out, not silently doubled',
+       false, `fixture lacks both copies: prov=${prov} fed=${fedCopy}`);
+  }
 
   /* Back to the map, so the rest of the suite sees the state it expects. */
   await page.locator('#target-clear').click();
