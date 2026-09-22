@@ -1439,6 +1439,59 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
   await page.locator('#target-list li:first-child .target-weight').selectOption('1');
   await page.waitForTimeout(400);
 
+  /* A label describes the measure as it is now, not as it was when it was
+     chosen.
+
+     Adding a measure stored the whole catalogue entry, label and all, and the
+     roll's noun moves underneath it. Setting "Call them" to electors AFTER the
+     door measure was on the list produced an export whose count column was
+     headed `electors` -- read live -- beside measure_N_name reading "How many
+     addresses are at the address", frozen at the moment of adding. Same file,
+     same numbers, two nouns, and the stale one sat in the column a client
+     reads to find out why an address is on the list. */
+  const doorId = (await page.$$eval('#target-measure option', (os) => os.map((o) => o.value)))
+    .find((v) => v.startsWith('address|count|'));
+  ok('the door measure is on offer to add', Boolean(doorId), String(doorId));
+  await page.locator('#target-measure').selectOption(doorId);
+  await page.locator('#target-add').click();
+  await page.waitForTimeout(400);
+  const nameOfDoor = () => page.$$eval('#target-list .target-name',
+    (ns) => (ns.map((n) => n.textContent).find((t) => /are at the address/.test(t)) || '').trim());
+  const beforeNoun = await nameOfDoor();
+  ok(`the door measure is named for the noun in force when it was added (${beforeNoun})`,
+     /how many addresses are at the address/i.test(beforeNoun), beforeNoun);
+  /* Rename AFTER the fact, which is the order that broke it. */
+  await page.locator('#points-noun').fill('electors');
+  await page.locator('#points-noun').dispatchEvent('change');
+  await page.waitForTimeout(700);
+  const afterNoun = await nameOfDoor();
+  ok(`renaming the noun renames the measure already on the list (${afterNoun})`,
+     /how many electors are at the address/i.test(afterNoun)
+     && !/addresses/i.test(afterNoun), afterNoun);
+  const nounDl = page.waitForEvent('download', { timeout: 15000 });
+  await page.locator('#export-addresses').click();
+  const nounCsv = require('fs').readFileSync(await (await nounDl).path(), 'utf8')
+    .split(/\r?\n/).filter(Boolean);
+  const nounHead = splitCsv(nounCsv[0].replace(/^﻿/, ''));
+  const doorCol = nounHead.findIndex((h, i) => /^measure_\d+_name$/.test(h)
+    && /are at the address/i.test(splitCsv(nounCsv[1])[i] || ''));
+  const doorName = doorCol >= 0 ? splitCsv(nounCsv[1])[doorCol] : '';
+  /* The two places the noun reaches, which have to agree. The count column was
+     always read live; it was the measure name that lagged. */
+  ok(`the count column is headed with the new noun (${nounHead[nounHead.indexOf('electors')]})`,
+     nounHead.includes('electors') && !nounHead.includes('addresses'), nounHead.slice(0, 4).join(','));
+  ok(`and the exported measure name agrees with it (${doorName})`,
+     /how many electors are at the address/i.test(doorName)
+     && !/addresses/i.test(doorName), doorName);
+  await page.locator('#points-noun').fill('addresses');
+  await page.locator('#points-noun').dispatchEvent('change');
+  await page.waitForTimeout(500);
+  const doorRow = (await page.$$eval('#target-list li',
+    (lis) => lis.map((li) => li.querySelector('.target-name').textContent.trim())))
+    .findIndex((t) => /are at the address/.test(t));
+  await page.$$eval('#target-list li', (lis, i) => lis[i].querySelector('button').click(), doorRow);
+  await page.waitForTimeout(400);
+
   /* The tie-break, which decides most of the within-area ordering.
 
      Every measure is reported for an area, so doors in a division score

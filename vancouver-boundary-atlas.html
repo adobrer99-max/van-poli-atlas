@@ -15329,6 +15329,36 @@ function measureCatalogue() {
    standing rather than negating the value keeps the arithmetic in the same
    0..1 space the mean is taken over, and leaves the value and percentile
    columns reading as themselves. */
+/* The chosen measures, described as they are NOW rather than as they were when
+   they were chosen.
+
+   Adding a measure stored the whole catalogue entry, label and all, and a label
+   is built from things that move underneath it. The roll's noun is the one that
+   bit. "Call them" was set to electors after the door measure was already on
+   the list, so one export carried a count column headed `electors` -- read live
+   at export time -- beside measure_3_name reading "How many addresses are at
+   the address", frozen at the moment it was added. Same file, same numbers, two
+   nouns, and the stale one was in the column a client reads for the WHY.
+
+   The same staleness reaches every label built from loaded data: a census
+   variable that gets its proper name when a better profile is loaded, a
+   non-voter pairing, a party list rebuilt from a new results file. So what is
+   stored is only what a reader DECIDED -- which measure, which direction, what
+   weight -- and everything that describes it is looked up again by id.
+
+   A measure the catalogue no longer offers keeps what it was stored with. It
+   has stopped resolving, which the basis line warns about and the export
+   refuses outright, and a stale name is the least of what is wrong with it. */
+function liveTargets() {
+  const targets = state.targets || [];
+  if (!targets.length) return [];
+  const now = new Map(measureCatalogue().map((m) => [m.id, m]));
+  return targets.map((m) => {
+    const live = now.get(m.id);
+    return live ? { ...live, invert: m.invert, weight: m.weight } : m;
+  });
+}
+
 /* A measure's weight in the composite, defaulting to an equal share.
 
    Clamped to 1..5 and rounded, because this reaches the scoring and a list
@@ -15499,7 +15529,7 @@ function basisFor(m) {
    download is still the shortest honest path. The list wins when it has
    anything in it, because an explicit choice beats an inferred one. */
 function exportBases() {
-  const chosen = (state.targets || []).map(basisFor).filter(Boolean);
+  const chosen = liveTargets().map(basisFor).filter(Boolean);
   if (chosen.length) return chosen;
   const out = [];
   const fedParty = $('shade-party-fed') ? $('shade-party-fed').value : '';
@@ -15566,7 +15596,7 @@ function renderExportBasis() {
      turnout quietly becomes two thirds share. */
   const seen = new Map();
   const doubled = [];
-  for (const m of state.targets || []) {
+  for (const m of liveTargets()) {
     const quantity = `${m.mode}|${m.party || m.censusVar || ''}`;
     if (m.scope === 'address') continue;
     if (seen.has(quantity)) doubled.push(m.label);
@@ -15645,8 +15675,9 @@ function refreshTargetPicker() {
        a small integer, and the share it buys is shown beside it, because the
        share is the thing being chosen and the integer is only how it is
        spelled. */
-    const total = (state.targets || []).reduce((a, x) => a + weightOf(x), 0);
-    (state.targets || []).forEach((m, i) => {
+    const chosen = liveTargets();
+    const total = chosen.reduce((a, x) => a + weightOf(x), 0);
+    chosen.forEach((m, i) => {
       const li = document.createElement('li');
       /* In its own element rather than as a bare text node on the li: a text
          node in a flex or grid row is an anonymous item with no class to size,
@@ -15657,7 +15688,7 @@ function refreshTargetPicker() {
       li.appendChild(name);
       /* Only once there is something to divide. One measure is the whole
          ranking and "100%" beside it is noise pretending to be information. */
-      if ((state.targets || []).length > 1) {
+      if (chosen.length > 1) {
         const share = document.createElement('span');
         share.className = 'target-share';
         share.textContent = `${Math.round((weightOf(m) / total) * 100)}%`;
@@ -15797,6 +15828,11 @@ if ($('file-points')) {
     if (state.points) {
       state.points.noun = $('points-noun').value.trim() || 'rows';
       renderPointsReport(); renderLegend(); renderReadout();
+      /* The noun names a measure as well as a column, so the chosen list and
+         the line under it have to be redrawn or the screen goes on showing the
+         old word while the file that leaves the tab carries the new one --
+         which is the disagreement this whole fix exists to remove. */
+      refreshTargetPicker(); renderExportBasis();
     }
   });
   $('clear-points').addEventListener('click', () => {
