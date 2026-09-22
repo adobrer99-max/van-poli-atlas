@@ -118,6 +118,26 @@ function resultsFor(side) {
 const fedValues = () => resultsFor('fed');
 const provValues = () => resultsFor('prov');
 
+/* Whether the provincial side has an electorate to divide by.
+
+   Elections BC publishes registered voters per electoral district and never per
+   voting area, and the 2024 results arrive per voting place with no elector
+   column at all -- so with those files this is false, and every provincial
+   turnout figure the atlas can form is blank. Not blank as in missing for some
+   areas: blank for all of them, in every election the data covers.
+
+   That is a fact about the loaded file rather than a constant, which is why it
+   is asked rather than declared. The results reader already maps an electors
+   column, so a provincial file that carries one per area makes the rate real,
+   and the day Elections BC publishes that file the option comes back on its own
+   instead of waiting for somebody to remember this line. */
+function provTurnoutPossible() {
+  const pv = provValues();
+  if (!pv) return false;
+  for (const u of pv.values()) if (u && u.electors > 0) return true;
+  return false;
+}
+
 /* --- Party colours ---------------------------------------------------------
    Conventional Canadian party colours where the party is recognisable, and a
    stable fallback palette otherwise so a party never changes colour mid-session. */
@@ -1013,28 +1033,54 @@ function draw() {
   if (key !== extentSignature) { extentSignature = key; fitAll(); }
 }
 
-/* Controls that only mean something for results reported by voting place. */
+/* Shade modes the loaded data cannot fill, withdrawn rather than offered.
+
+   Each of these needs something a file may not carry: a catchment needs results
+   reported by voting place, a borrowed denominator needs the layer it is
+   carried from, and provincial turnout needs a provincial electorate per area,
+   which Elections BC does not publish. An option that would shade nothing is
+   withdrawn rather than left to paint an empty map.
+
+   Provincial turnout is here because it was not, and the cost was a real one.
+   It sat in three selectors looking exactly like the modes that work, shading
+   nothing and saying nothing; picked as one measure of a target list, it took
+   a hundred thousand addresses out of the ranking, because a door is ranked
+   only where every chosen measure has a value. The export went out with every
+   row blank. Withdrawing the option is the fix at the source: the target list
+   builds itself from these selectors and skips what is hidden, so the measure
+   leaves the picker, the Show/Measure controls and the map together. */
 function updatePlaceControls() {
-  const sel = $('shade-prov-by');
   const part = state.provPart;
   const has = (key) => {
     if (!part) return false;
     for (const p of part.values()) if (p[key] != null) return true;
     return false;
   };
-  /* Each of these shades something the loaded data may not support: a
-     catchment needs results by voting place, and a denominator needs the layer
-     it is carried from. An option that would shade nothing is withdrawn rather
-     than left to paint an empty map. */
+  const provTurnout = provTurnoutPossible();
   const available = {
-    catchment: state.provResults?.kind === 'places',
-    'prov-per-elector': has('perFedElector'),
-    'prov-per-resident': has('perAdult'),
+    'shade-prov-by': {
+      catchment: state.provResults?.kind === 'places',
+      'prov-per-elector': has('perFedElector'),
+      'prov-per-resident': has('perAdult'),
+      'turnout-prov': provTurnout,
+    },
+    /* Redistributing the provincial results onto polls moves ballots, not an
+       electorate: the crosswalk cannot supply a denominator the source never
+       had. And the federal-minus-provincial delta is that same blank rate with
+       a subtraction in front of it, so it goes when its second half goes.
+       Aggregate turnout stays -- it falls back to the federal side alone and
+       says it is partial, which is a number with a caveat rather than none. */
+    'shade-by': { 'turnout-prov': provTurnout, 'turnout-delta': provTurnout },
+    'shade-da-by': { 'turnout-prov': provTurnout },
   };
-  for (const [value, ok] of Object.entries(available)) {
-    const option = sel.querySelector(`option[value="${value}"]`);
-    if (option) option.hidden = !ok;
-    if (!ok && sel.value === value) sel.value = 'none';
+  for (const [selectId, modes] of Object.entries(available)) {
+    const sel = $(selectId);
+    if (!sel) continue;
+    for (const [value, ok] of Object.entries(modes)) {
+      const option = sel.querySelector(`option[value="${value}"]`);
+      if (option) option.hidden = !ok;
+      if (!ok && sel.value === value) sel.value = 'none';
+    }
   }
 }
 

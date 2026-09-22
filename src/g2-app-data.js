@@ -881,7 +881,13 @@ function refreshPartySelectors() {
     fillSelect(outcome, [
       { value: 'turnout-agg', label: 'Aggregate turnout, both elections' },
       { value: 'turnout-fed', label: 'Federal (2025) turnout' },
-      { value: 'turnout-prov', label: 'Provincial (2024) turnout' },
+      /* Offered only where the provincial results carry an electorate per
+         area. Elections BC's do not, so on this atlas's own data the rate is
+         blank on every area and choosing it profiles nothing -- the same empty
+         tab with no reason why that the two ratios below are guarded against. */
+      ...(provTurnoutPossible() ? [
+        { value: 'turnout-prov', label: 'Provincial (2024) turnout' },
+      ] : []),
       /* A ratio needs both halves, and these two have different denominators.
          Checking only the numerator -- as this did -- offered "per resident
          15+" against a census profile with no pop_15_plus in it, so choosing

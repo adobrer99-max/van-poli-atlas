@@ -274,6 +274,53 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
        new RegExp(`${want.catchments} catchments`).test(legend) && /repeating/.test(legend), legend.slice(0, 200));
     await page.locator('#shade-prov-by').selectOption('none'); await page.waitForTimeout(300);
 
+    // This file is the real Elections BC shape: ballots on every voting area and
+    // an electorate on none. Provincial turnout is therefore not a measure that
+    // is thin here, it is a measure that cannot be formed at all, and an option
+    // offered in that state is how a target list came out with a hundred
+    // thousand blank ranks -- a door is ranked only where every chosen measure
+    // has a value, and this one had none anywhere.
+    const provTurnoutOffered = () => page.evaluate(() => {
+      const at = (sel, value) => {
+        const o = document.querySelector(`#${sel} option[value="${value}"]`);
+        return o ? !o.hidden : false;
+      };
+      const outcomes = [...document.querySelectorAll('#socio-outcome option')].map((o) => o.value);
+      return {
+        prov: at('shade-prov-by', 'turnout-prov'),
+        fed: at('shade-by', 'turnout-prov'),
+        delta: at('shade-by', 'turnout-delta'),
+        da: at('shade-da-by', 'turnout-prov'),
+        outcome: outcomes.includes('turnout-prov'),
+        /* Read alongside, so none of the above can pass by reading a control
+           that is empty or entirely hidden rather than one that withdrew this
+           option and kept the rest. */
+        fedTurnoutStill: at('shade-by', 'turnout-fed'),
+        provPartyStill: at('shade-prov-by', 'prov-party'),
+        outcomesBuilt: outcomes.length,
+      };
+    });
+    const withdrawn = await provTurnoutOffered();
+    ok('the controls are populated, so what follows is a withdrawal and not an empty screen',
+       withdrawn.fedTurnoutStill && withdrawn.provPartyStill && withdrawn.outcomesBuilt > 1,
+       JSON.stringify(withdrawn));
+    ok('provincial turnout is withdrawn from every layer that would show it blank',
+       !withdrawn.prov && !withdrawn.fed && !withdrawn.da, JSON.stringify(withdrawn));
+    ok('and so is federal-minus-provincial, which is that blank rate with a '
+       + 'subtraction in front of it', !withdrawn.delta, JSON.stringify(withdrawn));
+    ok('and the neighbourhood profile does not offer it as an outcome',
+       !withdrawn.outcome, JSON.stringify(withdrawn));
+    // The measure list builds itself from those selectors and skips what is
+    // hidden, so the withdrawal reaches the target list without a second rule.
+    await page.locator('#map-show').selectOption('prov'); await page.waitForTimeout(400);
+    const measures = await page.$$eval('#map-measure option', (os) => os.map((o) => o.textContent.trim()));
+    ok(`provincial turnout is gone from Measure too (${measures.length} left)`,
+       measures.length > 0 && !measures.some((m) => /^Provincial turnout/i.test(m)),
+       measures.join(' | ').slice(0, 200));
+    ok('while the provincial measures that do resolve are still on offer',
+       measures.some((m) => /Provincial party share/i.test(m)),
+       measures.join(' | ').slice(0, 200));
+
     // The Results tab is the one place that reports a place file as it arrived:
     // by channel, with the located share stated rather than implied.
     await page.locator('#tab-results').click(); await page.waitForTimeout(600);
@@ -313,6 +360,18 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
     const rstat = (await page.locator('#results-status').innerText()).replace(/\s+/g, ' ');
     ok('and the tab says where the denominator came from',
        /denominator taken from the file you loaded/.test(rstat), rstat.slice(0, 220));
+    // And this is the trap the option existed to spring. The Statement of Votes
+    // gives a denominator PER ELECTORAL DISTRICT, which is a real turnout for
+    // the district table above and cannot become one per voting area: dividing
+    // a district's electors across its areas would be a model, not a
+    // measurement. So the file that fixes the Results tab must leave the
+    // per-area option withdrawn -- otherwise loading it looks like the cure for
+    // a blank measure, and the blank measure comes straight back.
+    const afterDenominator = await provTurnoutOffered();
+    ok('a district-level denominator does not bring back per-area provincial turnout',
+       !afterDenominator.prov && !afterDenominator.fed && !afterDenominator.da
+       && !afterDenominator.delta && !afterDenominator.outcome,
+       JSON.stringify(afterDenominator));
     await page.locator('#tab-map').click(); await page.waitForTimeout(200);
     await page.locator('#tab-map').click(); await page.waitForTimeout(300);
 
