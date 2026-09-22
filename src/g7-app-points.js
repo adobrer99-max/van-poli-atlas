@@ -748,12 +748,17 @@ function refreshTargetPicker() {
     list.innerHTML = '';
     (state.targets || []).forEach((m, i) => {
       const li = document.createElement('li');
-      li.textContent = `${i + 1}. ${m.label} · ${m.on}`;
+      /* In its own element rather than as a bare text node on the li: a text
+         node in a flex or grid row is an anonymous item with no class to size,
+         and whatever the row's first track happens to be is where it lands. */
+      const name = document.createElement('span');
+      name.className = 'target-name';
+      name.textContent = `${i + 1}. ${m.label} · ${m.on}`;
+      li.appendChild(name);
       const drop = document.createElement('button');
       drop.type = 'button';
       drop.className = 'btn btn-small';
       drop.textContent = 'Remove';
-      drop.style.marginLeft = '0.5rem';
       drop.addEventListener('click', () => {
         state.targets = state.targets.filter((x) => x.id !== m.id);
         refreshTargetPicker();

@@ -1268,6 +1268,25 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
   ok('and a measure already on the list is no longer offered',
      !(await page.$$eval('#target-measure option', (os) => os.map((o) => o.value)))
        .includes(firstAdded), String(firstAdded));
+  /* The chosen measures have to be READABLE, which the DOM alone will not say.
+
+     This list first borrowed the .readiness class, whose li is a three-column
+     grid with a 1.1rem first column for a tick. A grid container wraps a bare
+     text node in an anonymous grid item, so the measure's name landed in the
+     tick column and rendered one character per line, a hundred lines tall.
+     Every structural assertion passed while it did. Measuring the box is the
+     only thing that catches it: a label on one or two lines is far wider than
+     it is tall, and the broken one was the other way round. */
+  const rowBox = await page.evaluate(() => {
+    const name = document.querySelector('#target-list .target-name');
+    if (!name) return null;
+    const r = name.getBoundingClientRect();
+    return { w: Math.round(r.width), h: Math.round(r.height), text: name.textContent.trim() };
+  });
+  ok('each chosen measure renders as a row rather than a column of letters',
+     rowBox && rowBox.w > rowBox.h * 3 && rowBox.w > 120,
+     rowBox ? `${rowBox.w}x${rowBox.h} "${rowBox.text.slice(0, 40)}"` : 'no .target-name');
+
   const chosenLine = await page.locator('#points-export-basis').innerText();
   ok('the basis line stops crediting the map once measures are chosen',
      !/what the map is showing/i.test(chosenLine) && /2 measures/.test(chosenLine),
