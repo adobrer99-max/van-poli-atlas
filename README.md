@@ -224,8 +224,15 @@ covered, UBC included, and its UBC polls are tagged.
 That denominator is per district, so it is **not** spread onto voting areas:
 one number per district split across its areas would be a model, not a
 measurement. Until an elector count by voting area exists, per-area provincial
-turnout stays blank and the combined ranking falls back to the federal side and
-says it is partial. Party shares and ballot counts are unaffected throughout.
+turnout cannot be formed at all, and the atlas withdraws the option rather than
+offering it blank — *Provincial turnout* disappears from all three colour-by
+selectors, from Show/Measure, from the profile outcomes and from the target
+list's measures, on whichever layer it would have been empty. *Federal minus
+provincial turnout* goes with it, being that same blank rate with a subtraction
+in front. What stays is aggregate turnout, which falls back to the federal side
+alone and says it is partial. The test is the loaded file, not the calendar: a
+provincial results file carrying electors per area brings all of it back.
+Party shares and ballot counts are unaffected throughout.
 Elections BC's own voting-area-to-place assignment would replace the catchment
 model entirely.
 

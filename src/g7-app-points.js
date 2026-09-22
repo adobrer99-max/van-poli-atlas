@@ -658,6 +658,30 @@ function exportAddresses() {
       b.cells.unshift(++rank);
       b.cells.push(reached);
     }
+    /* Measures were chosen and not one door could be ranked on them.
+
+       The file would be a hundred thousand rows in address order with an empty
+       rank column, under a name like true-blue-conservatives.csv -- which looks
+       exactly like a target list and is not one. That happened: a turnout
+       measure with no elector denominator behind it valued nothing, and the
+       export was written, downloaded and passed on before anybody read a cell.
+
+       Refusing is the honest answer. The measure that came up empty is named,
+       because "nothing ranked" is a symptom and the reader needs the cause. */
+    if (!rank) {
+      const empty = bases.filter((b) => !b.resolves).map((b) => b.label);
+      setStatus('status-points', 'error', [
+        'Nothing could be ranked, so no file was written — a list where every rank is blank '
+        + 'is not a target list, whatever it is named.',
+        el('p', 'text-small', empty.length
+          ? `${empty.join('; ')} has no value for anything, and a door is ranked only where `
+            + 'every chosen measure has one. Remove it, or load the data behind it — a turnout '
+            + 'rate needs an elector count, which arrives in its own file.'
+          : 'Every address is missing a value on at least one chosen measure. Remove a measure, '
+            + 'or check the coverage of the ones on the list.'),
+      ]);
+      return;
+    }
   }
 
   /* A campaign produces several of these in a sitting -- one list of existing
@@ -820,7 +844,9 @@ function measureCatalogue() {
       out.push({ id: `${layer.key}|${mode}|`, layer: layer.key, mode, label: text, on: layer.on });
     }
   }
-  return out;
+  /* A measure that can value nothing is not a measure a reader can choose.
+     Offering it is how a list came out with every row unranked. */
+  return out.filter(resolvesAny);
 }
 
 /* Where a measure's value sits among its peers, in the direction the reader
@@ -847,6 +873,61 @@ function directed(m, all) {
   return (v) => (v == null || !isFinite(v) || !all.length ? 0 : 1 - raw(v));
 }
 
+/* Does this measure have a value for anything at all?
+
+   Offered-but-empty is the failure this exists to stop. Provincial turnout sat
+   in the picker looking exactly like the measures that work, and it could not
+   value a single area: a results file carries votes, and a rate needs an
+   elector denominator Elections BC publishes per district and never per voting
+   area. Every address came out unranked -- correctly, since a door is ranked
+   only where every chosen measure has a value -- and a hundred thousand rows of
+   blank ranks were exported and handed on before anybody saw it.
+
+   That particular measure is now withdrawn upstream, in updatePlaceControls,
+   which is the better place for a mode nothing can ever fill. This stays as the
+   general case, because the catalogue is assembled from live data and any
+   measure can empty out: a cleared layer, a census variable absent from the
+   loaded profile, a canvass whose every contact refused. The rule was right.
+   Letting somebody reach the file was not.
+
+   Short-circuits on the first value it finds, so the usual case costs one
+   lookup. */
+function resolvesAny(m) {
+  if (m.scope === 'address') {
+    const places = (state.points && state.points.places) || [];
+    if (!places.length) return false;
+    if (m.kind === 'canvass') {
+      const pooled = (state.canvass && state.canvass.pooled) || new Map();
+      return places.some((a) => {
+        const at = pooled.get(a.key);
+        return Boolean(at) && at.support != null;
+      });
+    }
+    return places.some((a) => {
+      const v = m.kind === 'weight' ? a.weight : a.rows;
+      return v != null && isFinite(v);
+    });
+  }
+  const layer = BASIS_LAYER[m.layer];
+  const features = layer ? layer.features() : [];
+  if (!features.length) return false;
+  if (m.censusVar) {
+    const table = (socioVariables().find((v) => v.key === m.censusVar) || {}).byFeature;
+    if (!table) return false;
+    return features.some((f) => {
+      const v = table.get(f.__idx);
+      return v != null && isFinite(v);
+    });
+  }
+  const side = PARTY_MODES[m.mode];
+  return features.some((f) => {
+    const v = shadeValue(m.layer, f, m.mode,
+      side === 'fed' ? m.party : '', side === 'prov' ? m.party : '',
+      side === 'muni' ? m.party : undefined);
+    return v != null && isFinite(v);
+  });
+}
+
 /* One chosen measure, turned into the thing the export ranks with. */
 function basisFor(m) {
   /* Address-scoped measures rank against the other doors rather than against
@@ -868,7 +949,7 @@ function basisFor(m) {
       .filter((v) => v != null && isFinite(v)).sort((a, b) => a - b);
     const fraction = directed(m, all);
     return {
-      id: m.id, scope: 'address', layer: null,
+      id: m.id, scope: 'address', layer: null, resolves: all.length,
       label: `${m.label} · ${m.on}${m.invert ? ' · fewer first' : ''}`,
       valueOf, fraction,
       format: (v) => (v == null || !isFinite(v) ? '' : String(Math.round(v * 1000) / 1000)),
@@ -917,6 +998,7 @@ function basisFor(m) {
   return {
     id: m.id,
     layer: m.layer,
+    resolves: all.length,
     label,
     valueOf,
     fraction,
@@ -1010,7 +1092,18 @@ function renderExportBasis() {
     if (seen.has(quantity)) doubled.push(m.label);
     else seen.set(quantity, m.label);
   }
-  node.className = doubled.length ? 'text-small text-warning' : 'text-small text-muted';
+  /* A chosen measure that has stopped resolving -- data cleared, a layer
+     unloaded, a results file replaced by one without the denominator its rate
+     needs. The catalogue will not offer such a measure, but a list built when
+     it did resolve keeps it, and every door then comes out unranked. */
+  const empty = bases.filter((b) => !b.resolves).map((b) => b.label);
+  const dead = empty.length
+    ? ` ${empty.length === 1 ? 'One measure has' : `${empty.length} measures have`} no value for `
+      + `anything on the list (${empty.join('; ')}), so nothing can be ranked: a door is ranked `
+      + 'only where every chosen measure has a value. Remove it, or load the data it needs.'
+    : '';
+  node.className = (doubled.length || empty.length)
+    ? 'text-small text-warning' : 'text-small text-muted';
   node.textContent = (bases.length === 1
     ? `Ranked on ${bases[0].label}.`
     : `Ranked on the average standing across ${bases.length} measures: `
@@ -1021,7 +1114,7 @@ function renderExportBasis() {
         + `list twice on different geographies (${doubled.join('; ')}), so ${doubled.length === 1
           ? 'it counts' : 'they count'} double against everything else. Remove the crosswalked `
         + 'copy unless you meant to weight it that way.'
-      : '');
+      : '') + dead;
 }
 
 /* The measures on offer, minus the ones already chosen. Re-read every time it
