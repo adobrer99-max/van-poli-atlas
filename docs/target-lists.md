@@ -50,8 +50,18 @@ predates this and the export will not be ranked.
 
 Check the match report before going further. The last full run placed **96.4%**
 of rows: 81.0% by direct lookup, 15.4% snapped to the nearest number on the same
-street. The unplaced remainder is mostly UBC/UEL and River District, which sit
-outside the city's address file, plus a normaliser gap on `NE`/`SE KENT AVE`.
+street. The unplaced remainder was mostly UBC/UEL and River District, which sit
+outside the city's address file, plus a normaliser gap on the Kent Avenues.
+
+That gap is fixed: a street whose name ends in a direction (`KENT AVE NORTH`)
+meeting a roll that trails its own direction in a column (`SE`) now folds to the
+City's spelling instead of missing on the name, the street type and the
+direction at once. Expect the Fraser-lands addresses to place on this build and
+the direct-lookup share to rise. The report also now says how many rows carry a
+civic-number suffix and what happened to them — read that line before reading
+the matched percentage, because a suffix the address file does not carry moves
+rows out of "matched" and into "placed beside the nearest number" without
+putting a single one in the wrong place.
 
 Anything much below 90% means the join went wrong, not that the city has
 changed. Stop and look rather than exporting.
