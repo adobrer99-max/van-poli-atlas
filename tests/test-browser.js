@@ -1259,6 +1259,23 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
     await page.waitForTimeout(250);
     return id;
   };
+  /* The one measure that is a fact about the door rather than about the area.
+
+     Every other measure is reported for an area, so every door in a polling
+     division carries the same value and nothing computed from them can order
+     two doors against each other -- on a real export, 237 addresses share the
+     median score and the largest block is 2,666. How many electors are at an
+     address is the only door-level fact the roll holds, and it was being spent
+     as an invisible tie-break rather than offered as a measure. */
+  const addressIds = (await page.$$eval('#target-measure option', (os) => os.map((o) => o.value)))
+    .filter((v) => v && v.startsWith('address|'));
+  ok(`the picker offers a measure of the door itself (${addressIds.join(' ')})`,
+     addressIds.length > 0, addressIds.join(' ') || 'none');
+  ok('and files it under the address rather than a geography',
+     (await page.$$eval('#target-measure optgroup', (gs) => gs.map((g) => g.label)))
+       .some((l) => /each address/i.test(l)),
+     (await page.$$eval('#target-measure optgroup', (gs) => gs.map((g) => g.label))).join(' | '));
+
   const firstAdded = await addMeasure(/\|fed-party\|/);
   const secondAdded = await addMeasure(/\|turnout-fed\|/);
   ok('two measures from the same layer can both be on the list',
@@ -1312,6 +1329,40 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
      /—/.test(m1[pickHead.indexOf('measure_1_name')])
      && /·/.test(m1[pickHead.indexOf('measure_1_name')]),
      m1[pickHead.indexOf('measure_1_name')]);
+
+  /* The tie-break, which decides most of the within-area ordering.
+
+     Every measure is reported for an area, so doors in a division score
+     identically and this comparator orders hundreds of them at a time. It was
+     building size descending, always and invisibly. The assertion reports how
+     many ties it actually checked, so a vacuous pass on a small fixture is
+     visible in the output rather than quietly counting as coverage. */
+  ok('the tie-break defaults to what it always did, rather than changing silently',
+     await page.locator('#target-tiebreak').inputValue() === 'largest',
+     await page.locator('#target-tiebreak').inputValue());
+  const orderUnder = async (mode) => {
+    await page.locator('#target-tiebreak').selectOption(mode);
+    await page.waitForTimeout(200);
+    const dl = page.waitForEvent('download', { timeout: 15000 });
+    await page.locator('#export-addresses').click();
+    const csv = require('fs').readFileSync(await (await dl).path(), 'utf8')
+      .split(/\r?\n/).filter(Boolean);
+    const head = splitCsv(csv[0].replace(/^﻿/, ''));
+    const body = csv.slice(1).map(splitCsv).filter((r) => r[0] !== '');
+    const sc = head.indexOf('target_score');
+    return body.map((r) => ({ addr: r[1], size: Number(r[head.indexOf(head[2])]),
+                              score: r[sc] }));
+  };
+  const byLargest = await orderUnder('largest');
+  const byAddress = await orderUnder('address');
+  const tiesIn = (rows) => rows.filter((r, i) => i > 0 && rows[i - 1].score === r.score).length;
+  const ties = tiesIn(byLargest);
+  ok(`equal-scoring doors follow the chosen order (${ties} tied pairs in the fixture)`,
+     ties === 0 || byAddress.every((r, i) => i === 0
+       || byAddress[i - 1].score !== r.score || byAddress[i - 1].addr <= r.addr),
+     byAddress.slice(0, 6).map((r) => `${r.addr}=${r.score}`).join(' | '));
+  await page.locator('#target-tiebreak').selectOption('largest');
+  await page.waitForTimeout(200);
 
   /* Back to the map, so the rest of the suite sees the state it expects. */
   await page.locator('#target-clear').click();

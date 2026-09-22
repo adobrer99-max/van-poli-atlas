@@ -560,6 +560,18 @@
         <button type="button" class="btn" id="target-add">Add measure</button>
         <button type="button" class="btn" id="target-clear" hidden>Use the map instead</button>
       </div>
+      <!-- Every measure above is reported for an area, so hundreds of doors in
+           a division score identically and this decides the order of most of
+           the file. It was building size, descending, always and invisibly. -->
+      <div class="viz-controls" style="flex:1 1 100%;">
+        <label class="form-label grow" for="target-tiebreak">Doors that score the same, ordered by
+          <select class="form-select" id="target-tiebreak">
+            <option value="largest">Largest building first (fewest stops)</option>
+            <option value="smallest">Smallest building first</option>
+            <option value="address">Address, alphabetically (no preference)</option>
+          </select>
+        </label>
+      </div>
       <ul class="target-list" id="target-list" style="flex:1 1 100%;"></ul>
       <p class="text-small" id="points-export-basis" style="margin:0; flex:1 1 100%;"></p>
     </div>

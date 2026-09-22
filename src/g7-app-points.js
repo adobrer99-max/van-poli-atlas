@@ -425,8 +425,13 @@ function exportAddresses() {
     const parts = [];
     let whole = bases.length > 0;
     for (const b of bases) {
-      const f = onLayer[b.layer] || null;
-      let v = f ? b.valueOf(f) : null;
+      /* An address-scoped measure reads the door itself; every other kind
+         reads the area the door falls in. That distinction is the whole reason
+         the scope exists: an area measure gives the same number to every door
+         in the division, and a door-level one is the only thing that can order
+         them against each other. */
+      const subject = b.scope === 'address' ? a : (onLayer[b.layer] || null);
+      let v = subject ? b.valueOf(subject) : null;
       if (v != null && !isFinite(v)) v = null;
       if (v == null) whole = false;
       parts.push(v);
@@ -448,11 +453,30 @@ function exportAddresses() {
   });
 
   if (basis) {
+    /* How doors that scored identically are ordered against each other.
+
+       This matters far more than it looks. Every measure above is reported for
+       an AREA, so every door in a polling division scores the same and the
+       tie-break decides the order of hundreds of addresses at a time -- in a
+       real export, 237 doors share the median score and the largest block is
+       2,666. Whatever this comparator does is most of the within-area ordering
+       in the file.
+
+       It used to be building size, descending, always and invisibly: one stop
+       for many pieces, which is a real argument about delivery cost. But it is
+       also a directional bet about who lives in large buildings, and in a city
+       where those skew renter it can put the least promising doors at the top
+       of every area. So it is a visible choice now, defaulting to what it
+       always did, and "address" is there for readers who would rather the file
+       admit it has no information to order these doors by. */
+    const order = $('target-tiebreak') ? $('target-tiebreak').value : 'largest';
+    const tie = (x, y) => (order === 'largest' ? y.size - x.size
+      : order === 'smallest' ? x.size - y.size : 0) || x.key.localeCompare(y.key);
     built.sort((x, y) => {
-      if (x.value == null && y.value == null) return y.size - x.size || x.key.localeCompare(y.key);
+      if (x.value == null && y.value == null) return tie(x, y);
       if (x.value == null) return 1;
       if (y.value == null) return -1;
-      return y.value - x.value || y.size - x.size || x.key.localeCompare(y.key);
+      return y.value - x.value || tie(x, y);
     });
     let reached = 0, rank = 0;
     for (const b of built) {
@@ -556,8 +580,40 @@ function partiesFor(side) {
    becomes one entry per variable. What comes back can be put in a select and
    chosen from without consulting anything else on screen, which is the whole
    reason the list exists. */
+/* Measures that are facts about the door rather than about the area it sits in.
+
+   There is exactly one of these today, and it is worth saying why. Every party
+   share, every turnout figure and every census indicator is reported for an
+   area, so two doors in the same polling division carry identical values on all
+   of them -- 237 addresses share the median score in a real export. Nothing
+   computed from area measures can separate two doors, because the sources hold
+   no fact that distinguishes them.
+
+   What the roll does hold, per address, is how many electors are there. That is
+   genuinely door-level, and until now it was spent as an invisible tie-break:
+   biggest building first, within every area, in a direction nobody chose. In a
+   city where large buildings skew renter that may be ordering the best doors
+   last. As a measure it is visible, it carries a percentile, it can be weighed
+   against the rest, and its direction is the reader's to decide rather than
+   the sort comparator's.
+
+   Canvass support, when there is a file to read it from, is the same shape:
+   address-scoped, joined by the same machinery, ranked the same way. */
+function addressMeasures() {
+  const p = state.points;
+  if (!p || !(p.places || []).length) return [];
+  const noun = p.noun || 'rows';
+  const out = [{ id: 'address|count|', scope: 'address', kind: 'count',
+                 label: `How many ${noun} are at the address`, on: 'each address' }];
+  if (p.weighted) {
+    out.push({ id: 'address|weight|', scope: 'address', kind: 'weight',
+               label: `${p.weightNoun || 'Weighted'} total at the address`, on: 'each address' });
+  }
+  return out;
+}
+
 function measureCatalogue() {
-  const out = [];
+  const out = addressMeasures();
   for (const layer of BASIS_LAYERS) {
     const node = $(layer.select);
     if (!node || !layer.features().length) continue;
@@ -588,6 +644,30 @@ function measureCatalogue() {
 
 /* One chosen measure, turned into the thing the export ranks with. */
 function basisFor(m) {
+  /* Address-scoped measures rank against the other doors rather than against
+     the other areas, so the percentile answers "how big is this building among
+     the buildings" instead of borrowing an area's standing. */
+  if (m.scope === 'address') {
+    const places = (state.points && state.points.places) || [];
+    if (!places.length) return null;
+    const valueOf = m.kind === 'weight' ? (a) => a.weight : (a) => a.rows;
+    const all = places.map(valueOf)
+      .filter((v) => v != null && isFinite(v)).sort((a, b) => a - b);
+    const fraction = (v) => {
+      if (v == null || !isFinite(v) || !all.length) return 0;
+      let below = 0;
+      while (below < all.length && all[below] < v) below++;
+      return below / all.length;
+    };
+    return {
+      id: m.id, scope: 'address', layer: null,
+      label: `${m.label} · ${m.on}`,
+      valueOf, fraction,
+      format: (v) => (v == null || !isFinite(v) ? '' : String(Math.round(v * 1000) / 1000)),
+      percentile: (v) => (v == null || !isFinite(v) || !all.length
+        ? '' : Math.round(fraction(v) * 100)),
+    };
+  }
   const layer = BASIS_LAYER[m.layer];
   const features = layer ? layer.features() : [];
   if (!features.length) return null;

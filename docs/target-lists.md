@@ -204,8 +204,42 @@ reason that it is missing data — one measure at the 90th percentile outscores
 90th-and-50th. Those addresses keep their rows and their values; they lose only
 the rank.
 
-**Within an equal score, the larger building ranks first.** Doors of equal
-quality, and one stop beats forty.
+## How finely the list actually orders doors
+
+This is the first thing a sharp client will push on, so know the answer.
+
+Every measure except one is reported for an **area** — a polling division, a
+voting area, a census area. Two doors in the same division carry identical
+values on all of them, because the agency published one number for the
+division. On a real export that means **254 distinct scores across 97,018
+ranked doors**: the median score is shared by 237 addresses and the largest
+block by 2,666. That is not a rounding artefact, it is the resolution of the
+sources.
+
+The one exception is **how many electors are at the address**, which the roll
+gives per door. Add it under *Rank this list on* and the granularity changes
+sharply — on the same file, 254 distinct scores becomes **4,787**, and the
+median block of 237 doors becomes 2.
+
+It is worth being exact about what that buys. The extra ordering is *by
+building size*, because that is the only door-level fact in the data. It is
+real information, not smoothing, and it is the right axis if your reason is
+delivery cost — one stop, many pieces. It is a **bet** if your reason is
+persuasion: large buildings skew renter, and if renters skew away from the
+party, ranking them up puts your weakest doors first. Check the direction on
+the **Compare** tab before leaning on it, rather than assuming.
+
+Where the list still cannot separate doors — same area, same elector count —
+it genuinely cannot. Nothing in these sources distinguishes them, and the file
+says so by giving them the same score rather than inventing a difference.
+
+**Doors that score the same** are ordered by the control beside the picker.
+It defaults to largest building first, which is the delivery-cost argument;
+*Address, alphabetically* is there for when you would rather the file admit it
+has no preference.
+
+To order doors on anything better, you need door-level data: canvass results,
+or a roll carrying vote history. Neither is in the current inputs.
 
 ## What it claims, and what it does not
 
