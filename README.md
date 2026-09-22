@@ -793,7 +793,17 @@ agencies spell differently**: the city's own file is not internally consistent,
 with 386 streets ending `ST` and none `STREET`, 77 ending `DRIVE` and none
 `DR`. Normalisation folds both directions, keeps `ST. CATHERINES ST` (Saint at
 the front, Street at the back) intact, and does not mistake the trailing
-direction in `W KENT AV NORTH` for the street type.
+direction in `W KENT AV NORTH` for the street type. It takes **two** directions
+off the end, because a roll that splits the street across columns trails its
+direction after a name that already ends in one: `KENT AVE NORTH` + `SE` meets
+the City's `SE KENT AVE NORTH`, and both reach `SE KENT AVE N`.
+
+Where the roll carries a civic-number suffix, the join report says how many rows
+have one and what became of them. A suffix the reference carries in full makes
+the lookup exact; one it does not know misses and falls back to the same civic
+number, which is the right building counted as an estimate — so the matched
+percentage drops without anything moving on the map, and the report says so
+rather than letting that read as a worse join.
 
 Measured against the real 99,744-row property file: every coordinate read,
 95,639 inside the federal study area across 1,013 of 1,017 polls, 99,740 inside

@@ -437,5 +437,97 @@ const crippledJoin = P.readPoints({ header: splitHeader, rows: splitRows }, crip
 eq('while keying on the name column alone matches nothing at all',
    crippledJoin.report.matched, 0);
 
+
+console.log('\n== A street whose name ends in a direction, plus a direction column ==');
+/* The Kent Avenues, and the reason the River District would not place.
+
+   The City writes the whole street in one field: "SE KENT AVE NORTH". The roll
+   keeps the name and the type in their own columns and trails SE in a third, so
+   streetOf hands the normaliser "KENT AVE NORTH SE" -- two directions at the
+   end, one belonging to the name and one to the column.
+
+   Popping only the last of them left NORTH where the street-type check looks,
+   so the check failed and the type never folded either. The two sides keyed as
+   "SE KENT AVE NORTH" against "SE KENT AVE N", and on a roll spelling the type
+   out it was "SE KENT AVENUE NORTH" -- wrong on the name, the type and the
+   direction at once. */
+{
+  const city = 'SE KENT AVE NORTH';
+  for (const roll of ['KENT AVE NORTH SE', 'KENT AVENUE NORTH SE', 'KENT AV NORTH SE']) {
+    eq(`"${roll}" reaches the same street as "${city}"`,
+       P.normalizeStreet(roll), P.normalizeStreet(city));
+  }
+  eq('and the folded form is the canonical one, not whichever arrived first',
+     P.normalizeStreet('KENT AVENUE NORTH SE'), 'SE KENT AVE N');
+  /* The half of the street is the whole point of the name. Folding the two
+     directions into one would put the north side and the south side of the
+     Fraser lands at one key and quietly double every count on both. */
+  ok('the north and south halves stay different streets',
+     P.normalizeStreet('KENT AVE NORTH SE') !== P.normalizeStreet('KENT AVE SOUTH SE'));
+  ok('and so do the south-east and south-west ends',
+     P.normalizeStreet('KENT AVE NORTH SE') !== P.normalizeStreet('KENT AVE NORTH SW'));
+  /* Nothing above may have come from loosening the single-direction rule. */
+  eq('a street with one trailing direction still moves it to the front',
+     P.normalizeStreet('MARINE DR SE'), P.normalizeStreet('SE MARINE DR'));
+  eq('and one with a prefix and a suffix still keeps both',
+     P.normalizeStreet('W KENT AV NORTH'), 'W KENT AVE N');
+}
+
+console.log('\n== What the civic-number suffix is doing to the join ==');
+/* civicNumberOf welds 1234 + A into "1234A", and whether that helps or hurts
+   depends on the reference. Where the property file carries 1234A the suffix is
+   what makes the lookup exact; where it carries only the parcel, "1234A" misses
+   and snapping strips back to the digits and places the row at a gap of zero --
+   the right building, counted as an estimate. Nobody could tell those apart,
+   because nothing counted either. */
+{
+  const header = ['Elector', 'StreetNumb', 'StreetNumberSuf', 'StreetName', 'StreetTyp'];
+  const rows = [
+    ['1', '1883', 'A', '10TH', 'AVE'],   // reference carries 1883A -> exact
+    ['2', '2200', 'B', '10TH', 'AVE'],   // reference carries 2200 only -> snaps, gap 0
+    ['3', '2400', '', '10TH', 'AVE'],    // no suffix at all
+  ];
+  const layout = P.detectPointLayout(header, rows);
+  const refTable = { header: ['CIVIC_NUMBER', 'STD_STREET', 'longitude', 'latitude'], rows: [
+    ['1883A', '10TH AVE', '-123.07', '49.26'],
+    ['2200', '10TH AVE', '-123.06', '49.26'],
+    ['2400', '10TH AVE', '-123.05', '49.26'],
+  ]};
+  const refLayout = P.detectPointLayout(refTable.header, refTable.rows);
+  const ref = P.buildReference(refTable, refLayout);
+  const out = P.readPoints({ header, rows }, layout,
+    { reference: ref.map, referenceStreets: ref.streets,
+      snapToStreet: true, byStreet: ref.byStreet });
+  const ns = out.report.numberSuffix;
+  ok('a file with a suffix column gets a suffix report', Boolean(ns), JSON.stringify(ns));
+  eq('the rows that carry one are counted, and the row that does not is left out',
+     ns.rows, 2);
+  eq('the one the reference carries in full matched exactly', ns.matched, 1);
+  eq('and the one it carries without the suffix did not', ns.snapped, 1);
+  /* The distinction the count exists for. A gap of zero is not an estimate of
+     where the door is -- it IS the door, minus a letter the reference never
+     recorded -- so a reader seeing the matched rate fall knows nothing moved. */
+  eq('landing back on its own civic number is counted apart from a real snap',
+     ns.snappedSameNumber, 1);
+  /* Non-vacuity: the three rows above must actually have taken three different
+     routes, or the counts above are all reading one outcome. */
+  eq('and the three rows really did take three different routes',
+     [out.report.matched, out.report.snapped, out.report.missRows], [2, 1, 0]);
+}
+{
+  /* A column that exists and is empty is a different answer from no column,
+     and both are different from a file that has no suffix anywhere. */
+  const header = ['Elector', 'StreetNumb', 'StreetNumberSuf', 'StreetName', 'StreetTyp'];
+  const rows = [['1', '2400', '', '10TH', 'AVE']];
+  const layout = P.detectPointLayout(header, rows);
+  const out = P.readPoints({ header, rows }, layout, { reference: new Map() });
+  eq('an unfilled suffix column reports zero rather than nothing',
+     out.report.numberSuffix, { rows: 0, matched: 0, snapped: 0, snappedSameNumber: 0 });
+  const noCol = P.readPoints({ header, rows }, { ...layout, numberSuffix: -1 },
+                             { reference: new Map() });
+  eq('and a file without the column reports nothing rather than zero',
+     noCol.report.numberSuffix, null);
+}
+
 console.log(fails ? `\n${fails} FAILURE(S)\n` : '\nAll point tests passed.\n');
 process.exit(fails ? 1 : 0);

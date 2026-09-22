@@ -1891,6 +1891,64 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
   ok('removing the roll removes its columns rather than leaving them empty',
      !pointsHead2.some((h) => h.startsWith('points_')), pointsHead2.slice(-4).join(','));
 
+  /* A roll split across columns, meeting a property file that writes the street
+     whole -- which is the join the atlas actually performs, and where two
+     silent misses lived.
+
+     KENT AVE NORTH is a street whose NAME ends in a direction, so a roll that
+     trails SE in a direction column hands over two directions at the end. The
+     normaliser popped one, then looked for the street type and found NORTH, so
+     the type never folded either: three ways wrong at once, and every address
+     on the Fraser lands went to the unknown-street bucket.
+
+     The suffix rows are the other half. 1883 + A is welded into "1883A"; the
+     reference carries 1883A so that is exact, and carries 2200 without a
+     suffix so "2200B" misses the lookup and snaps back to its own number at a
+     gap of zero. Right building, counted as an estimate, and until now nothing
+     said how many rows that was. */
+  const SPLIT_REF = 'CIVIC_NUMBER;STD_STREET;geo_point_2d\n'
+    + '3188;SE KENT AVE NORTH;49.21000, -123.05000\n'
+    + '1883A;E 10TH AVENUE;49.26000, -123.07000\n'
+    + '2200;E 10TH AVE;49.26000, -123.06000\n'
+    + '2400;E 10TH AV;49.26000, -123.05000\n';
+  const SPLIT_ROLL = 'Elector;StreetNumb;StreetNumberSuf;StreetName;StreetTyp;StreetDirection\n'
+    + '1;3188;;KENT AVE NORTH;;SE\n'
+    + '2;1883;A;10TH;AVE;E\n'
+    + '3;2200;B;10TH;AVE;E\n'
+    + '4;2400;;10TH;AVE;E\n';
+  await page.locator('#tab-data').click();
+  await page.waitForTimeout(300);
+  await page.locator('#file-points-ref').setInputFiles(
+    { name: 'split-ref.csv', mimeType: 'text/csv', buffer: Buffer.from(SPLIT_REF) });
+  await page.waitForTimeout(1200);
+  await page.locator('#file-points').setInputFiles(
+    { name: 'split-roll.csv', mimeType: 'text/csv', buffer: Buffer.from(SPLIT_ROLL) });
+  await page.waitForTimeout(1500);
+  const splitStatus = (await page.locator('#status-points').innerText()).replace(/\s+/g, ' ');
+  ok('every row of a split-column roll is placed, Kent Avenue included',
+     /4 of 4 rows located/.test(splitStatus), splitStatus.slice(0, 260));
+  const kent = await page.evaluate(() =>
+    (window.vanPoliAtlas.state.points.places || []).find((a) => /KENT/.test(a.key)) || null);
+  ok('the Kent Avenue row keys to the City spelling of the street',
+     Boolean(kent) && kent.key === '3188 SE KENT AVE N', JSON.stringify(kent && kent.key));
+  /* It has to be the lookup that placed it. Snapping would have found 3188 on
+     the same street and hidden the normaliser bug behind an estimate. */
+  ok('and it got there by lookup, not by snapping to a neighbour',
+     Boolean(kent) && kent.route === 'counted', JSON.stringify(kent && kent.route));
+  ok('the suffix column is counted rather than left unmeasured',
+     /2 rows carry a civic-number suffix/.test(splitStatus), splitStatus.slice(0, 500));
+  ok('the one the reference carries in full is reported as an exact match',
+     /1 of them matched the reference exactly/.test(splitStatus), splitStatus.slice(0, 500));
+  /* The figure the whole count exists for: rows that look like a worse match
+     rate and are standing at their own front door. */
+  ok('and the one it carries without the suffix is named as landing on its own number',
+     /1 landed back on their own civic number/.test(splitStatus), splitStatus.slice(0, 500));
+
+  await page.locator('#clear-points').click();
+  await page.waitForTimeout(400);
+  await page.locator('#clear-points-ref').click();
+  await page.waitForTimeout(400);
+
   console.log('\n== Census on the map ==');
   await page.locator('#tab-map').click();
   await page.waitForTimeout(600);

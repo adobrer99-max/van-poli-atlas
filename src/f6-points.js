@@ -150,10 +150,10 @@ const Points = (() => {
     let parts = s.split(' ');
     /* Saint, so that a file writing it out still meets one that does not. */
     if (parts[0] === 'SAINT') parts[0] = 'ST';
-    /* A direction at the end comes off first: in "W KENT AV NORTH" the type is
-       the token before it, not the last one. */
-    let suffix = '';
-    /* Two tokens is enough, and the guard used to require three.
+    /* Directions at the end come off first: in "W KENT AV NORTH" the type is
+       the token before the direction, not the last token.
+
+       Two tokens is enough to try it, and the guard used to require three.
 
        That excluded exactly the streets with no type at all -- BROADWAY,
        KINGSWAY -- which is where it hurt most in this city. "BROADWAY E" is two
@@ -166,9 +166,27 @@ const Points = (() => {
        Popping here leaves at least one token for the name, and a street whose
        name genuinely ends in a direction word would have to exist alongside
        the same name carrying that direction as a prefix before this could
-       conflate anything. */
-    if (parts.length > 1 && DIRECTIONS.has(parts[parts.length - 1])) {
-      suffix = DIRECTIONS.get(parts.pop());
+       conflate anything.
+
+       Plural, because a split-column roll hands over two. The City writes the
+       whole street in one field -- "SE KENT AVE NORTH" -- while an elector roll
+       keeps the name and the type in their own columns and trails the direction
+       in a third, which streetOf reassembles as "KENT AVE NORTH SE". Popping
+       only the last one left NORTH sitting exactly where the type check looks,
+       so that check failed and the TYPE never folded either: "KENT AVENUE NORTH
+       SE" kept both AVENUE and NORTH and missed "SE KENT AVE N" on all three
+       counts. Every address on the Kent Avenues went to the unknown-street
+       bucket -- the Fraser lands and the River District, which is where the
+       unplaced rows actually were.
+
+       Two at most. A Vancouver street carries one direction inside its own name
+       and can be handed one more by a direction column; a third would mean
+       something is wrong with the file, and taking another token would start
+       eating the name. The loop leaves at least one token whatever happens. */
+    const trailing = [];
+    while (trailing.length < 2 && parts.length > 1
+           && DIRECTIONS.has(parts[parts.length - 1])) {
+      trailing.unshift(DIRECTIONS.get(parts.pop()));
     }
     /* Now the last token may be a street type -- or may be the whole name, as
        in BROADWAY and KINGSWAY, which are streets with no type at all. */
@@ -195,9 +213,16 @@ const Points = (() => {
 
        Only when there is exactly one. "W KENT AV NORTH" carries a prefix AND a
        suffix that mean different things, so both stay where they were: folding
-       them together would produce "KENT AVE W N" and lose which was which. */
-    if (prefix && !suffix) { /* already canonical */ }
-    else if (suffix && !prefix) { prefix = suffix; suffix = ''; }
+       them together would produce "KENT AVE W N" and lose which was which.
+
+       With two at the end and none at the front, the outer one is what the
+       direction column supplied and the inner one belongs to the name, so the
+       outer moves to the front and the inner stays put. "KENT AVE NORTH SE" and
+       "SE KENT AVE NORTH" then both reach "SE KENT AVE N", which is the whole
+       point of the exercise. */
+    let suffix = '';
+    if (!prefix && trailing.length) prefix = trailing.pop();
+    if (trailing.length) suffix = trailing[trailing.length - 1];
     return [prefix, parts.join(' '), type, suffix].filter(Boolean).join(' ');
   }
 
@@ -373,6 +398,26 @@ const Points = (() => {
     const snapGaps = [];
     let snapped = 0, crossedStreet = 0;
     let unreadable = 0, matched = 0;
+    /* How much of the join rests on the civic-number suffix, which until now
+       nobody could answer.
+
+       civicNumberOf welds the suffix onto the number -- 1234 + A -> "1234A" --
+       and the comment beside it says a suffix the reference does not carry is
+       a miss worth counting rather than a reason to drop the digits. That is
+       the right rule and it was never counted. So the fill rate was unknown in
+       both directions: nobody knew how many rows carried a suffix, and nobody
+       knew whether carrying one helped or hurt.
+
+       It can do either. Where the City's property file lists 1234A the suffix
+       is what distinguishes it from 1234, and welding it on is what makes the
+       lookup exact. Where the file lists only the parcel, "1234A" misses the
+       lookup and lands in snapping -- which strips back to the digits, finds
+       1234, and places the row at a gap of ZERO. Placed at the right building,
+       and counted as an estimate. So a suffix column can quietly move thousands
+       of rows out of the direct-lookup rate a reader is told to check, without
+       a single row moving on the map. The gap-zero count below is what tells
+       those two stories apart. */
+    let sufRows = 0, sufMatched = 0, sufSnapped = 0, sufSnappedSameNumber = 0;
     const cell = (r, i) => (i >= 0 && i < r.length ? r[i] : '');
 
     for (const r of rows) {
@@ -394,6 +439,8 @@ const Points = (() => {
       } else if (NEEDS_REFERENCE.has(layout.kind)) {
         if (layout.kind === 'address') {
           key = addressKey(civicNumberOf(r, layout, cell), streetOf(r, layout, cell));
+          if (layout.numberSuffix >= 0
+              && String(cell(r, layout.numberSuffix) ?? '').trim()) sufRows++;
         }
         else if (layout.kind === 'address1') {
           const { number, street } = splitAddress(cell(r, layout.address));
@@ -402,6 +449,7 @@ const Points = (() => {
         const hit = key && reference ? reference.get(key) : null;
         if (hit) {
           lon = hit.lon; lat = hit.lat; matched++;
+          if (HAS_SUFFIX.test(key)) sufMatched++;
           /* Many electors at one address is not a defect to be explained away:
              a tower is one door for a canvass and four hundred electors behind
              it, so the addresses carrying the most rows are the most valuable
@@ -421,6 +469,13 @@ const Points = (() => {
           if (near) {
             lon = near.lon; lat = near.lat;
             snapped++;
+            if (HAS_SUFFIX.test(key)) {
+              sufSnapped++;
+              /* Snapped to the very number it was built from, so the only thing
+                 the reference lacked was the suffix. The row is at its own
+                 building; it is an estimate in name only. */
+              if (near.gap === 0) sufSnappedSameNumber++;
+            }
             snapGaps.push(near.gap);
             if (!near.sameSide) crossedStreet++;
             snapCounts.set(key, (snapCounts.get(key) || 0) + 1);
@@ -503,6 +558,12 @@ const Points = (() => {
         /* Counted whether or not the caller supplied the street set: with no
            set every miss falls to unknownStreet, which is the honest answer
            when there is nothing to tell them apart with. */
+        /* Null when the file has no suffix column at all, so "none carried one"
+           and "there was nowhere to carry one" stay different answers. */
+        numberSuffix: layout.kind === 'address' && layout.numberSuffix >= 0
+          ? { rows: sufRows, matched: sufMatched, snapped: sufSnapped,
+              snappedSameNumber: sufSnappedSameNumber }
+          : null,
         newOnKnownStreet: { count: newOnKnownStreet.total || 0, sample: newOnKnownStreet },
         unknownStreet: { count: unknownStreet.total || 0, sample: unknownStreet },
         classified: Boolean(knownStreets),
@@ -603,6 +664,11 @@ const Points = (() => {
 
   /* A key back into its parts: "1483A E KING EDWARD AVE" -> 1483, A, the rest. */
   const SPLIT_KEY = /^(\d+)([A-Z]*) (.+)$/;
+  /* The same shape, asked as a yes or no: does this key's civic number carry a
+     letter suffix? Read off the key rather than the row so it means the same
+     thing for a file that split the suffix into its own column and one that
+     wrote "1234A" whole. */
+  const HAS_SUFFIX = /^\d+[A-Z]+ /;
 
   /* The nearest civic number the reference DOES carry on the same street.
 

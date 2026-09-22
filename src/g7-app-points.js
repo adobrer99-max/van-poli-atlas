@@ -117,6 +117,38 @@ function renderPointsReport() {
             + 'and took the other side, which is the case most likely to cross an area boundary.'
           : ' All kept to their own side of the street.')));
     }
+    /* What the civic-number suffix is doing to this join, which was the one
+       part of the key nothing reported on.
+
+       A roll that splits 1234A into "1234" and "A" gets them welded back
+       together before the lookup. Where the property file carries 1234A that is
+       exactly right. Where it carries only the parcel, the row misses the
+       lookup and snaps back to 1234 at a gap of zero -- the right building,
+       counted as an estimate -- and the direct-lookup rate a reader is told to
+       check drops by however many rows that is, with nothing on the map having
+       moved. Saying so beats letting somebody conclude the join got worse. */
+    if (r.numberSuffix) {
+      const ns = r.numberSuffix;
+      if (!ns.rows) {
+        lines.push(el('p', 'text-small text-muted',
+          'The file has a civic-number suffix column and no row fills it, so nothing here '
+          + 'depends on it.'));
+      } else {
+        const same = ns.snappedSameNumber;
+        lines.push(el('p', 'text-small text-muted',
+          `${fmtInt(ns.rows)} rows carry a civic-number suffix (1234A rather `
+          + `than 1234). ${fmtInt(ns.matched)} of them matched the reference exactly`
+          + (ns.snapped
+            ? `, and ${fmtInt(ns.snapped)} did not`
+              + (same
+                ? ` — of which ${fmtInt(same)} landed back on their own civic number, meaning the `
+                  + 'reference carries the building but not the suffix. Those are at the right '
+                  + 'address and counted as estimates, so they lower the matched percentage above '
+                  + 'without being misplaced.'
+                : '.')
+            : '.')));
+      }
+    }
     if (r.missKeys) {
       const per = r.missRows / r.missKeys;
       /* Read against the rows that DID match, not against an absolute number.
