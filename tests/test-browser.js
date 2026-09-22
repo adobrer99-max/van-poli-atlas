@@ -1550,11 +1550,17 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
      (cvBody.find((r) => r[1] === '1234 W 16TH AVE') || []).slice(0, 3).join(','));
   await page.locator('#clear-canvass').click();
   await page.waitForTimeout(300);
+  /* The canvass measure was the only one on the list, so dropping it empties
+     the list -- which correctly hides "Use the map instead". Asserting the
+     empty list is both the reset the rest of the suite needs and a stronger
+     claim than clicking a button that is no longer there. */
   ok('removing the canvass takes any measure resting on it with it',
-     await page.evaluate(() => (window.vanPoliAtlas.state.targets || [])
-       .every((m) => m.kind !== 'canvass')));
-  await page.locator('#target-clear').click();
-  await page.waitForTimeout(200);
+     await page.evaluate(() => (window.vanPoliAtlas.state.targets || []).length === 0),
+     JSON.stringify(await page.evaluate(() =>
+       (window.vanPoliAtlas.state.targets || []).map((m) => m.id))));
+  ok('and the list is empty, so ranking falls back to the map on its own',
+     /what the map is showing/i.test(await page.locator('#points-export-basis').innerText()),
+     (await page.locator('#points-export-basis').innerText()).slice(0, 160));
 
   await page.locator('#tab-map').click();
   await page.waitForTimeout(200);
