@@ -2010,6 +2010,30 @@ html>body{padding:0}
   .readiness-detail { grid-column: 2; text-align: left; }
 }
 
+/* The chosen measures a target list is ranked on, in the order they were added.
+
+   Deliberately not .readiness, which this borrowed at first and should not
+   have. That is a three-column checklist whose first column is 1.1rem wide
+   because it holds a tick, and a grid container wraps a bare text node in an
+   anonymous grid item -- so the measure's name landed in the tick column and
+   rendered one character per line, a hundred lines tall. A list of labels and
+   a button is a row, not a checklist. */
+.target-list {
+  list-style: none;
+  margin: .5rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: .3rem;
+}
+.target-list li {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+}
+/* min-width lets a long measure name wrap instead of forcing the row wider
+   than the panel: a flex item's floor is its content otherwise. */
+.target-list .target-name { flex: 1 1 auto; min-width: 0; }
+
 /* Headline findings. The figure leads, because that is what a reader is here
    for; the provenance badge sits under it rather than beside the heading, so
    "modelled" is read as part of the number and not as decoration. */
@@ -2735,7 +2759,7 @@ html>body{padding:0}
         <button type="button" class="btn" id="target-add">Add measure</button>
         <button type="button" class="btn" id="target-clear" hidden>Use the map instead</button>
       </div>
-      <ul class="readiness" id="target-list" style="flex:1 1 100%; margin:0;"></ul>
+      <ul class="target-list" id="target-list" style="flex:1 1 100%;"></ul>
       <p class="text-small" id="points-export-basis" style="margin:0; flex:1 1 100%;"></p>
     </div>
     <div class="viz-controls" id="points-controls" hidden>
@@ -14789,12 +14813,17 @@ function refreshTargetPicker() {
     list.innerHTML = '';
     (state.targets || []).forEach((m, i) => {
       const li = document.createElement('li');
-      li.textContent = `${i + 1}. ${m.label} · ${m.on}`;
+      /* In its own element rather than as a bare text node on the li: a text
+         node in a flex or grid row is an anonymous item with no class to size,
+         and whatever the row's first track happens to be is where it lands. */
+      const name = document.createElement('span');
+      name.className = 'target-name';
+      name.textContent = `${i + 1}. ${m.label} · ${m.on}`;
+      li.appendChild(name);
       const drop = document.createElement('button');
       drop.type = 'button';
       drop.className = 'btn btn-small';
       drop.textContent = 'Remove';
-      drop.style.marginLeft = '0.5rem';
       drop.addEventListener('click', () => {
         state.targets = state.targets.filter((x) => x.id !== m.id);
         refreshTargetPicker();
