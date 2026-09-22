@@ -125,6 +125,27 @@ console.log('\n== Each half carries its route, and the weaker one wins ==');
                      rollViaAddresses: true, target: 'prov' });
   eq('but federal ballots on a provincial area make the whole thing interpolated',
      onProv[0].g.route, 'interpolated');
+
+  /* The ballots side can be modelled on its own native geography, and routeOf
+     cannot see it: apportioning advance and special ballots spreads a majority
+     of the 2025 federal total over divisions that never reported them, and
+     that is a control on the Turnout tab rather than a property of the source.
+     Without the override the tab printed "Both figures are counts" and a green
+     Counted badge over a figure that was 55% model. */
+  const apportioned = makeRows();
+  Roll.gap(apportioned, { roll: 'muni', ballots: 'fed', rollOf, ballotsOf: ballotsOf('fed'),
+                          rollViaAddresses: true, target: 'fed', ballotRoute: 'interpolated' });
+  eq('a caller may say the ballots were modelled on their own geography',
+     apportioned[0].g.ballots.route, 'interpolated');
+  eq('and the subtraction takes the weaker half, as it does for any other route',
+     apportioned[0].g.route, 'interpolated');
+  eq('without the override touching the roll side',
+     apportioned[0].g.roll.route, 'counted');
+  const noOverride = makeRows();
+  Roll.gap(noOverride, { roll: 'muni', ballots: 'fed', rollOf, ballotsOf: ballotsOf('fed'),
+                         rollViaAddresses: true, target: 'fed', ballotRoute: null });
+  eq('and a null override leaving routeOf to answer as before',
+     noOverride[0].g.route, 'counted');
 }
 
 console.log('\n== Cross-election is stated, not left to be noticed ==');

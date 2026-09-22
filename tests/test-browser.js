@@ -21,6 +21,22 @@ async function stubTiles(page) {
     route.fulfill({ status: 200, contentType: 'image/png', body: ONE_PX_PNG });
   });
 }
+/* A quote-aware split, because more than one export now carries a comma
+   inside a cell -- "Conservative share, 2025 federal ballots" is one field and
+   splitting on every comma reports the file as ragged and blames the export
+   for quoting correctly. Shared, since two suites below read CSVs. */
+const splitCsv = (line) => {
+  const out = []; let cur = '', q = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (q && c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+    else if (c === '"') q = !q;
+    else if (c === ',' && !q) { out.push(cur); cur = ''; }
+    else cur += c;
+  }
+  out.push(cur);
+  return out;
+};
 let fails = 0;
 const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { console.log(`  FAIL  ${n} ${e}`); fails++; } };
 
@@ -1014,22 +1030,113 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
      !(await page.locator('#points-export-row').evaluate((n) => n.hidden)));
   const addrDl = page.waitForEvent('download', { timeout: 15000 });
   await page.locator('#export-addresses').click();
-  const addrCsv = require('fs').readFileSync(await (await addrDl).path(), 'utf8')
+  const addrFile = await addrDl;
+  const addrCsv = require('fs').readFileSync(await addrFile.path(), 'utf8')
     .split(/\r?\n/).filter(Boolean);
-  const addrHead = addrCsv[0].replace(/^\ufeff/, '').split(',');
-  ok(`the address list leads with the address and the count (${addrHead.slice(0, 2).join(',')})`,
-     addrHead[0] === 'address' && Boolean(addrHead[1]), addrHead.join(','));
+  const addrHead = splitCsv(addrCsv[0].replace(/^\ufeff/, ''));
+  const addrBody = addrCsv.slice(1).map(splitCsv);
+  /* Ranked, so the name says so. A campaign hands this to a mail house and a
+     file called addresses.csv in a downloads folder is not self-describing. */
+  ok(`a ranked list is named as one (${addrFile.suggestedFilename()})`,
+     addrFile.suggestedFilename() === 'mailer-targets.csv', addrFile.suggestedFilename());
+  ok(`the address list leads with the rank, the address and the count (${addrHead.slice(0, 3).join(',')})`,
+     addrHead[0] === 'rank' && addrHead[1] === 'address' && Boolean(addrHead[2]),
+     addrHead.join(','));
   ok('and carries no name or identifier column',
      !/name|elector|first|last|surname/i.test(addrHead.join(',')), addrHead.join(','));
   ok('and names the areas each address falls in',
      addrHead.includes('federal_poll'), addrHead.join(','));
   ok('and says what it was selected on, with a percentile behind the word "high"',
-     addrHead.includes('selected_on') && addrHead.includes('selected_value')
-     && addrHead.includes('selected_percentile'), addrHead.join(','));
+     addrHead.includes('federal_measure') && addrHead.includes('federal_value')
+     && addrHead.includes('federal_percentile'), addrHead.join(','));
   /* One row per address, not one per elector: the file that went in had more
      rows than this one has. */
   ok(`one row per address rather than per row read (${addrCsv.length - 1})`,
      addrCsv.length - 1 > 0 && addrCsv.length - 1 <= 6, String(addrCsv.length - 1));
+  /* The ranking itself. byAddress hands these over biggest-building-first,
+     which is the wrong order for a target list and was the order that shipped:
+     a tower in a safe area above a street in the best one. Rank 1 downwards
+     must be the measure, never the building. */
+  const addrCol = (h) => addrHead.indexOf(h);
+  const ranked = addrBody.filter((r) => r[0] !== '');
+  ok(`every address the measure could value is ranked (${ranked.length}/${addrBody.length})`,
+     ranked.length > 1, `${ranked.length}/${addrBody.length}`);
+  ok('the ranks run 1..n with no gaps and no repeats',
+     ranked.every((r, i) => Number(r[0]) === i + 1),
+     ranked.map((r) => r[0]).join(','));
+  const numOf = (r) => parseFloat(String(r[addrCol('federal_value')]).replace('%', ''));
+  ok('and they run down the measure, not down the building size',
+     ranked.every((r, i) => i === 0 || numOf(ranked[i - 1]) >= numOf(r)),
+     ranked.map(numOf).join(','));
+  /* The column a print run is planned against: "mail the top 20,000" is a
+     budget, not a row count, and one address can be three hundred pieces. */
+  const cum = addrCol(addrHead.find((h) => h.startsWith('cumulative_')) || 'cumulative_');
+  ok('a running total carries down the ranked list', cum > 0, addrHead.join(','));
+  ok('and it only ever climbs, by exactly the count on each row',
+     ranked.every((r, i) => Number(r[cum])
+       === Number(i === 0 ? 0 : ranked[i - 1][cum]) + Number(r[addrCol(addrHead[2])])),
+     ranked.map((r) => r[cum]).join(','));
+
+  /* Two measures at once, which is what a target list actually is.
+
+     The lists a campaign asks for are conjunctions -- provincial Conservative
+     share AND turnout for the supporters it already holds, provincial
+     Conservative AND federal Liberal for the crossover it can persuade. A
+     single-measure export forces the second measure to be eyeballed, and an
+     eyeballed measure is one nobody can reconstruct when the client asks why a
+     door is on the list. Each measure keeps its own columns; the rank runs
+     down the average standing across them. */
+  await page.locator('#tab-map').click();
+  await page.waitForTimeout(300);
+  await openDrawers(page);
+  await page.locator('#shade-prov-by').selectOption('prov-party');
+  await page.waitForTimeout(600);
+  await page.locator('#tab-data').click();
+  await page.waitForTimeout(400);
+  const basisLine = await page.locator('#points-export-basis').innerText();
+  ok('the export says which measures it is about to rank on',
+     /2 measures/.test(basisLine) && /average standing/.test(basisLine), basisLine.slice(0, 160));
+  const twoDl = page.waitForEvent('download', { timeout: 15000 });
+  await page.locator('#export-addresses').click();
+  const twoCsv = require('fs').readFileSync(await (await twoDl).path(), 'utf8')
+    .split(/\r?\n/).filter(Boolean);
+  const twoHead = splitCsv(twoCsv[0].replace(/^﻿/, ''));
+  const twoBody = twoCsv.slice(1).map(splitCsv);
+  ok('both measures keep their own value and percentile columns',
+     ['federal_measure', 'federal_value', 'federal_percentile',
+      'provincial_measure', 'provincial_value', 'provincial_percentile']
+       .every((h) => twoHead.includes(h)), twoHead.join(','));
+  ok('and the composite the rank rests on is a column of its own',
+     twoHead.includes('target_score'), twoHead.join(','));
+  const scoreCol = twoHead.indexOf('target_score');
+  const twoRanked = twoBody.filter((r) => r[0] !== '');
+  ok(`addresses that scored on both measures are ranked (${twoRanked.length}/${twoBody.length})`,
+     twoRanked.length > 0, `${twoRanked.length}/${twoBody.length}`);
+  ok('the rank runs down the composite, not down either measure alone',
+     twoRanked.every((r, i) => i === 0
+       || Number(twoRanked[i - 1][scoreCol]) >= Number(r[scoreCol])),
+     twoRanked.map((r) => r[scoreCol]).join(','));
+  /* Score on all of them or on none. Averaging over whichever measures happened
+     to resolve lets an address reach the top because it is missing data. */
+  ok('and an address missing either measure is left unranked rather than averaged',
+     twoBody.every((r) => (r[0] === '')
+       === (!r[twoHead.indexOf('federal_value')] || !r[twoHead.indexOf('provincial_value')])),
+     twoBody.map((r) => `${r[0] || '-'}/${r[twoHead.indexOf('provincial_value')] || '-'}`).join(' '));
+  /* Three lists in a sitting, all called mailer-targets.csv, is how the wrong
+     one reaches the printer. The reader names the list and the name sticks to
+     the file -- slugged, because this string reaches a filesystem. */
+  await page.locator('#points-export-name').fill('Federal Liberal Crossover');
+  const namedDl = page.waitForEvent('download', { timeout: 15000 });
+  await page.locator('#export-addresses').click();
+  const namedFile = await namedDl;
+  ok(`a named list is downloaded under its own name (${namedFile.suggestedFilename()})`,
+     namedFile.suggestedFilename() === 'federal-liberal-crossover.csv',
+     namedFile.suggestedFilename());
+  await page.locator('#points-export-name').fill('');
+  await page.locator('#tab-map').click();
+  await page.waitForTimeout(200);
+  await page.locator('#shade-prov-by').selectOption('none');
+  await page.waitForTimeout(400);
 
   console.log('\n== Non-voters ==');
   /* Two pairings, and the whole point of the tab is that they read differently.
@@ -1101,6 +1208,61 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
      /cannot tell you which elector did not vote/.test(nvSame), nvSame.slice(-200));
   ok('the badge says counted', /Counted/.test(await page.locator('#nv-badge').innerText()),
      await page.locator('#nv-badge').innerText());
+  /* Counted, and incomplete, and the tab has to say the second part.
+
+     With apportionment off these ballots are a real count of election-day
+     voting -- and everybody who voted early lands in "did not vote", which on
+     the live 2025 file reads 68.9% against a true 31.1%. A qualifier sitting
+     next to a control on the Turnout tab does not travel with the figure
+     somebody quotes off this one. */
+  ok('and the prose says the ballots are election-day only, with the missing count',
+     /election-day ballots only/i.test(nvSame) && /advance or\s+by special ballot/i.test(nvSame),
+     nvSame.slice(0, 600));
+
+  /* Now turn apportionment on, which is the setting a target list wants, and
+     watch the same subtraction stop being a count. Advance ballots are spread
+     over the divisions that fed each advance poll and special ballots over
+     whole districts: the total is right, where it sits is modelled. The tab
+     used to print "Both figures are counts" and a green Counted badge over it. */
+  await page.locator('#tab-turnout').click();
+  await page.waitForTimeout(300);
+  await page.locator('#apportion-fed').selectOption('electors');
+  await page.waitForTimeout(700);
+  await page.locator('#tab-nonvoters').click();
+  await page.waitForTimeout(700);
+  const nvApp = await page.locator('#panel-nonvoters').innerText();
+  const nvAppBadge = await page.locator('#nv-badge').innerText();
+  ok(`apportioned ballots are not badged as counted (${nvAppBadge.trim().slice(0, 40)})`,
+     !/Counted/.test(nvAppBadge), nvAppBadge);
+  ok('and the prose stops calling both figures counts',
+     !/Both figures are counts/.test(nvApp), nvApp.slice(0, 600));
+  ok('and says how much of the ballots half was moved there by the model',
+     /were not reported in the .* they are counted in/i.test(nvApp), nvApp.slice(0, 800));
+  ok('and no longer says the ballots were election-day only',
+     !/election-day ballots only/i.test(nvApp), nvApp.slice(0, 600));
+  /* The diagnostic that used to point at the wrong half. Blaming the roll is
+     right on counted ballots -- a division cannot report more ballots than it
+     holds electors unless the roll is wrong. On apportioned ballots the model
+     can hand a division more than it can hold all by itself, and sending
+     somebody to audit the roll over that wastes the audit. */
+  const negLine = nvApp.split('\n').find((l) => /more ballots than\s*roll electors/i.test(l))
+    || nvApp.split('\n').find((l) => /more ballots than/i.test(l)) || '';
+  if (negLine) {
+    ok('a negative gap on modelled ballots does not pin the blame on the roll',
+       /Either half could be responsible/.test(negLine), negLine.slice(0, 300));
+  } else {
+    ok('a negative gap on modelled ballots does not pin the blame on the roll',
+       !/fact about the roll rather than about the ballots/.test(nvApp), nvApp.slice(0, 400));
+  }
+  await page.locator('#tab-turnout').click();
+  await page.waitForTimeout(300);
+  await page.locator('#apportion-fed').selectOption('none');
+  await page.waitForTimeout(700);
+  await page.locator('#tab-nonvoters').click();
+  await page.waitForTimeout(700);
+  ok('and turning it back off restores the counted badge',
+     /Counted/.test(await page.locator('#nv-badge').innerText()),
+     await page.locator('#nv-badge').innerText());
 
   /* No verb of cause anywhere on the tab. An area-level difference licenses a
      ranking and licenses nothing about why anybody stayed home. */
@@ -1158,18 +1320,6 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
      basis a mail rank rests on reads "Conservative share, 2025 federal
      ballots". Splitting on every comma would report the file as ragged and
      blame the export for quoting correctly. */
-  const splitCsv = (line) => {
-    const out = []; let cur = '', q = false;
-    for (let i = 0; i < line.length; i++) {
-      const c = line[i];
-      if (q && c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
-      else if (c === '"') q = !q;
-      else if (c === ',' && !q) { out.push(cur); cur = ''; }
-      else cur += c;
-    }
-    out.push(cur);
-    return out;
-  };
   const nvHead = splitCsv(nvCsv[0].replace(/^\ufeff/, ''));
   ok('the export names each half, its vintage and its route in their own columns',
      ['roll_source', 'roll_vintage', 'roll_route', 'ballots_source', 'ballots_vintage',

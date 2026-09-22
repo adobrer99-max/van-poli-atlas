@@ -607,6 +607,27 @@ tab; what is kept afterwards is a count per address and a count per area, never
 a record per person. `tools/make-payload.js` has deliberately no flag for a roll
 or for canvass data, and a test asserts that it never gains one.
 
+## Target lists
+
+The artefact the roll exists to produce: one row per address, ranked, with the
+reason it is on the list in its own columns. Each of the three map layers
+contributes whatever it is currently colouring by, every contribution keeps its
+own value and percentile, and the rank runs down the average standing across
+them — so "high Conservative share *and* high turnout" is one file rather than
+two and a judgement call.
+
+An address is ranked only where every selected measure has a value for it:
+averaging over whichever measures happened to resolve lets a door reach the top
+of a target list for the reason that it is missing data.
+
+The output carries the door and the quantity, never a name or an elector
+identifier. It is still roll-derived — it says which buildings hold electors and
+how many — so it belongs on the same device, under the same handling, as the
+roll it came from.
+
+[`docs/target-lists.md`](docs/target-lists.md) has the control settings for each
+list, a glossary of the columns, and what the ranking does and does not claim.
+
 ## Why there is a crosswalk
 
 Federal polling divisions and provincial voting areas are drawn by different
