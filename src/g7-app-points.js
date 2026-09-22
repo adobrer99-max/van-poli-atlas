@@ -562,7 +562,8 @@ function exportAddresses() {
        measure, party, and the areas it was ranked against -- so a heading still
        says what it is to somebody who was not in the room when it was chosen. */
     bases.forEach((b, i) => {
-      head.push(`measure_${i + 1}_name`, `measure_${i + 1}_value`, `measure_${i + 1}_percentile`);
+      head.push(`measure_${i + 1}_name`, `measure_${i + 1}_value`, `measure_${i + 1}_percentile`,
+                `measure_${i + 1}_weight`);
     });
     /* The composite the rank is taken on, whenever there is more than one
        measure to compose. With a single measure the rank runs down that
@@ -626,18 +627,32 @@ function exportAddresses() {
       if (v != null && !isFinite(v)) v = null;
       if (v == null) whole = false;
       parts.push(v);
-      cells.push(b.label, b.format(v), b.percentile(v));
+      /* The weight rides in the file beside the value it scaled. Two exports
+         differing only in how the measures were weighted are otherwise
+         identical in every column and rank differently, which is the kind of
+         pair nobody can tell apart a week later. */
+      cells.push(b.label, b.format(v), b.percentile(v), b.weight == null ? 1 : b.weight);
     }
     /* The mean of the percentiles, which is what "rank on X and Y together"
        means once somebody has to write it down. Percentiles rather than the
        values themselves because a vote share and a median income do not add:
        one runs 0 to 1 and the other to six figures, and summing them ranks
        every address by income alone. */
+    /* Weighted, so a reader who says the party share is worth three of the
+       census indicator gets that and not a quarter each. An unweighted mean is
+       the same arithmetic with every weight at 1, which is the default, so a
+       list nobody has weighted scores exactly as it always did. Dividing by the
+       weights actually summed rather than by their count keeps the result a
+       0..100 standing whatever integers were chosen. */
     let score = null;
     if (whole) {
-      let sum = 0;
-      bases.forEach((b, i) => { sum += b.fraction(parts[i]); });
-      score = (sum / bases.length) * 100;
+      let sum = 0, den = 0;
+      bases.forEach((b, i) => {
+        const w = b.weight == null ? 1 : b.weight;
+        sum += w * b.fraction(parts[i]);
+        den += w;
+      });
+      score = den > 0 ? (sum / den) * 100 : null;
     }
     if (bases.length > 1) cells.push(whole ? Math.round(score * 10) / 10 : '');
     /* Two different quantities, kept apart because they answer different
@@ -894,6 +909,17 @@ function measureCatalogue() {
    standing rather than negating the value keeps the arithmetic in the same
    0..1 space the mean is taken over, and leaves the value and percentile
    columns reading as themselves. */
+/* A measure's weight in the composite, defaulting to an equal share.
+
+   Clamped to 1..5 and rounded, because this reaches the scoring and a list
+   restored from a stale shape -- or a measure added before weights existed --
+   must not be able to put NaN or a zero denominator into a mean. Absent means
+   1, so every list built before this carries on scoring exactly as it did. */
+function weightOf(m) {
+  const n = Math.round(Number(m && m.weight));
+  return isFinite(n) && n >= 1 ? Math.min(n, 5) : 1;
+}
+
 function directed(m, all) {
   const raw = (v) => {
     if (v == null || !isFinite(v) || !all.length) return 0;
@@ -982,6 +1008,7 @@ function basisFor(m) {
     const fraction = directed(m, all);
     return {
       id: m.id, scope: 'address', layer: null, resolves: all.length,
+      weight: weightOf(m),
       label: `${m.label} · ${m.on}${m.invert ? ' · fewer first' : ''}`,
       valueOf, fraction,
       format: (v) => (v == null || !isFinite(v) ? '' : String(Math.round(v * 1000) / 1000)),
@@ -1031,6 +1058,7 @@ function basisFor(m) {
     id: m.id,
     layer: m.layer,
     resolves: all.length,
+    weight: weightOf(m),
     label,
     valueOf,
     fraction,
@@ -1136,9 +1164,16 @@ function renderExportBasis() {
     : '';
   node.className = (doubled.length || empty.length)
     ? 'text-small text-warning' : 'text-small text-muted';
+  /* A weighted list and an even one read identically in the rows, so the line
+     that says what the download is ranked on has to say which it is. */
+  const weighted = bases.some((b) => (b.weight == null ? 1 : b.weight) !== 1);
+  const den = bases.reduce((a, b) => a + (b.weight == null ? 1 : b.weight), 0);
+  const shares = weighted
+    ? ` Weighted: ${bases.map((b) => `${b.label} ${Math.round(((b.weight == null ? 1 : b.weight) / den) * 100)}%`).join('; ')}.`
+    : '';
   node.textContent = (bases.length === 1
     ? `Ranked on ${bases[0].label}.`
-    : `Ranked on the average standing across ${bases.length} measures: `
+    : `Ranked on the ${weighted ? 'weighted' : 'average'} standing across ${bases.length} measures: `
       + `${bases.map((b) => b.label).join('; ')}. An address is ranked only where all `
       + `${bases.length} have a value for it.`) + source
     + (doubled.length
@@ -1146,7 +1181,7 @@ function renderExportBasis() {
         + `list twice on different geographies (${doubled.join('; ')}), so ${doubled.length === 1
           ? 'it counts' : 'they count'} double against everything else. Remove the crosswalked `
         + 'copy unless you meant to weight it that way.'
-      : '') + dead;
+      : '') + shares + dead;
 }
 
 /* The measures on offer, minus the ones already chosen. Re-read every time it
@@ -1179,6 +1214,18 @@ function refreshTargetPicker() {
   const list = $('target-list');
   if (list) {
     list.innerHTML = '';
+    /* What each measure is actually worth, which is the question a reader asks
+       the moment the list holds more than two.
+
+       The composite is a mean, so four measures is 25% each whether or not
+       anybody decided that: a party share, a door size, a census indicator and
+       a turnout figure all weighing the same because that is what a mean does.
+       That is a real choice being made by the arithmetic rather than by the
+       campaign, and the only way to see it was to count the rows. A weight is
+       a small integer, and the share it buys is shown beside it, because the
+       share is the thing being chosen and the integer is only how it is
+       spelled. */
+    const total = (state.targets || []).reduce((a, x) => a + weightOf(x), 0);
     (state.targets || []).forEach((m, i) => {
       const li = document.createElement('li');
       /* In its own element rather than as a bare text node on the li: a text
@@ -1188,6 +1235,31 @@ function refreshTargetPicker() {
       name.className = 'target-name';
       name.textContent = `${i + 1}. ${m.label} · ${m.on}`;
       li.appendChild(name);
+      /* Only once there is something to divide. One measure is the whole
+         ranking and "100%" beside it is noise pretending to be information. */
+      if ((state.targets || []).length > 1) {
+        const share = document.createElement('span');
+        share.className = 'target-share';
+        share.textContent = `${Math.round((weightOf(m) / total) * 100)}%`;
+        share.title = 'Share of the composite score this measure carries';
+        li.appendChild(share);
+        const w = document.createElement('select');
+        w.className = 'form-select target-weight';
+        w.title = 'How much weight this measure carries against the others';
+        for (const n of [1, 2, 3, 4, 5]) {
+          const opt = new Option(`×${n}`, String(n));
+          if (n === weightOf(m)) opt.selected = true;
+          w.appendChild(opt);
+        }
+        w.addEventListener('change', () => {
+          const n = parseInt(w.value, 10);
+          state.targets = state.targets.map(
+            (x) => (x.id === m.id ? { ...x, weight: n } : x));
+          refreshTargetPicker();
+          renderExportBasis();
+        });
+        li.appendChild(w);
+      }
       /* Which end of the measure is the good end. More is better for a party
          share and worse for anything a campaign runs against -- renter share,
          or the size of a building when its support skews to owners.
@@ -1230,6 +1302,8 @@ function refreshTargetPicker() {
     });
   }
   if ($('target-clear')) $('target-clear').hidden = !(state.targets || []).length;
+  /* The heading belongs to the list, so it appears and goes with it. */
+  if ($('target-list-title')) $('target-list-title').hidden = !(state.targets || []).length;
 }
 
 function updatePointControls() {

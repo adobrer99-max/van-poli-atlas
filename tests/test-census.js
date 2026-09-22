@@ -127,6 +127,24 @@ eq('geography column found', wide.geoColumn, 'DAUID');
 eq('numeric columns become variables; text columns do not', wide.variables.map((v) => v.key), ['pct_renter', 'median_hh_income']);
 eq('values keyed by the trailing code, commas stripped', [wide.variables[1].values.get('59150101'), wide.variables[0].values.has('59150103')], [90000, false]);
 eq('DGUID and DAUID spell the same key', [Census.geoKey('2021S051259150101'), Census.geoKey('59150101'), Census.geoKey(' 2021S051359150101001 ')], ['59150101', '59150101', '59150101001']);
+/* A starter file is one the atlas computed itself, so the name is known and the
+   header is a programmer's identifier. Naming the variable after its header put
+   "pct_renter" in the census picker, the map legend, the Compare table, the
+   target list and the column headings of the CSV a client opens -- while a
+   build reading the raw profile showed "Renter households" for the same number.
+   Same atlas, same variable, two names, and the identifier went to the client. */
+eq('a column that IS a starter key takes the curated name',
+   wide.variables.map((v) => v.label), ['Renter households', 'Median household income']);
+eq('and the short and precise forms come with it, for the table and its tooltip',
+   [wide.variables[0].short, wide.variables[0].precise], ['Renters', 'Renter households (%)']);
+eq('while the key itself is untouched, because everything joins on it',
+   wide.variables.map((v) => v.key), ['pct_renter', 'median_hh_income']);
+/* Renaming on a guess would be worse than the identifier: somebody's own table
+   is theirs to name, and a header this does not recognise is left alone. */
+const ownTable = Census.readWide({ header: ['DAUID', 'doors_knocked', 'pct_renter'],
+  rows: [['59150101', '12', '40'], ['59150102', '30', '80']] });
+eq('a column nobody curated keeps the header it arrived with',
+   ownTable.variables.map((v) => v.label), ['doors_knocked', 'Renter households']);
 
 console.log('\n== Geographic Attribute File ==');
 const gaf = Census.readGeoAttributes({ header: ['DBUID', 'DBPOP2021', 'DBTDWELL2021', 'DBURDWELL2021', 'DAUID', 'CSDUID', 'CSDNAME'],
