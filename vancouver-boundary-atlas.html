@@ -15243,7 +15243,10 @@ function refreshNonvoters() {
   nv.pairing = { label: pairing.label, route: pairing.route,
                  rollRoute: pairing.roll.route, ballotRoute: pairing.ballots.route,
                  rollLabel: pairing.roll.label, ballotLabel: pairing.ballots.label,
-                 coherent: pairing.coherent };
+                 coherent: pairing.coherent,
+                 /* Counted by point-in-polygon, or counted by the agency. Both
+                    are counts and they are not the same claim. */
+                 viaAddresses: Boolean(roll.viaAddresses) };
   rows.forEach((r) => { r.basketKey = nvBasketKey(nv.unit, r); });
   nv.rows = sortNonvoterRows(rows);
   nv.on = { [nv.unit]: new Map(rows.map((r) => [nvFeatureId(nv.unit, r), {
@@ -15321,20 +15324,41 @@ function nonvoterProse(rows, s, ctx) {
   /* 1. The finding. Phrased differently where the two halves are the same
         election, since only then is "did not vote" a statement about the same
         people rather than a difference between two electorates. */
-  out.push(el('p', null, p.coherent
-    ? `${fmtInt(s.notVoted)} electors did not cast a ballot, across ${fmtInt(s.areas)} `
-      + `${unitName} — ${fmtPct(s.share)} of the ${p.rollLabel}.`
-    : `${fmtInt(s.areas)} ${unitName} hold ${fmtInt(s.notVoted)} more on the ${p.rollLabel} than `
-      + `there were ${p.ballotLabel} cast in them — ${fmtPct(s.share)} of the roll.`));
+  /* A negative total is a different sentence, not the same one with a minus
+     sign in it. "hold -964 more than there were" does not parse, and the share
+     that goes with it read -32,133% -- arithmetically correct over a roll
+     smaller than the ballots, and useless as a rate. Where the roll comes out
+     under the ballots in aggregate, say so in words and give the two totals,
+     which is the thing a reader can actually act on. */
+  const short = s.notVoted < 0;
+  out.push(el('p', null, short
+    ? `${fmtInt(s.areas)} ${unitName} hold ${fmtInt(-s.notVoted)} FEWER on the ${p.rollLabel} `
+      + `than there were ${p.ballotLabel} cast in them — ${fmtInt(s.rollTotal)} against `
+      + `${fmtInt(s.ballotTotal)}. The roll does not describe the people who voted here.`
+    : p.coherent
+      ? `${fmtInt(s.notVoted)} electors did not cast a ballot, across ${fmtInt(s.areas)} `
+        + `${unitName} — ${fmtPct(s.share)} of the ${p.rollLabel}.`
+      : `${fmtInt(s.areas)} ${unitName} hold ${fmtInt(s.notVoted)} more on the ${p.rollLabel} than `
+        + `there were ${p.ballotLabel} cast in them — ${fmtPct(s.share)} of the roll.`));
 
-  /* 2. How each half reached this geography. */
+  /* 2. How each half reached this geography.
+
+        Counted on both sides still comes two ways, and the first version told
+        the same story about both: "the roll was placed on these areas one
+        address at a time" was printed over federal electors taken straight
+        from the results file, which were reported on those divisions and never
+        placed by anybody. A false sentence about provenance, in the tab whose
+        whole purpose is to get provenance right, and no test caught it because
+        every test read the phrase "Both figures are counts". */
   const both = p.rollRoute === 'counted' && p.ballotRoute === 'counted';
-  out.push(el('p', 'text-small text-muted', both
-    ? 'Both figures are counts. The roll was placed on these areas one address at a time; the '
-      + 'ballots were reported on them.'
-    : `${capitalise(routePhrase(p.rollRoute, 'the roll'))}, and `
+  out.push(el('p', 'text-small text-muted', !both
+    ? `${capitalise(routePhrase(p.rollRoute, 'the roll'))}, and `
       + `${routePhrase(p.ballotRoute, 'the ballots')}. `
-      + 'A subtraction is only as firm as its softer half, so this one is not a count.'));
+      + 'A subtraction is only as firm as its softer half, so this one is not a count.'
+    : p.viaAddresses
+      ? 'Both figures are counts. The roll was placed on these areas one address at a time; the '
+        + 'ballots were reported on them.'
+      : 'Both figures are counts, reported on these areas by the agency that ran the election.'));
   const rep = ctx.roll.id === 'muni' ? (state.points && state.points.report) : null;
   if (rep && rep.snapped) {
     const located = rep.matched + rep.snapped;
