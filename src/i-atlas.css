@@ -336,6 +336,9 @@
 /* min-width lets a long measure name wrap instead of forcing the row wider
    than the panel: a flex item's floor is its content otherwise. */
 .target-list .target-name { flex: 1 1 auto; min-width: 0; }
+/* Sized to its own content rather than stretching with the row, so the
+   direction reads as a property of the measure beside it. */
+.target-list .target-direction { flex: 0 0 auto; width: auto; }
 
 /* Headline findings. The figure leads, because that is what a reader is here
    for; the provenance badge sits under it rather than beside the heading, so
