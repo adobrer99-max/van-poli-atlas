@@ -1036,12 +1036,19 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
   await page.waitForTimeout(300);
 
   console.log('\n== Addresses with no coordinates, joined to a reference ==');
+  /* 3449 and 3451 Anzio share a coordinate on purpose, so they land in the
+     same polling division and carry identical values on every AREA measure.
+     That is the case the tie-break decides, and it is most of a real file:
+     97,018 ranked doors came out with 254 distinct scores, the median shared
+     by 237 addresses. Without two tied doors in the fixture the comparator is
+     never exercised and its assertion passes on an empty set. */
   const REF = 'CIVIC_NUMBER;STD_STREET;geo_point_2d\n'
-    + '3449;ANZIO DRIVE;49.27410, -123.13294\n1234;W 16TH AV;49.27607, -123.12946\n'
+    + '3449;ANZIO DRIVE;49.27410, -123.13294\n3451;ANZIO DRIVE;49.27410, -123.13294\n'
+    + '1234;W 16TH AV;49.27607, -123.12946\n'
     + '500;ST. CATHERINES ST;49.27342, -123.11793\n';
   const ROLL = 'House Number,Street Name,electors\n'
-    + '101-3449,Anzio Dr,2\n1234,West 16th Avenue,3\n500,Saint Catherines Street,1\n'
-    + '9999,Nowhere Road,4\n';
+    + '101-3449,Anzio Dr,2\n3451,Anzio Dr,5\n1234,West 16th Avenue,3\n'
+    + '500,Saint Catherines Street,1\n9999,Nowhere Road,4\n';
   await page.locator('#tab-data').click();
   await page.waitForTimeout(300);
   await page.locator('#file-points').setInputFiles(
@@ -1055,9 +1062,9 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
   await page.waitForTimeout(1500);
   const rollJoined = (await page.locator('#status-points').innerText()).replace(/\s+/g, ' ');
   ok('loading the reference joins the roll that was already waiting',
-     /3 of 4 rows located/.test(rollJoined), rollJoined.slice(0, 200));
+     /4 of 5 rows located/.test(rollJoined), rollJoined.slice(0, 200));
   ok('and the miss rate and the key that missed are both named',
-     /75(\.0)?% of rows matched/.test(rollJoined) && /9999 NOWHERE RD/.test(rollJoined), rollJoined.slice(0, 320));
+     /80(\.0)?% of rows matched/.test(rollJoined) && /9999 NOWHERE RD/.test(rollJoined), rollJoined.slice(0, 320));
   /* The roll is only useful if it leaves the tab. Both exports carry its counts
      per area, keyed the same way the map and the readout key them, so the
      number in a spreadsheet is the number on the screen. The column names are
@@ -1259,6 +1266,23 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
     await page.waitForTimeout(250);
     return id;
   };
+  /* The one measure that is a fact about the door rather than about the area.
+
+     Every other measure is reported for an area, so every door in a polling
+     division carries the same value and nothing computed from them can order
+     two doors against each other -- on a real export, 237 addresses share the
+     median score and the largest block is 2,666. How many electors are at an
+     address is the only door-level fact the roll holds, and it was being spent
+     as an invisible tie-break rather than offered as a measure. */
+  const addressIds = (await page.$$eval('#target-measure option', (os) => os.map((o) => o.value)))
+    .filter((v) => v && v.startsWith('address|'));
+  ok(`the picker offers a measure of the door itself (${addressIds.join(' ')})`,
+     addressIds.length > 0, addressIds.join(' ') || 'none');
+  ok('and files it under the address rather than a geography',
+     (await page.$$eval('#target-measure optgroup', (gs) => gs.map((g) => g.label)))
+       .some((l) => /each address/i.test(l)),
+     (await page.$$eval('#target-measure optgroup', (gs) => gs.map((g) => g.label))).join(' | '));
+
   const firstAdded = await addMeasure(/\|fed-party\|/);
   const secondAdded = await addMeasure(/\|turnout-fed\|/);
   ok('two measures from the same layer can both be on the list',
@@ -1312,6 +1336,114 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
      /—/.test(m1[pickHead.indexOf('measure_1_name')])
      && /·/.test(m1[pickHead.indexOf('measure_1_name')]),
      m1[pickHead.indexOf('measure_1_name')]);
+
+  /* The tie-break, which decides most of the within-area ordering.
+
+     Every measure is reported for an area, so doors in a division score
+     identically and this comparator orders hundreds of them at a time. It was
+     building size descending, always and invisibly. The assertion reports how
+     many ties it actually checked, so a vacuous pass on a small fixture is
+     visible in the output rather than quietly counting as coverage. */
+  ok('the tie-break defaults to what it always did, rather than changing silently',
+     await page.locator('#target-tiebreak').inputValue() === 'largest',
+     await page.locator('#target-tiebreak').inputValue());
+  const orderUnder = async (mode) => {
+    await page.locator('#target-tiebreak').selectOption(mode);
+    await page.waitForTimeout(200);
+    const dl = page.waitForEvent('download', { timeout: 15000 });
+    await page.locator('#export-addresses').click();
+    const csv = require('fs').readFileSync(await (await dl).path(), 'utf8')
+      .split(/\r?\n/).filter(Boolean);
+    const head = splitCsv(csv[0].replace(/^﻿/, ''));
+    const body = csv.slice(1).map(splitCsv).filter((r) => r[0] !== '');
+    const sc = head.indexOf('target_score');
+    /* The weight column, not the row count. This fixture is one row per
+       ADDRESS with an electors weight, so the row count is 1 everywhere and a
+       monotonic check over it passes in either direction -- which is exactly
+       how the previous version of this assertion passed while testing
+       nothing. Read the column whose values differ. */
+    const sizeCol = head.indexOf('weight') >= 0 ? head.indexOf('weight') : 2;
+    return body.map((r) => ({ addr: r[1], size: Number(r[sizeCol]), score: r[sc] }));
+  };
+  const byLargest = await orderUnder('largest');
+  const bySmallest = await orderUnder('smallest');
+  const byAddress = await orderUnder('address');
+  /* Consecutive pairs that scored identically -- the only pairs this control
+     can reorder. The fixture puts 3449 and 3451 Anzio on one coordinate so
+     they land in one division and tie on every area measure; assert the count
+     rather than trusting it, because an assertion over an empty set passes
+     while testing nothing. */
+  const tied = (rows) => rows.map((r, i) => (i > 0 && rows[i - 1].score === r.score
+    ? [rows[i - 1], r] : null)).filter(Boolean);
+  ok(`the fixture actually produces tied doors to order (${tied(byLargest).length} pairs)`,
+     tied(byLargest).length > 0,
+     byLargest.map((r) => `${r.addr}:${r.size}=${r.score}`).join(' | '));
+  /* A tied pair whose two doors are the same size proves nothing about the
+     direction of the sort, because every ordering satisfies it. Require the
+     pair to differ before asking which way round it came out. */
+  const differing = (rows) => tied(rows).filter(([a, b]) => a.size !== b.size);
+  ok(`the tied pair differs in size, so its order can be wrong (${differing(byLargest).length})`,
+     differing(byLargest).length > 0,
+     tied(byLargest).map(([a, b]) => `${a.addr}:${a.size} vs ${b.addr}:${b.size}`).join(' | '));
+  ok('largest first puts the bigger building above the smaller one',
+     differing(byLargest).length > 0 && differing(byLargest).every(([a, b]) => a.size > b.size),
+     differing(byLargest).map(([a, b]) => `${a.addr}:${a.size} then ${b.addr}:${b.size}`).join(' | '));
+  ok('and smallest first reverses exactly that',
+     differing(bySmallest).length > 0 && differing(bySmallest).every(([a, b]) => a.size < b.size),
+     differing(bySmallest).map(([a, b]) => `${a.addr}:${a.size} then ${b.addr}:${b.size}`).join(' | '));
+  ok('while address order expresses no preference about the building',
+     tied(byAddress).every(([a, b]) => a.addr <= b.addr),
+     tied(byAddress).map(([a, b]) => `${a.addr} then ${b.addr}`).join(' | '));
+  await page.locator('#target-tiebreak').selectOption('largest');
+  await page.waitForTimeout(200);
+
+  /* Which end of a measure is the good end.
+
+     The composite assumed more is better, which is wrong for half of what a
+     campaign would target on: one whose support runs against renters wants
+     FEWER electors at the door, and a list built on renter share wants a low
+     one. Ranking those the only direction the code could express put the worst
+     doors first and said nothing about it. */
+  await page.locator('#target-clear').click();
+  await page.waitForTimeout(250);
+  /* The weighted measure, because the row count is 1 at every address in this
+     fixture and ranking on a constant proves nothing in either direction. */
+  await addMeasure(/^address\|weight\|/);
+  const orderNow = async () => {
+    const dl = page.waitForEvent('download', { timeout: 15000 });
+    await page.locator('#export-addresses').click();
+    const csv = require('fs').readFileSync(await (await dl).path(), 'utf8')
+      .split(/\r?\n/).filter(Boolean);
+    const head = splitCsv(csv[0].replace(/^\ufeff/, ''));
+    const col = head.indexOf('weight') >= 0 ? head.indexOf('weight') : 2;
+    const body = csv.slice(1).map(splitCsv).filter((r) => r[0] !== '');
+    return body.map((r) => Number(r[col]));
+  };
+  const moreIsBetter = await orderNow();
+  /* Distinct values first. A monotonic check over a constant sequence is true
+     whichever way the sort runs, and that is how the first version of this
+     passed on a column that was 1 at every address. */
+  ok(`the ranked doors carry distinct values to order (${new Set(moreIsBetter).size} distinct)`,
+     new Set(moreIsBetter).size > 1, moreIsBetter.join(','));
+  ok(`more is better ranks the biggest door first (${moreIsBetter.join(',')})`,
+     new Set(moreIsBetter).size > 1
+     && moreIsBetter.every((v, i) => i === 0 || moreIsBetter[i - 1] >= v),
+     moreIsBetter.join(','));
+  const dirButton = page.locator('#target-list li button', { hasText: 'More is better' }).first();
+  ok('the row says which end it is ranking from', await dirButton.count() === 1);
+  await dirButton.click();
+  await page.waitForTimeout(250);
+  const fewerIsBetter = await orderNow();
+  ok(`and flipping it ranks the smallest door first (${fewerIsBetter.join(',')})`,
+     new Set(fewerIsBetter).size > 1
+     && fewerIsBetter.every((v, i) => i === 0 || fewerIsBetter[i - 1] <= v),
+     fewerIsBetter.join(','));
+  ok('so the two orderings are actually different',
+     moreIsBetter.join(',') !== fewerIsBetter.join(','),
+     `${moreIsBetter.join(',')} vs ${fewerIsBetter.join(',')}`);
+  ok('with the direction named in the measure column, not left to be inferred',
+     /fewer first/i.test(await page.locator('#points-export-basis').innerText()),
+     await page.locator('#points-export-basis').innerText());
 
   /* Back to the map, so the rest of the suite sees the state it expects. */
   await page.locator('#target-clear').click();

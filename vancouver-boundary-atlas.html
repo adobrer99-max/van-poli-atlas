@@ -2759,6 +2759,18 @@ html>body{padding:0}
         <button type="button" class="btn" id="target-add">Add measure</button>
         <button type="button" class="btn" id="target-clear" hidden>Use the map instead</button>
       </div>
+      <!-- Every measure above is reported for an area, so hundreds of doors in
+           a division score identically and this decides the order of most of
+           the file. It was building size, descending, always and invisibly. -->
+      <div class="viz-controls" style="flex:1 1 100%;">
+        <label class="form-label grow" for="target-tiebreak">Doors that score the same, ordered by
+          <select class="form-select" id="target-tiebreak">
+            <option value="largest">Largest building first (fewest stops)</option>
+            <option value="smallest">Smallest building first</option>
+            <option value="address">Address, alphabetically (no preference)</option>
+          </select>
+        </label>
+      </div>
       <ul class="target-list" id="target-list" style="flex:1 1 100%;"></ul>
       <p class="text-small" id="points-export-basis" style="margin:0; flex:1 1 100%;"></p>
     </div>
@@ -14490,8 +14502,13 @@ function exportAddresses() {
     const parts = [];
     let whole = bases.length > 0;
     for (const b of bases) {
-      const f = onLayer[b.layer] || null;
-      let v = f ? b.valueOf(f) : null;
+      /* An address-scoped measure reads the door itself; every other kind
+         reads the area the door falls in. That distinction is the whole reason
+         the scope exists: an area measure gives the same number to every door
+         in the division, and a door-level one is the only thing that can order
+         them against each other. */
+      const subject = b.scope === 'address' ? a : (onLayer[b.layer] || null);
+      let v = subject ? b.valueOf(subject) : null;
       if (v != null && !isFinite(v)) v = null;
       if (v == null) whole = false;
       parts.push(v);
@@ -14509,20 +14526,53 @@ function exportAddresses() {
       score = (sum / bases.length) * 100;
     }
     if (bases.length > 1) cells.push(whole ? Math.round(score * 10) / 10 : '');
-    return { cells, value: whole ? score : null, size: a.rows, key: a.key };
+    /* Two different quantities, kept apart because they answer different
+       questions and one of them used to answer both.
+
+       `count` is what the noun column holds and what the running total adds up,
+       so the two agree by construction. `size` is how big a drop this door is,
+       which is what "largest building first" is an argument about -- and where
+       a reader has named a weight column, the weight IS that quantity and the
+       row count is not. A roll with one row per elector makes them equal and
+       hides the difference; a file with one row per address and a count in a
+       column makes the row count 1 everywhere, which left the tie-break sorting
+       on a constant and doing nothing at all. */
+    return { cells, value: whole ? score : null,
+             count: a.rows,
+             size: (p.report && p.report.weighted) ? a.weight : a.rows,
+             key: a.key };
   });
 
   if (basis) {
+    /* How doors that scored identically are ordered against each other.
+
+       This matters far more than it looks. Every measure above is reported for
+       an AREA, so every door in a polling division scores the same and the
+       tie-break decides the order of hundreds of addresses at a time -- in a
+       real export, 237 doors share the median score and the largest block is
+       2,666. Whatever this comparator does is most of the within-area ordering
+       in the file.
+
+       It used to be building size, descending, always and invisibly: one stop
+       for many pieces, which is a real argument about delivery cost. But it is
+       also a directional bet about who lives in large buildings, and in a city
+       where those skew renter it can put the least promising doors at the top
+       of every area. So it is a visible choice now, defaulting to what it
+       always did, and "address" is there for readers who would rather the file
+       admit it has no information to order these doors by. */
+    const order = $('target-tiebreak') ? $('target-tiebreak').value : 'largest';
+    const tie = (x, y) => (order === 'largest' ? y.size - x.size
+      : order === 'smallest' ? x.size - y.size : 0) || x.key.localeCompare(y.key);
     built.sort((x, y) => {
-      if (x.value == null && y.value == null) return y.size - x.size || x.key.localeCompare(y.key);
+      if (x.value == null && y.value == null) return tie(x, y);
       if (x.value == null) return 1;
       if (y.value == null) return -1;
-      return y.value - x.value || y.size - x.size || x.key.localeCompare(y.key);
+      return y.value - x.value || tie(x, y);
     });
     let reached = 0, rank = 0;
     for (const b of built) {
       if (b.value == null) { b.cells.unshift(''); b.cells.push(''); continue; }
-      reached += b.size;
+      reached += b.count;
       b.cells.unshift(++rank);
       b.cells.push(reached);
     }
@@ -14621,8 +14671,40 @@ function partiesFor(side) {
    becomes one entry per variable. What comes back can be put in a select and
    chosen from without consulting anything else on screen, which is the whole
    reason the list exists. */
+/* Measures that are facts about the door rather than about the area it sits in.
+
+   There is exactly one of these today, and it is worth saying why. Every party
+   share, every turnout figure and every census indicator is reported for an
+   area, so two doors in the same polling division carry identical values on all
+   of them -- 237 addresses share the median score in a real export. Nothing
+   computed from area measures can separate two doors, because the sources hold
+   no fact that distinguishes them.
+
+   What the roll does hold, per address, is how many electors are there. That is
+   genuinely door-level, and until now it was spent as an invisible tie-break:
+   biggest building first, within every area, in a direction nobody chose. In a
+   city where large buildings skew renter that may be ordering the best doors
+   last. As a measure it is visible, it carries a percentile, it can be weighed
+   against the rest, and its direction is the reader's to decide rather than
+   the sort comparator's.
+
+   Canvass support, when there is a file to read it from, is the same shape:
+   address-scoped, joined by the same machinery, ranked the same way. */
+function addressMeasures() {
+  const p = state.points;
+  if (!p || !(p.places || []).length) return [];
+  const noun = p.noun || 'rows';
+  const out = [{ id: 'address|count|', scope: 'address', kind: 'count',
+                 label: `How many ${noun} are at the address`, on: 'each address' }];
+  if (p.weighted) {
+    out.push({ id: 'address|weight|', scope: 'address', kind: 'weight',
+               label: `${p.weightNoun || 'Weighted'} total at the address`, on: 'each address' });
+  }
+  return out;
+}
+
 function measureCatalogue() {
-  const out = [];
+  const out = addressMeasures();
   for (const layer of BASIS_LAYERS) {
     const node = $(layer.select);
     if (!node || !layer.features().length) continue;
@@ -14651,8 +14733,51 @@ function measureCatalogue() {
   return out;
 }
 
+/* Where a measure's value sits among its peers, in the direction the reader
+   asked for.
+
+   The composite has always assumed more is better, which is wrong for half the
+   measures somebody would reasonably target on. A campaign whose support runs
+   against renters wants FEWER electors at the door, not more; a list built on
+   renter share wants a low one. Ranking those the only way the code could
+   express put the worst doors first, and nothing on screen said so.
+
+   So direction belongs to the measure rather than to the code. Inverting the
+   standing rather than negating the value keeps the arithmetic in the same
+   0..1 space the mean is taken over, and leaves the value and percentile
+   columns reading as themselves. */
+function directed(m, all) {
+  const raw = (v) => {
+    if (v == null || !isFinite(v) || !all.length) return 0;
+    let below = 0;
+    while (below < all.length && all[below] < v) below++;
+    return below / all.length;
+  };
+  if (!m.invert) return raw;
+  return (v) => (v == null || !isFinite(v) || !all.length ? 0 : 1 - raw(v));
+}
+
 /* One chosen measure, turned into the thing the export ranks with. */
 function basisFor(m) {
+  /* Address-scoped measures rank against the other doors rather than against
+     the other areas, so the percentile answers "how big is this building among
+     the buildings" instead of borrowing an area's standing. */
+  if (m.scope === 'address') {
+    const places = (state.points && state.points.places) || [];
+    if (!places.length) return null;
+    const valueOf = m.kind === 'weight' ? (a) => a.weight : (a) => a.rows;
+    const all = places.map(valueOf)
+      .filter((v) => v != null && isFinite(v)).sort((a, b) => a - b);
+    const fraction = directed(m, all);
+    return {
+      id: m.id, scope: 'address', layer: null,
+      label: `${m.label} · ${m.on}${m.invert ? ' · fewer first' : ''}`,
+      valueOf, fraction,
+      format: (v) => (v == null || !isFinite(v) ? '' : String(Math.round(v * 1000) / 1000)),
+      percentile: (v) => (v == null || !isFinite(v) || !all.length
+        ? '' : Math.round(fraction(v) * 100)),
+    };
+  }
   const layer = BASIS_LAYER[m.layer];
   const features = layer ? layer.features() : [];
   if (!features.length) return null;
@@ -14690,12 +14815,7 @@ function basisFor(m) {
      displayed percentile is a whole number and three hundred addresses can
      share one; averaging the rounded figure throws away the ordering inside
      every tie before the mean is even taken. */
-  const fraction = (v) => {
-    if (v == null || !isFinite(v) || !all.length) return 0;
-    let below = 0;
-    while (below < all.length && all[below] < v) below++;
-    return below / all.length;
-  };
+  const fraction = directed(m, all);
   return {
     id: m.id,
     layer: m.layer,
@@ -14820,6 +14940,23 @@ function refreshTargetPicker() {
       name.className = 'target-name';
       name.textContent = `${i + 1}. ${m.label} · ${m.on}`;
       li.appendChild(name);
+      /* Which end of the measure is the good end. More is better for a party
+         share and worse for anything a campaign runs against -- renter share,
+         or the size of a building when its support skews to owners. Ranking
+         those the only direction the code could express put the worst doors
+         first, so the direction is the reader's and it is on the row rather
+         than in a setting somewhere else. */
+      const dir = document.createElement('button');
+      dir.type = 'button';
+      dir.className = 'btn btn-small';
+      dir.textContent = m.invert ? 'Fewer is better' : 'More is better';
+      dir.addEventListener('click', () => {
+        state.targets = state.targets.map(
+          (x) => (x.id === m.id ? { ...x, invert: !x.invert } : x));
+        refreshTargetPicker();
+        renderExportBasis();
+      });
+      li.appendChild(dir);
       const drop = document.createElement('button');
       drop.type = 'button';
       drop.className = 'btn btn-small';
