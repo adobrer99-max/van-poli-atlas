@@ -1042,13 +1042,32 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   ok(`the address list leads with the rank, the address and the count (${addrHead.slice(0, 3).join(',')})`,
      addrHead[0] === 'rank' && addrHead[1] === 'address' && Boolean(addrHead[2]),
      addrHead.join(','));
-  ok('and carries no name or identifier column',
-     !/name|elector|first|last|surname/i.test(addrHead.join(',')), addrHead.join(','));
+  /* No column may carry a per-person identifier. That is the invariant; the
+     substring sweep that used to stand in for it is not.
+
+     "name" and "elector" as bare substrings flag aggregate columns that are the
+     whole point of the file -- measure_1_name holds "Federal party share —
+     Liberal", and cumulative_electors is a running count of a quantity. The
+     sweep passed only because the noun happened to be "addresses" here, and
+     would have failed on the real workflow, where a reader sets it to
+     "electors". A guard that fails on correct output teaches people to edit the
+     guard, which is how the real one gets edited away one day.
+
+     So: identifier-shaped tokens, which cannot collide with an aggregate, AND
+     an exact check on the column set, which is strictly stronger than any
+     substring sweep -- a new column cannot appear here without this failing. */
+  const IDENTIFIERS = /^name$|(first|last|given|middle|sur|full|voter|person|elector)_?name|elector_?id|voter_?id|(^|_)dob$|birth|phone|email|postal_?code$/i;
+  ok('no column carries a per-person identifier',
+     !addrHead.some((h) => IDENTIFIERS.test(h)), addrHead.join(','));
+  const EXPECTED_COLS = /^(rank|address|located_by|longitude|latitude|weight|federal_poll|provincial_area|dissemination_area|target_score|measure_\d+_(name|value|percentile)|cumulative_.+|addresses|electors|rows)$/;
+  ok('and every column in the file is one this export is known to write',
+     addrHead.every((h) => EXPECTED_COLS.test(h)),
+     addrHead.filter((h) => !EXPECTED_COLS.test(h)).join(',') || 'all known');
   ok('and names the areas each address falls in',
      addrHead.includes('federal_poll'), addrHead.join(','));
   ok('and says what it was selected on, with a percentile behind the word "high"',
-     addrHead.includes('federal_measure') && addrHead.includes('federal_value')
-     && addrHead.includes('federal_percentile'), addrHead.join(','));
+     addrHead.includes('measure_1_name') && addrHead.includes('measure_1_value')
+     && addrHead.includes('measure_1_percentile'), addrHead.join(','));
   /* One row per address, not one per elector: the file that went in had more
      rows than this one has. */
   ok(`one row per address rather than per row read (${addrCsv.length - 1})`,
@@ -1064,7 +1083,7 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   ok('the ranks run 1..n with no gaps and no repeats',
      ranked.every((r, i) => Number(r[0]) === i + 1),
      ranked.map((r) => r[0]).join(','));
-  const numOf = (r) => parseFloat(String(r[addrCol('federal_value')]).replace('%', ''));
+  const numOf = (r) => parseFloat(String(r[addrCol('measure_1_value')]).replace('%', ''));
   ok('and they run down the measure, not down the building size',
      ranked.every((r, i) => i === 0 || numOf(ranked[i - 1]) >= numOf(r)),
      ranked.map(numOf).join(','));
@@ -1103,8 +1122,8 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   const twoHead = splitCsv(twoCsv[0].replace(/^﻿/, ''));
   const twoBody = twoCsv.slice(1).map(splitCsv);
   ok('both measures keep their own value and percentile columns',
-     ['federal_measure', 'federal_value', 'federal_percentile',
-      'provincial_measure', 'provincial_value', 'provincial_percentile']
+     ['measure_1_name', 'measure_1_value', 'measure_1_percentile',
+      'measure_2_name', 'measure_2_value', 'measure_2_percentile']
        .every((h) => twoHead.includes(h)), twoHead.join(','));
   ok('and the composite the rank rests on is a column of its own',
      twoHead.includes('target_score'), twoHead.join(','));
@@ -1120,8 +1139,8 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
      to resolve lets an address reach the top because it is missing data. */
   ok('and an address missing either measure is left unranked rather than averaged',
      twoBody.every((r) => (r[0] === '')
-       === (!r[twoHead.indexOf('federal_value')] || !r[twoHead.indexOf('provincial_value')])),
-     twoBody.map((r) => `${r[0] || '-'}/${r[twoHead.indexOf('provincial_value')] || '-'}`).join(' '));
+       === (!r[twoHead.indexOf('measure_1_value')] || !r[twoHead.indexOf('measure_2_value')])),
+     twoBody.map((r) => `${r[0] || '-'}/${r[twoHead.indexOf('measure_2_value')] || '-'}`).join(' '));
   /* Three lists in a sitting, all called mailer-targets.csv, is how the wrong
      one reaches the printer. The reader names the list and the name sticks to
      the file -- slugged, because this string reaches a filesystem. */
@@ -1133,6 +1152,76 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
      namedFile.suggestedFilename() === 'federal-liberal-crossover.csv',
      namedFile.suggestedFilename());
   await page.locator('#points-export-name').fill('');
+
+  /* The target list: measures chosen here rather than read off the map.
+
+     The map holds one measure per layer, so three census indicators at once --
+     immigrants, homeowners, median income, which is the third list a campaign
+     asks for -- cannot be said on the map at all. Chosen measures win over the
+     map when there are any, and the file numbers them in the order they went
+     on rather than naming them for their layer, because three columns called
+     census_value is not a spreadsheet. */
+  const pickerOptions = await page.$$eval('#target-measure option',
+    (os) => os.map((o) => o.value).filter(Boolean));
+  ok(`the picker offers concrete measures, party filled in (${pickerOptions.length})`,
+     pickerOptions.length > 1 && pickerOptions.some((v) => /\|fed-party\|\S/.test(v)),
+     pickerOptions.slice(0, 6).join(' '));
+  /* gap needs two parties and would be thirty-six entries of which one is
+     wanted; nothing is lost, since "high on both" is two measures here. */
+  ok('and leaves out the one that needs two parties to mean anything',
+     !pickerOptions.some((v) => /\|gap\|/.test(v)), pickerOptions.join(' '));
+
+  const addMeasure = async (match) => {
+    const id = (await page.$$eval('#target-measure option', (os) => os.map((o) => o.value)))
+      .find((v) => v && match.test(v));
+    if (!id) return null;
+    await page.locator('#target-measure').selectOption(id);
+    await page.locator('#target-add').click();
+    await page.waitForTimeout(250);
+    return id;
+  };
+  const firstAdded = await addMeasure(/\|fed-party\|/);
+  const secondAdded = await addMeasure(/\|turnout-fed\|/);
+  ok('two measures from the same layer can both be on the list',
+     Boolean(firstAdded && secondAdded)
+     && await page.evaluate(() => window.vanPoliAtlas.state.targets.length) === 2,
+     String(await page.evaluate(() => window.vanPoliAtlas.state.targets.length)));
+  ok('and a measure already on the list is no longer offered',
+     !(await page.$$eval('#target-measure option', (os) => os.map((o) => o.value)))
+       .includes(firstAdded), String(firstAdded));
+  const chosenLine = await page.locator('#points-export-basis').innerText();
+  ok('the basis line stops crediting the map once measures are chosen',
+     !/what the map is showing/i.test(chosenLine) && /2 measures/.test(chosenLine),
+     chosenLine.slice(0, 200));
+
+  const pickDl = page.waitForEvent('download', { timeout: 15000 });
+  await page.locator('#export-addresses').click();
+  const pickCsv = require('fs').readFileSync(await (await pickDl).path(), 'utf8')
+    .split(/\r?\n/).filter(Boolean);
+  const pickHead = splitCsv(pickCsv[0].replace(/^﻿/, ''));
+  ok('the file numbers the measures rather than naming them for their layer',
+     ['measure_1_name', 'measure_1_value', 'measure_2_name', 'measure_2_value']
+       .every((h) => pickHead.includes(h))
+     && !pickHead.some((h) => /^(federal|provincial|census)_(measure|value)$/.test(h)),
+     pickHead.join(','));
+  /* Both measures came off the federal layer, which the old layer-named schema
+     could not have expressed at all -- it would have collided on one name. */
+  ok('and both measures survive even though they share a layer',
+     pickHead.filter((h) => /^measure_\d+_name$/.test(h)).length === 2,
+     pickHead.join(','));
+  const m1 = pickCsv.slice(1).map(splitCsv)[0];
+  ok('each name carries the measure, its party and the areas it was ranked on',
+     /—/.test(m1[pickHead.indexOf('measure_1_name')])
+     && /·/.test(m1[pickHead.indexOf('measure_1_name')]),
+     m1[pickHead.indexOf('measure_1_name')]);
+
+  /* Back to the map, so the rest of the suite sees the state it expects. */
+  await page.locator('#target-clear').click();
+  await page.waitForTimeout(250);
+  ok('clearing the list hands ranking back to the map',
+     /what the map is showing/i.test(await page.locator('#points-export-basis').innerText()),
+     await page.locator('#points-export-basis').innerText());
+
   await page.locator('#tab-map').click();
   await page.waitForTimeout(200);
   await page.locator('#shade-prov-by').selectOption('none');

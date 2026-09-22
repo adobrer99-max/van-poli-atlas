@@ -499,13 +499,25 @@
         identifiers &mdash; a mail drop needs the door and the quantity. It is still derived from
         a roll, so it says which buildings hold electors and how many.
       </p>
-      <!-- What the file will be ranked on, read off the map as it stands.
+      <!-- The measures the list is ranked on, chosen here rather than inferred
+           from the map.
 
-           The measures are set on the Map tab and the file is downloaded here,
-           and nothing on this screen used to say which ones were in force. Two
-           lists that differ only in the provincial selector come out with the
-           same columns and different rows, and the way that error surfaces is
-           a client asking why the crossover list is full of safe areas. -->
+           The map can express one measure per layer, which is three, and they
+           have to be set on another tab. A list resting on three census
+           indicators at once cannot be said that way at all, and two lists that
+           differ only in the provincial selector come out with the same columns
+           and different rows -- an error that surfaces as a client asking why
+           the crossover list is full of safe areas. Chosen measures are listed
+           below in the order they were added; leave it empty and the export
+           falls back to whatever the map is showing. -->
+      <div class="viz-controls" style="flex:1 1 100%;">
+        <label class="form-label grow" for="target-measure">Rank this list on
+          <select class="form-select" id="target-measure"></select>
+        </label>
+        <button type="button" class="btn" id="target-add">Add measure</button>
+        <button type="button" class="btn" id="target-clear" hidden>Use the map instead</button>
+      </div>
+      <ul class="readiness" id="target-list" style="flex:1 1 100%; margin:0;"></ul>
       <p class="text-small" id="points-export-basis" style="margin:0; flex:1 1 100%;"></p>
     </div>
     <div class="viz-controls" id="points-controls" hidden>

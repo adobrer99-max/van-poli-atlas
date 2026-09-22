@@ -137,16 +137,26 @@ Immigrants, homeowners, above-average median income.
 (census selector) → that variable, alongside whichever election measure you
 want it to sit with.
 
-**One caveat, and it is a real limit today:** the export takes one measure from
-each of the three layers — federal, provincial, census. So it will rank on one
-census indicator at a time, not all three at once. Three ways to work with that:
+All three indicators go on one list. Use **Rank this list on** beside the
+download button on the Data tab: pick a measure, press **Add measure**, repeat.
+The chosen measures are listed in order underneath, each with a **Remove**
+button, and the rank runs down the average standing across all of them.
 
-- Export three files, one per indicator, and intersect them. The campaign is
-  already intersecting against the canvass database, so the mechanism exists.
-- Rank on the single indicator that discriminates most, checked on the Compare
-  tab first rather than assumed.
-- Ask for the multi-measure picker, which removes the limit. It is the obvious
-  next change and it is not built yet.
+This is the control to use whenever a list needs more than one measure from the
+same place — three census indicators, or a party share and a turnout figure on
+the same layer. The map can only hold one measure per layer, so it cannot say
+"immigrants *and* homeowners *and* median income" at all.
+
+Leave the list empty and the export falls back to whatever the map is showing,
+which is still the shortest path for a single measure. The line beside the
+button says which of the two is in force, in as many words.
+
+One measure is deliberately absent from the picker: *Federal minus provincial
+party share*. It needs two parties, and offering every pairing would be
+thirty-six entries of which one is wanted. Nothing is lost for targeting —
+"high provincially and high federally" is two measures, which the list holds
+natively and reports in separate columns, and separate is how you want to read
+it anyway.
 
 ---
 
@@ -163,9 +173,10 @@ individual.
 | `located_by` | `address lookup` where the city's file held this exact address; `nearest on street` where it was placed beside the closest number on the same street. |
 | `longitude`, `latitude` | For routing and for maps. |
 | `federal_poll`, `provincial_area`, `dissemination_area` | The areas the address falls in. |
-| `<layer>_measure` | The measure's own name, with the election and year in it. |
-| `<layer>_value` | That area's value. |
-| `<layer>_percentile` | Where the area stands among all areas being drawn. This is what makes "high" defensible — 41% means nothing on its own, 41% at the 94th percentile is a sentence somebody can stand behind. |
+| `measure_1_name` | The first measure's full name — the measure, its party, and the areas it was ranked against. Numbered rather than named for its layer, because several measures can come from one layer. |
+| `measure_1_value` | That area's value on it. |
+| `measure_1_percentile` | Where the area stands among all areas that measure was ranked against. This is what makes "high" defensible — 41% means nothing on its own, 41% at the 94th percentile is a sentence somebody can stand behind. |
+| `measure_2_*`, `measure_3_*`… | The same three columns for each further measure, in the order they were added. |
 | `target_score` | The average standing across the selected measures, 0–100. Only present when more than one measure is selected; the rank runs down it. |
 | `cumulative_electors` | The running total down the ranked list. This is the column a print run is planned against: "mail the top 20,000" is a budget, not a row count, and one address can be three hundred pieces. |
 

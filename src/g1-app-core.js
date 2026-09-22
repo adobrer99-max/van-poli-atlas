@@ -69,6 +69,15 @@ const state = {
      Non-voters tab currently has selected. `on` is keyed by layer and then by
      the feature's own index, the way `points` and `muni` are, so the map and
      the readout read it without knowing which tab produced it. */
+  /* The measures a target list is ranked on, chosen explicitly and in order.
+
+     Empty is not "nothing to rank on": the export falls back to whatever the
+     map is showing, which is how it worked before this existed and is still the
+     shortest path for a single measure. What this list adds is the case the map
+     cannot express -- three census indicators at once, which are one selector
+     and one variable picker on the map and therefore one measure however many
+     the reader wants. */
+  targets: [],
   nonvoters: { unit: 'fed', roll: '', ballots: 'fed', minRoll: 50, party: '', weight: 1,
                rows: null, on: {}, below: {}, pairing: null, basket: new Set(),
                /* What the reader asked for, as distinct from what is in force.
@@ -457,10 +466,10 @@ function fitAll() {
    read the 2025 results by feature index; the provincial-on-federal modes need
    the crosswalk (state.provOnFed); the provincial layer's own modes read the
    2024 results by f.__idx and need no crosswalk at all. */
-function shadeValue(layerKey, f, mode, fedParty, provParty) {
+function shadeValue(layerKey, f, mode, fedParty, provParty, muniParty) {
   if (mode === 'none' || mode === 'type' || mode === 'flat') return null;
   if (POINT_MODES.has(mode)) return pointsValue(layerKey, f, mode);
-  if (MUNI_MODES.has(mode)) return muniValue(layerKey, f, mode);
+  if (MUNI_MODES.has(mode)) return muniValue(layerKey, f, mode, muniParty);
   if (NONVOTER_MODES.has(mode)) return nonvotersValue(layerKey, f, mode);
   if (layerKey === 'prov') {
     if (PART_MODES.has(mode)) {
@@ -537,11 +546,15 @@ function muniUnit(layerKey, f) {
   return on.get(layerKey === 'fed' ? f.idx : f.__idx) || null;
 }
 
-function muniValue(layerKey, f, mode) {
+/* muniParty is for callers that know which party they mean rather than which
+   party the map is showing -- a target list names its own, and reading the
+   selector there would rank a file by a party nobody chose for it. Omitted, it
+   falls back to the selector, which is what every shading path wants. */
+function muniValue(layerKey, f, mode, muniParty) {
   const u = muniUnit(layerKey, f);
   if (!u) return null;
   if (mode === 'muni-ballots') return u.ballots;
-  const party = $('muni-party') ? $('muni-party').value : '';
+  const party = muniParty != null ? muniParty : ($('muni-party') ? $('muni-party').value : '');
   return party ? Analysis.shareOf(u, party) : null;
 }
 

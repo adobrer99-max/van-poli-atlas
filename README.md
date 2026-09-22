@@ -610,11 +610,17 @@ or for canvass data, and a test asserts that it never gains one.
 ## Target lists
 
 The artefact the roll exists to produce: one row per address, ranked, with the
-reason it is on the list in its own columns. Each of the three map layers
-contributes whatever it is currently colouring by, every contribution keeps its
-own value and percentile, and the rank runs down the average standing across
-them — so "high Conservative share *and* high turnout" is one file rather than
-two and a judgement call.
+reason it is on the list in its own columns. Measures are chosen explicitly —
+*Rank this list on*, beside the download — each keeps its own value and
+percentile column, and the rank runs down the average standing across them. So
+"high Conservative share *and* high turnout" is one file rather than two and a
+judgement call, and three census indicators at once is a list rather than an
+impossibility.
+
+Leave the list empty and the export falls back to whatever the map is showing,
+which is the shortest path for a single measure and keeps the older property
+that the file cannot disagree with what the reader was looking at. The line
+beside the button says which of the two is in force.
 
 An address is ranked only where every selected measure has a value for it:
 averaging over whichever measures happened to resolve lets a door reach the top
