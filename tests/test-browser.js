@@ -1145,7 +1145,7 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
   const IDENTIFIERS = /^name$|(first|last|given|middle|sur|full|voter|person|elector)_?name|elector_?id|voter_?id|(^|_)dob$|birth|phone|email|postal_?code$/i;
   ok('no column carries a per-person identifier',
      !addrHead.some((h) => IDENTIFIERS.test(h)), addrHead.join(','));
-  const EXPECTED_COLS = /^(rank|address|located_by|longitude|latitude|weight|canvass_contacts|canvass_support|federal_poll|provincial_area|dissemination_area|target_score|measure_\d+_(name|value|percentile)|cumulative_.+|addresses|electors|rows)$/;
+  const EXPECTED_COLS = /^(rank|address|located_by|longitude|latitude|weight|canvass_contacts|canvass_support|federal_poll|provincial_area|dissemination_area|target_score|measure_\d+_(name|value|percentile|weight)|cumulative_.+|addresses|electors|rows)$/;
   ok('and every column in the file is one this export is known to write',
      addrHead.every((h) => EXPECTED_COLS.test(h)),
      addrHead.filter((h) => !EXPECTED_COLS.test(h)).join(',') || 'all known');
@@ -1311,6 +1311,28 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
      rowBox && rowBox.w > rowBox.h * 3 && rowBox.w > 120,
      rowBox ? `${rowBox.w}x${rowBox.h} "${rowBox.text.slice(0, 40)}"` : 'no .target-name');
 
+  /* The heading has to sit over the thing it describes.
+
+     "Rank this list on" labelled the picker that chooses the NEXT measure to
+     add, so a screen could read "Rank this list on: Federal party share -
+     Conservative" while the list below it ranked on Liberal. Both statements
+     true, one of them the one a reader acts on, and it was the wrong one. */
+  const headings = await page.evaluate(() => {
+    const picker = document.querySelector('label[for="target-measure"]');
+    const title = document.getElementById('target-list-title');
+    return {
+      picker: picker ? picker.textContent.trim() : null,
+      title: title ? title.textContent.trim() : null,
+      titleShown: Boolean(title) && !title.hidden,
+    };
+  });
+  ok('the picker is named for what it adds, not for what the list does',
+     Boolean(headings.picker) && /measure to add/i.test(headings.picker)
+     && !/rank this list on/i.test(headings.picker), JSON.stringify(headings.picker));
+  ok('and "Rank this list on" sits over the list that does the ranking',
+     headings.titleShown && /^Rank this list on$/i.test(headings.title || ''),
+     JSON.stringify(headings));
+
   const chosenLine = await page.locator('#points-export-basis').innerText();
   ok('the basis line stops crediting the map once measures are chosen',
      !/what the map is showing/i.test(chosenLine) && /2 measures/.test(chosenLine),
@@ -1336,6 +1358,86 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
      /—/.test(m1[pickHead.indexOf('measure_1_name')])
      && /·/.test(m1[pickHead.indexOf('measure_1_name')]),
      m1[pickHead.indexOf('measure_1_name')]);
+
+  /* What each measure is worth, which the mean was deciding on its own.
+
+     Four measures is 25% each whether or not anybody chose that -- a party
+     share weighing exactly as much as a census indicator because that is what
+     an average does. The weight is the choice; the percentage beside it is the
+     choice made legible, and the file carries both so two exports that differ
+     only in weighting can be told apart a week later. */
+  const sharesAt = () => page.$$eval('#target-list li',
+    (lis) => lis.map((li) => {
+      const share = li.querySelector('.target-share');
+      const w = li.querySelector('.target-weight');
+      return { share: share ? share.textContent.trim() : null, weight: w ? w.value : null };
+    }));
+  const evenShares = await sharesAt();
+  ok('two measures with no weighting set are half the ranking each',
+     evenShares.length === 2 && evenShares.every((r) => r.share === '50%' && r.weight === '1'),
+     JSON.stringify(evenShares));
+  ok('and an unweighted list is not described as weighted',
+     !/Weighted:/.test(await page.locator('#points-export-basis').innerText()),
+     (await page.locator('#points-export-basis').innerText()).slice(0, 160));
+  /* The scores BEFORE, so the change below is measured rather than assumed. */
+  const evenScores = new Map(pickCsv.slice(1).map(splitCsv).filter((r) => r[0] !== '')
+    .map((r) => [r[pickHead.indexOf('address')], r[pickHead.indexOf('target_score')]]));
+  await page.locator('#target-list li:first-child .target-weight').selectOption('5');
+  await page.waitForTimeout(500);
+  const tilted = await sharesAt();
+  ok('raising one measure to five parts makes it 83% against the other 17%',
+     tilted.length === 2 && tilted[0].share === '83%' && tilted[1].share === '17%',
+     JSON.stringify(tilted));
+  const weightedLine = await page.locator('#points-export-basis').innerText();
+  ok('and the line beside the button says it is weighted, and by how much',
+     /weighted standing/.test(weightedLine) && /Weighted:/.test(weightedLine)
+     && /83%/.test(weightedLine) && /17%/.test(weightedLine), weightedLine.slice(0, 320));
+  const wDl = page.waitForEvent('download', { timeout: 15000 });
+  await page.locator('#export-addresses').click();
+  const wCsv = require('fs').readFileSync(await (await wDl).path(), 'utf8')
+    .split(/\r?\n/).filter(Boolean);
+  const wHead = splitCsv(wCsv[0].replace(/^﻿/, ''));
+  const wBody = wCsv.slice(1).map(splitCsv);
+  ok('the weight rides in the file beside the value it scaled',
+     wHead.includes('measure_1_weight') && wHead.includes('measure_2_weight'),
+     wHead.join(','));
+  const wRanked = wBody.filter((r) => r[0] !== '');
+  ok('and every row reports the weights actually used',
+     wRanked.length > 0
+     && wRanked.every((r) => r[wHead.indexOf('measure_1_weight')] === '5'
+                          && r[wHead.indexOf('measure_2_weight')] === '1'),
+     wRanked.slice(0, 2).map((r) => `${r[wHead.indexOf('measure_1_weight')]}/${r[wHead.indexOf('measure_2_weight')]}`).join(' '));
+  /* The arithmetic, on a real row rather than in the abstract: the composite
+     has to be the weighted mean of the two percentiles, not their average. */
+  const probe = wRanked[0];
+  const p1 = Number(probe[wHead.indexOf('measure_1_percentile')]);
+  const p2 = Number(probe[wHead.indexOf('measure_2_percentile')]);
+  const gotScore = Number(probe[wHead.indexOf('target_score')]);
+  ok(`the composite is the weighted mean, not the average (${p1}/${p2} -> ${gotScore})`,
+     Math.abs(gotScore - (5 * p1 + p2) / 6) < 2.5
+     && (Math.abs(p1 - p2) < 2 || Math.abs(gotScore - (p1 + p2) / 2) > 1),
+     `weighted ${(5 * p1 + p2) / 6}, even ${(p1 + p2) / 2}, got ${gotScore}`);
+  /* And it has to move the file, or the weight is decoration.
+
+     The score rather than the order, because the order is what the score
+     produces and this fixture is four doors in two polls: two of them share a
+     coordinate and so score identically on every AREA measure, which leaves too
+     few distinct scores for a reweighting to be able to cross any of them. The
+     score changing on the same door is the claim; that rank follows the score
+     is asserted on its own below, and the two together are the ordering. */
+  const moved = wRanked.filter((r) => {
+     const before = evenScores.get(r[wHead.indexOf('address')]);
+     return before != null && before !== r[wHead.indexOf('target_score')];
+  });
+  ok(`weighting changes the composite on the doors it applies to (${moved.length} of ${wRanked.length})`,
+     evenScores.size > 1 && wRanked.length === evenScores.size && moved.length > 0,
+     wRanked.map((r) => `${evenScores.get(r[wHead.indexOf('address')])}->${r[wHead.indexOf('target_score')]}`).join(' '));
+  ok('and the rank still runs down the composite it just changed',
+     wRanked.every((r, i) => i === 0
+       || Number(wRanked[i - 1][wHead.indexOf('target_score')]) >= Number(r[wHead.indexOf('target_score')])),
+     wRanked.map((r) => r[wHead.indexOf('target_score')]).join(','));
+  await page.locator('#target-list li:first-child .target-weight').selectOption('1');
+  await page.waitForTimeout(400);
 
   /* The tie-break, which decides most of the within-area ordering.
 

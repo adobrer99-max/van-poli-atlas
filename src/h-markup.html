@@ -554,7 +554,14 @@
            below in the order they were added; leave it empty and the export
            falls back to whatever the map is showing. -->
       <div class="viz-controls" style="flex:1 1 100%;">
-        <label class="form-label grow" for="target-measure">Rank this list on
+        <!-- Named for what it does, not for what the section does.
+
+             It used to read "Rank this list on", sitting over the picker that
+             chooses the NEXT measure to add. So the screen said "Rank this list
+             on: Federal party share - Conservative" while the list below it
+             ranked on Liberal, and both statements were on screen at once. The
+             heading belongs over the list that actually does the ranking. -->
+        <label class="form-label grow" for="target-measure">Measure to add
           <select class="form-select" id="target-measure"></select>
         </label>
         <button type="button" class="btn" id="target-add">Add measure</button>
@@ -572,6 +579,7 @@
           </select>
         </label>
       </div>
+      <p class="form-label" id="target-list-title" style="margin:0; flex:1 1 100%;" hidden>Rank this list on</p>
       <ul class="target-list" id="target-list" style="flex:1 1 100%;"></ul>
       <p class="text-small" id="points-export-basis" style="margin:0; flex:1 1 100%;"></p>
     </div>

@@ -339,6 +339,18 @@
 /* Sized to its own content rather than stretching with the row, so the
    direction reads as a property of the measure beside it. */
 .target-list .target-direction { flex: 0 0 auto; width: auto; }
+.target-list .target-weight { flex: 0 0 auto; width: auto; }
+/* The share is the number being chosen; the weight select beside it is only how
+   it is spelled. Tabular figures so a column of them lines up, and a fixed
+   track so a 5% row and a 100% row put their select in the same place. */
+.target-list .target-share {
+  flex: 0 0 auto;
+  min-width: 2.8rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: .85em;
+}
 
 /* Headline findings. The figure leads, because that is what a reader is here
    for; the provenance badge sits under it rather than beside the heading, so

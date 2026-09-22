@@ -231,6 +231,24 @@ const Census = (() => {
     return -1;
   }
 
+  /* The curated name for a column a starter file already computed.
+
+     tools/filter_census.py writes one column per starter key -- pct_immigrant,
+     median_hh_income -- and readWide named every variable after its header,
+     which is right for somebody's own table where the header is all there is.
+     For a starter file it is wrong: the name is known, it is sitting in STARTER
+     four screens up, and the header is a programmer's identifier.
+
+     So a baked build showed "pct_immigrant" in the census picker, the map
+     legend, the Compare table, the target list and the column headings of the
+     CSV a client opens, while a build reading the raw profile showed "Immigrant
+     residents" for the same number. Same atlas, same variable, two names, and
+     the identifier is the one that reached the client.
+
+     Keyed on the column name exactly, so a column somebody named themselves
+     keeps its own header and nothing is renamed on a guess. */
+  const STARTER_BY_KEY = new Map(STARTER.map((s) => [s.key.toLowerCase(), s]));
+
   function readWide(table) {
     const geoCol = findGeoColumn(table.header);
     if (geoCol < 0) throw new Error('No geography column (DGUID, DAUID or DBUID) was found in this table.');
@@ -249,7 +267,12 @@ const Census = (() => {
         if (v != null) { numeric++; values.set(geoKey(row[geoCol]), v); }
         else if (/^(x|\.\.|\.\.\.|f)$/i.test(String(raw).trim())) numeric++;   // suppressed, still a numeric column
       }
-      if (seen && numeric / seen >= 0.9) variables.push({ key: h.trim(), label: h.trim(), values });
+      if (!seen || numeric / seen < 0.9) return;
+      const key = h.trim();
+      const known = STARTER_BY_KEY.get(key.toLowerCase());
+      variables.push(known
+        ? { key, label: known.label, short: known.short, precise: known.precise, values }
+        : { key, label: key, values });
     });
     return { layout: 'wide', geoColumn: table.header[geoCol], variables,
              geographies: new Set(table.rows.map((r) => geoKey(r[geoCol]))).size };
