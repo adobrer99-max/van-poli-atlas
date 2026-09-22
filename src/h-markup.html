@@ -626,6 +626,52 @@
       <button type="button" class="btn" id="clear-points-ref" hidden>Remove</button>
     </div>
   </div>
+
+  <!-- Canvass results: the only door-level fact there is, besides how many
+       electors live at an address.
+
+       Every measure on the target list except that one is reported for an
+       AREA, so two doors in the same polling division score identically on all
+       of them. A canvass knows one house said yes and the next said no. That
+       is the whole reason to read it, and the reason it belongs beside the
+       roll rather than under a results tab. -->
+  <div class="card" id="canvass-card">
+    <h2>Canvass results (optional)</h2>
+    <p class="text-small text-muted">
+      What was heard at the door, joined to addresses the same way the roll is. It stays in
+      this tab: only the score you assign below and a contact count are kept, and nothing
+      from the file &mdash; no name, no note, no number &mdash; reaches the export or the
+      built page. There is deliberately no way to bake canvass data into a shared build.
+    </p>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-canvass">A canvass export
+        <input class="form-control" type="file" id="file-canvass"
+               accept=".csv,.tsv,.txt,.xlsx,.zip,.geojson,.json">
+      </label>
+      <button type="button" class="btn" id="clear-canvass" hidden>Remove</button>
+    </div>
+    <div id="status-canvass" class="status"></div>
+    <div class="viz-controls" id="canvass-controls" hidden>
+      <label class="form-label grow" for="canvass-column">Which column holds the support
+        <select class="form-select" id="canvass-column"></select>
+      </label>
+    </div>
+    <!-- The values in the file, with what each is worth. Filled from the file
+         rather than from an assumed schema: campaign databases disagree about
+         everything, and a reader can see their own vocabulary here and price
+         it in ten seconds. -->
+    <div id="canvass-scale" hidden>
+      <p class="text-small text-muted" style="margin:.5rem 0 .25rem;">
+        What each answer is worth, from 0 to 1. Words this recognised are filled in;
+        <b>numbers are left blank on purpose</b> &mdash; some databases count 1 as strongest
+        support and others count it as strongest opposition, and guessing wrong would invert
+        the whole canvass without anything downstream being able to tell.
+        Leave a value blank to keep it out of the score entirely, which is what a refusal
+        or an unanswered door should usually be.
+      </p>
+      <ul class="target-list" id="canvass-values"></ul>
+    </div>
+  </div>
 </section>
 
 <!-- ---------------------------------------------------------- CORRELATION -->

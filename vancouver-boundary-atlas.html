@@ -2828,6 +2828,52 @@ html>body{padding:0}
       <button type="button" class="btn" id="clear-points-ref" hidden>Remove</button>
     </div>
   </div>
+
+  <!-- Canvass results: the only door-level fact there is, besides how many
+       electors live at an address.
+
+       Every measure on the target list except that one is reported for an
+       AREA, so two doors in the same polling division score identically on all
+       of them. A canvass knows one house said yes and the next said no. That
+       is the whole reason to read it, and the reason it belongs beside the
+       roll rather than under a results tab. -->
+  <div class="card" id="canvass-card">
+    <h2>Canvass results (optional)</h2>
+    <p class="text-small text-muted">
+      What was heard at the door, joined to addresses the same way the roll is. It stays in
+      this tab: only the score you assign below and a contact count are kept, and nothing
+      from the file &mdash; no name, no note, no number &mdash; reaches the export or the
+      built page. There is deliberately no way to bake canvass data into a shared build.
+    </p>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-canvass">A canvass export
+        <input class="form-control" type="file" id="file-canvass"
+               accept=".csv,.tsv,.txt,.xlsx,.zip,.geojson,.json">
+      </label>
+      <button type="button" class="btn" id="clear-canvass" hidden>Remove</button>
+    </div>
+    <div id="status-canvass" class="status"></div>
+    <div class="viz-controls" id="canvass-controls" hidden>
+      <label class="form-label grow" for="canvass-column">Which column holds the support
+        <select class="form-select" id="canvass-column"></select>
+      </label>
+    </div>
+    <!-- The values in the file, with what each is worth. Filled from the file
+         rather than from an assumed schema: campaign databases disagree about
+         everything, and a reader can see their own vocabulary here and price
+         it in ten seconds. -->
+    <div id="canvass-scale" hidden>
+      <p class="text-small text-muted" style="margin:.5rem 0 .25rem;">
+        What each answer is worth, from 0 to 1. Words this recognised are filled in;
+        <b>numbers are left blank on purpose</b> &mdash; some databases count 1 as strongest
+        support and others count it as strongest opposition, and guessing wrong would invert
+        the whole canvass without anything downstream being able to tell.
+        Leave a value blank to keep it out of the score entirely, which is what a refusal
+        or an unanswered door should usually be.
+      </p>
+      <ul class="target-list" id="canvass-values"></ul>
+    </div>
+  </div>
 </section>
 
 <!-- ---------------------------------------------------------- CORRELATION -->
@@ -9351,6 +9397,134 @@ const Roll = (() => {
            gap, negativeGap, incoherent, capped, mailScore, summary };
 })();
 
+/* --- Canvass results -----------------------------------------------------
+   What a campaign learned at the door, turned into a number per address.
+
+   This is the first door-level fact the atlas has held. Every other measure is
+   reported for an area, so two doors in the same polling division carry the
+   same value on all of them; a canvass knows one house said yes and the next
+   said no. That is the whole reason it is worth reading.
+
+   The file itself is somebody else's. Campaign databases disagree about
+   everything -- column names, whether support is a word or a number, whether
+   one row is one contact or one elector -- so nothing here assumes a schema.
+   The reader is shown the values that are actually in their file and says what
+   each is worth, which is the only approach that works on a format nobody here
+   has seen.
+
+   Nothing from the file is kept beyond the mapped score and a contact count.
+   Names, notes and phone numbers are read and discarded in the same pass. */
+
+const Canvass = (() => {
+  /* Text that says its own direction.
+
+     Deliberately words only. A column of 1 to 5 is the common case and the
+     ambiguous one: VAN counts 1 as strong support and 5 as strong against, and
+     plenty of home-grown sheets count the other way. Guessing wrong inverts
+     the entire canvass silently -- every supporter becomes an opponent and the
+     list ranks the doors that told you no -- and nothing downstream could
+     detect it, because an inverted scale is a perfectly well-formed scale.
+
+     So numbers are never guessed. They are shown unmapped and the reader
+     assigns them, which takes ten seconds and cannot be wrong in a way nobody
+     notices. */
+  const SUPPORT_WORDS = [
+    [/^\s*(strong(ly)?[\s_-]*(support|yes|favou?r)|definite(ly)?[\s_-]*yes)\s*$/i, 1],
+    [/^\s*(lean(ing)?[\s_-]*(support|yes|favou?r)|soft[\s_-]*(support|yes)|probabl[ey][\s_-]*yes)\s*$/i, 0.75],
+    [/^\s*(undecided|unsure|maybe|neutral|not[\s_-]*sure|don'?t[\s_-]*know)\s*$/i, 0.5],
+    [/^\s*(lean(ing)?[\s_-]*(against|no|oppose[d]?)|soft[\s_-]*(against|no)|probabl[ey][\s_-]*no)\s*$/i, 0.25],
+    [/^\s*(strong(ly)?[\s_-]*(against|no|oppose[d]?)|definite(ly)?[\s_-]*no)\s*$/i, 0],
+  ];
+
+  /* Every distinct value in the chosen column, with how many rows carry it.
+
+     The counts are the point. A campaign looking at "Strong Support 12,
+     Refused 400, blank 9,000" learns more about its own data in one glance
+     than any summary statistic would tell it, and the blanks in particular are
+     the difference between a canvass that covered the city and one that
+     covered a weekend. */
+  function values(points) {
+    const seen = new Map();
+    for (const p of points) {
+      const v = String(p.label == null ? '' : p.label).trim();
+      seen.set(v, (seen.get(v) || 0) + 1);
+    }
+    return [...seen.entries()]
+      .map(([value, rows]) => ({ value, rows }))
+      .sort((a, b) => b.rows - a.rows || a.value.localeCompare(b.value));
+  }
+
+  /* A starting scale: the words this recognises, and null for everything else.
+
+     Null is not a failure to be papered over -- it means "no opinion about
+     what this is worth", and a value left at null takes its row out of the
+     score rather than being treated as a zero. A refusal is not weak support
+     and a blank is not opposition; scoring either as 0 would put doors that
+     said nothing below doors that said no. */
+  function guess(list) {
+    const out = new Map();
+    for (const { value } of list) {
+      if (!value) { out.set(value, null); continue; }
+      const hit = SUPPORT_WORDS.find(([re]) => re.test(value));
+      out.set(value, hit ? hit[1] : null);
+    }
+    return out;
+  }
+
+  /* One number per door.
+
+     A door can be canvassed more than once -- several electors, or several
+     visits -- so the score is the mean of whatever was scored there. `contacts`
+     counts every row at the address including the unscored ones, because "we
+     knocked and they would not say" is a fact about the door that a campaign
+     filtering its list wants to keep. */
+  function pool(points, scale) {
+    const out = new Map();
+    for (const p of points) {
+      if (!p.key) continue;
+      const v = String(p.label == null ? '' : p.label).trim();
+      const score = scale instanceof Map ? scale.get(v) : null;
+      let at = out.get(p.key);
+      if (!at) out.set(p.key, (at = { key: p.key, contacts: 0, scored: 0, total: 0 }));
+      at.contacts += 1;
+      if (score != null && isFinite(score)) { at.scored += 1; at.total += score; }
+    }
+    for (const at of out.values()) {
+      at.support = at.scored ? at.total / at.scored : null;
+    }
+    return out;
+  }
+
+  /* What to say about the join, in the terms a campaign argues in. */
+  function summary(list, scale, pooled) {
+    const rows = list.reduce((n, v) => n + v.rows, 0);
+    let mapped = 0, blank = 0;
+    for (const { value, rows: n } of list) {
+      if (!value) { blank += n; continue; }
+      const s = scale instanceof Map ? scale.get(value) : null;
+      if (s != null && isFinite(s)) mapped += n;
+    }
+    let doors = 0, scoredDoors = 0;
+    for (const at of (pooled || new Map()).values()) {
+      doors += 1;
+      if (at.support != null) scoredDoors += 1;
+    }
+    return {
+      rows,
+      values: list.length,
+      mapped,
+      unmapped: rows - mapped - blank,
+      blank,
+      doors,
+      scoredDoors,
+    };
+  }
+
+  return { SUPPORT_WORDS, values, guess, pool, summary };
+})();
+
+if (typeof module !== 'undefined' && module.exports) module.exports = Canvass;
+
 </script>
 <script>
 
@@ -9502,6 +9676,11 @@ const state = {
      and one variable picker on the map and therefore one measure however many
      the reader wants. */
   targets: [],
+  /* What was heard at the door: a support score and a contact count per
+     address, and the reader's own price list for the answers in their file.
+     Never the file itself -- names, notes and numbers are dropped in the read
+     and there is no flag that would bake any of it into a shared build. */
+  canvass: null,
   nonvoters: { unit: 'fed', roll: '', ballots: 'fed', minRoll: 50, party: '', weight: 1,
                rows: null, on: {}, below: {}, pairing: null, basket: new Set(),
                /* What the reader asked for, as distinct from what is in force.
@@ -14297,6 +14476,147 @@ function showReferenceLoaded(loaded) {
    can only record what it is told. A build whose reference failed to load
    reported "built into this file, with nothing to load" while the reason sat in
    a drawer no reader has cause to open. */
+/* --- Canvass results ------------------------------------------------------
+
+   Read by the same machinery that places a roll: addresses joined against the
+   same lookup table, pooled to one entry per door. What differs is the column
+   it carries -- a support answer rather than a quantity -- and that the answer
+   is priced by the reader instead of parsed, because campaign databases agree
+   on nothing and this code has never seen the file it will be given.
+
+   What survives the read is a score and a contact count per address. Names,
+   notes and numbers are read and dropped in the same pass, and there is no
+   flag in make-payload.js that would let any of it into a shared build -- a
+   test asserts that by every name such a flag might take. */
+let canvassTable = null;
+
+async function loadCanvassFile(file) {
+  setStatus('status-canvass', 'busy', `Reading ${file.name}…`);
+  try {
+    const table = await Ingest.loadTable(file.name, await readFile(file));
+    const layout = Points.detectPointLayout(table.header, table.rows, { extent: pointsExtent() });
+    if (!layout) {
+      throw new Error('No way to locate these rows. Wanted a civic number and a street, one '
+        + 'column holding a whole address, or coordinates. '
+        + `This file has: ${table.header.slice(0, 10).join(', ')}.`);
+    }
+    if (Points.NEEDS_REFERENCE.has(layout.kind) && !pointReference) {
+      canvassTable = table;
+      setStatus('status-canvass', 'error', ['These rows carry addresses rather than '
+        + 'coordinates, so they need the same lookup table the roll does. Load the City of '
+        + 'Vancouver property addresses above and this file will join against it.']);
+      return;
+    }
+    canvassTable = table;
+    applyCanvassFile(table);
+  } catch (err) {
+    setStatus('status-canvass', 'error', [String(err.message || err)]);
+  }
+}
+
+/* Which column to read the answer from. Guessed by name where the name gives
+   it away, and always overridable, since "the column called Support" is a
+   convention rather than a rule. */
+const CANVASS_COLUMN_HINTS = [/support/i, /canvass/i, /disposition/i, /response/i,
+                              /result/i, /^level$/i, /^score$/i];
+
+function applyCanvassFile(table) {
+  const wanted = $('canvass-column') ? $('canvass-column').value : '';
+  const header = table.header || [];
+  const column = header.includes(wanted) ? wanted
+    : (CANVASS_COLUMN_HINTS.map((re) => header.find((h) => re.test(h))).find(Boolean) || header[0]);
+  const layout = Points.detectPointLayout(header, table.rows,
+    { extent: pointsExtent(), weightColumn: '' });
+  if (!layout) return;
+  const read = Points.readPoints(table, { ...layout, label: header.indexOf(column) }, {
+    reference: pointReference && pointReference.map,
+    referenceStreets: pointReference && pointReference.streets,
+    snapToStreet: $('points-snap') ? $('points-snap').checked : false,
+    byStreet: pointReference && pointReference.byStreet,
+  });
+  const values = Canvass.values(read.points);
+  /* The reader's own prices survive a column change or a reload; only values
+     they have never seen get a fresh guess. */
+  const previous = (state.canvass && state.canvass.scale) || new Map();
+  const scale = Canvass.guess(values);
+  for (const { value } of values) if (previous.has(value)) scale.set(value, previous.get(value));
+  state.canvass = { column, values, scale, points: read.points, report: read.report,
+                    pooled: Canvass.pool(read.points, scale) };
+  fillSelect($('canvass-column'), header.map((h) => ({ value: h, label: h })), column);
+  $('canvass-controls').hidden = false;
+  $('clear-canvass').hidden = false;
+  renderCanvassScale();
+  renderCanvassReport();
+  refreshTargetPicker();
+  renderExportBasis();
+}
+
+/* Re-price without re-reading: the points are already in hand. */
+function rescoreCanvass() {
+  if (!state.canvass) return;
+  state.canvass.pooled = Canvass.pool(state.canvass.points, state.canvass.scale);
+  renderCanvassReport();
+  refreshTargetPicker();
+  renderExportBasis();
+}
+
+function renderCanvassScale() {
+  const wrap = $('canvass-scale');
+  const list = $('canvass-values');
+  if (!wrap || !list || !state.canvass) return;
+  wrap.hidden = false;
+  list.innerHTML = '';
+  for (const { value, rows } of state.canvass.values) {
+    const li = document.createElement('li');
+    const name = document.createElement('span');
+    name.className = 'target-name';
+    name.textContent = `${value === '' ? '(blank)' : value} — ${fmtInt(rows)} row${rows === 1 ? '' : 's'}`;
+    li.appendChild(name);
+    const box = document.createElement('input');
+    box.type = 'number';
+    box.className = 'form-control target-direction';
+    box.min = '0'; box.max = '1'; box.step = '0.05';
+    box.style.width = '6rem';
+    const at = state.canvass.scale.get(value);
+    box.value = at == null ? '' : String(at);
+    box.addEventListener('change', () => {
+      const n = box.value.trim() === '' ? null : Number(box.value);
+      state.canvass.scale.set(value, n != null && isFinite(n) ? Math.max(0, Math.min(1, n)) : null);
+      box.value = state.canvass.scale.get(value) == null ? '' : String(state.canvass.scale.get(value));
+      rescoreCanvass();
+    });
+    li.appendChild(box);
+    list.appendChild(li);
+  }
+}
+
+function renderCanvassReport() {
+  if (!state.canvass) { setStatus('status-canvass', 'idle', []); return; }
+  const s = Canvass.summary(state.canvass.values, state.canvass.scale, state.canvass.pooled);
+  const r = state.canvass.report;
+  const lines = [`${fmtInt(r.read)} of ${fmtInt(r.rows)} rows located, over `
+    + `${fmtInt(s.doors)} addresses. ${fmtInt(s.scoredDoors)} of those carry a support score.`];
+  if (r.joined && r.missRate) {
+    lines.push(el('p', 'text-small' + (r.missRate > 0.1 ? ' text-warning' : ' text-muted'),
+      `${fmtPct(1 - r.missRate)} of rows matched the lookup table.`));
+  }
+  /* The three ways a row can fail to reach a score, kept apart because they
+     call for different things: a blank means nobody answered, an unmapped
+     value means the scale below is incomplete, and neither is a zero. */
+  if (s.unmapped) {
+    lines.push(el('p', 'text-small text-warning',
+      `${fmtInt(s.unmapped)} rows carry a value with no score set — they are out of the `
+      + 'ranking until one is given below. Numbers are always left for you, since no scale '
+      + 'can be read off them safely.'));
+  }
+  if (s.blank) {
+    lines.push(el('p', 'text-small text-muted',
+      `${fmtInt(s.blank)} rows have nothing in that column at all — knocked and unanswered, `
+      + 'usually, and counted as a contact without a score.'));
+  }
+  setStatus('status-canvass', s.scoredDoors ? 'ok' : 'idle', lines);
+}
+
 async function loadPointFile(file, { asReference, rethrow } = {}) {
   const id = asReference ? 'status-points-ref' : 'status-points';
   setStatus(id, 'busy', `Reading ${file.name}…`);
@@ -14343,6 +14663,9 @@ async function loadPointFile(file, { asReference, rethrow } = {}) {
       showReferenceLoaded(true);
       /* A roll already loaded can be joined now that the reference exists. */
       if (state.pointsTable) applyPointFile(state.pointsTable);
+      /* And a canvass held back for want of it, which is the likelier order:
+         both files carry addresses, and whichever was dropped first waited. */
+      if (canvassTable) applyCanvassFile(canvassTable);
       return;
     }
     state.pointsTable = table;
@@ -14445,6 +14768,16 @@ function exportAddresses() {
      who wants only the addresses the city actually lists can have them. */
   head.push('located_by');
   head.push('longitude', 'latitude');
+  /* Whether this door has already been knocked, and what it said.
+
+     The campaign's own throughput is "export the list, check it against the
+     canvassing database, drop the ones already identified, target the rest" --
+     three steps of which two are a join this already has. Carrying the answer
+     out means the filtering happens on one file rather than across two, and
+     `canvass_contacts` is there because a door knocked twice and still
+     unscored is a different problem from one never visited. */
+  const canvassed = (state.canvass && state.canvass.pooled) || null;
+  if (canvassed) head.push('canvass_contacts', 'canvass_support');
   for (const t of indexes) head.push(LAYER_COLUMN[t.key] || t.key);
   if (basis) {
     /* One triple per measure, numbered in the order they were chosen.
@@ -14489,6 +14822,11 @@ function exportAddresses() {
     if (p.report && p.report.weighted) cells.push(round5(a.weight));
     cells.push(a.route === 'interpolated' ? 'nearest on street' : 'address lookup');
     cells.push(round5(a.lon), round5(a.lat));
+    if (canvassed) {
+      const at = canvassed.get(a.key);
+      cells.push(at ? at.contacts : 0,
+                 at && at.support != null ? Math.round(at.support * 1000) / 1000 : '');
+    }
     const onLayer = {};
     for (const t of indexes) {
       const i = t.index.hit(a.lon, a.lat);
@@ -14703,6 +15041,14 @@ function addressMeasures() {
     out.push({ id: 'address|weight|', scope: 'address', kind: 'weight',
                label: `${p.weightNoun || 'Weighted'} total at the address`, on: 'each address' });
   }
+  /* The only measure here that is about the people rather than the building.
+     Offered once a canvass has been priced -- before that every score is null
+     and it would rank nothing, which is a worse answer than not appearing. */
+  const c = state.canvass;
+  if (c && [...c.pooled.values()].some((a) => a.support != null)) {
+    out.push({ id: 'address|canvass|', scope: 'address', kind: 'canvass',
+               label: 'Canvass support at the address', on: 'each address' });
+  }
   return out;
 }
 
@@ -14768,7 +15114,15 @@ function basisFor(m) {
   if (m.scope === 'address') {
     const places = (state.points && state.points.places) || [];
     if (!places.length) return null;
-    const valueOf = m.kind === 'weight' ? (a) => a.weight : (a) => a.rows;
+    /* A canvassed door that was never scored has no value here, not a zero:
+       "nobody answered" and "they said no" are opposite facts and only one of
+       them belongs at the bottom of a target list. An address with no value is
+       left out of the ranking entirely, which is what the composite already
+       does with any measure it cannot fill. */
+    const canvassed = (state.canvass && state.canvass.pooled) || new Map();
+    const valueOf = m.kind === 'canvass'
+      ? (a) => { const at = canvassed.get(a.key); return at ? at.support : null; }
+      : m.kind === 'weight' ? (a) => a.weight : (a) => a.rows;
     const all = places.map(valueOf)
       .filter((v) => v != null && isFinite(v)).sort((a, b) => a - b);
     const fraction = directed(m, all);
@@ -15094,6 +15448,28 @@ if ($('file-points')) {
     updatePointControls();
     draw(); renderReadout(); refreshTurnout();
   });
+  if ($('file-canvass')) {
+    $('file-canvass').addEventListener('change', (e) => {
+      if (e.target.files.length) loadCanvassFile(e.target.files[0]);
+      e.target.value = '';
+    });
+    $('canvass-column').addEventListener('change', () => {
+      if (canvassTable) applyCanvassFile(canvassTable);
+    });
+    $('clear-canvass').addEventListener('click', () => {
+      canvassTable = null;
+      state.canvass = null;
+      /* Any target list ranking on it goes with it, rather than being left
+         pointing at a measure that no longer has values. */
+      state.targets = (state.targets || []).filter((m) => m.kind !== 'canvass');
+      $('canvass-controls').hidden = true;
+      $('canvass-scale').hidden = true;
+      $('clear-canvass').hidden = true;
+      setStatus('status-canvass', 'idle', []);
+      refreshTargetPicker();
+      renderExportBasis();
+    });
+  }
   if ($('replace-points-ref')) {
     $('replace-points-ref').addEventListener('click', () => {
       showReferenceLoaded(false);
