@@ -1086,6 +1086,15 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
      /did not cast a ballot/.test(nvSame), nvSame.slice(0, 220));
   ok('and says both halves are counts rather than leaving it to be noticed',
      /Both figures are counts/.test(nvSame), nvSame.slice(0, 300));
+  /* Counted on both sides still comes two ways, and the first version told the
+     same story about both: "placed on these areas one address at a time" was
+     printed over federal electors lifted straight from the results file, which
+     were reported on those divisions and never placed by anybody. Every test
+     here read the phrase "Both figures are counts" and sailed past the
+     sentence after it. Found by opening the tab and reading it. */
+  ok('and does not claim electors from a results file were placed by address',
+     !/one address at a time/.test(nvSame)
+     && /reported on these areas by the agency/.test(nvSame), nvSame.slice(0, 400));
   ok('and carries no cross-election warning, since there is none',
      !/Cross-election/.test(nvSame), nvSame.slice(0, 300));
   ok('and closes on the caveat that a count over an area names no elector',
@@ -1226,6 +1235,16 @@ const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { consol
   ok('more ballots than roll electors is reported as a fact about the roll, not clamped',
      /more ballots than roll electors/.test(nvCross)
      && /fact about the roll/.test(nvCross), nvCross.slice(0, 400));
+  /* A three-address roll against a whole city's ballots puts the TOTAL under
+     zero, not just some areas, and the sentence built for a positive gap does
+     not survive it: "hold -964 more ... than there were", beside a share of
+     -32,133% of the roll. Both are arithmetically right and unreadable. A
+     negative total is a different sentence with the two totals in it. */
+  ok('a total under zero reads as fewer on the roll, not as a negative "more"',
+     !/-\d/.test(nvCross.split('Both figures')[0]) && /FEWER on the/.test(nvCross),
+     nvCross.split('Both figures')[0].slice(0, 260));
+  ok('and gives the two totals rather than a percentage nobody can read',
+     !/-\d+(\.\d+)?% of the roll/.test(nvCross), nvCross.slice(0, 260));
   const negatives = await page.evaluate(() =>
     window.vanPoliAtlas.state.nonvoters.rows.filter((r) => r.g.notVoted < 0).length);
   ok(`the negative gaps survive to the rows (${negatives})`, negatives > 0, String(negatives));
