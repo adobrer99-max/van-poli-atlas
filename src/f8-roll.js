@@ -73,7 +73,7 @@ const Roll = (() => {
     const {
       roll, ballots, rollOf, ballotsOf,
       rollViaAddresses = false, target = 'fed', cappedIds = null, idOf = null,
-      rollLabel = null, rollVintage = null,
+      rollLabel = null, rollVintage = null, ballotRoute: ballotRouteGiven = null,
     } = options;
     if (!roll || !ballots || typeof rollOf !== 'function' || typeof ballotsOf !== 'function') {
       for (const row of rows) delete row.g;
@@ -92,7 +92,21 @@ const Roll = (() => {
       vintage: rollVintage != null ? rollVintage : base.vintage };
     const ballotMeta = BALLOT_SOURCES[ballots] || { label: ballots, vintage: '', native: null };
     const rollRoute = routeOf(roll, target, rollViaAddresses);
-    const ballotRoute = routeOf(ballots, target, false);
+    /* The ballots side can be modelled even when its source is native to the
+       target geography, and only the caller knows.
+
+       routeOf answers one question: did these numbers have to be moved between
+       geographies to get here. For a federal count on federal divisions the
+       answer looks like a flat no -- the agency reported them there. But advance
+       and special ballots are reported with no boundary at all, and apportioning
+       them spreads them across divisions that never reported them. In the 2025
+       federal file that is a majority of the ballots, so the subtraction stops
+       being a count while its source column still says it is one.
+
+       Apportionment is a setting on the Turnout tab, not a property of the
+       source, so this module cannot see it. The caller says, or routeOf answers
+       for the untouched case as before. */
+    const ballotRoute = ballotRouteGiven || routeOf(ballots, target, false);
     const named = (m) => `${m.vintage} ${m.label}`.trim();
     const label = `${named(rollMeta)} minus ${named(ballotMeta)}`;
 

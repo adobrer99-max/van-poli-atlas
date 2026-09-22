@@ -105,7 +105,40 @@ function nvBallotSources(rows, unit) {
     const of = (row) => (row.ballots && row.ballots[side] != null ? row.ballots[side] : null);
     if (!rows.some((r) => of(r) != null)) continue;
     const meta = Roll.BALLOT_SOURCES[side];
+    /* Which of the three kinds of number this side is currently made of.
+
+       With apportionment off, every ballot here was reported in the division it
+       is counted in -- a count, and an incomplete one, because advance and
+       special ballots have no boundary and are simply left out. With it on, the
+       missing ballots are spread back over the divisions that fed each advance
+       poll and over whole districts for the special ones, which is a model. In
+       the 2025 federal file that model is the majority of the total.
+
+       Both facts travel with the source, because the tab has to say which it is
+       and the export column has to carry it out of the building. */
+    const apportioned = (state.turnout.apportion || {})[side] !== 'none';
+    let moved = 0, total = 0;
+    for (const row of rows) {
+      const n = of(row);
+      if (n == null) continue;
+      total += n;
+      const u = row.by && row.by[side];
+      if (u && u.apportioned) moved += u.apportioned;
+    }
+    /* The ballots the agency reported with no boundary at all. Naming the
+       number beats hedging at it: "election-day only" is a qualifier a reader
+       can skim past, and "169,007 ballots are missing from this subtraction"
+       is not. Zero here means there is nothing to apportion -- results reported
+       by voting place have already spread every ballot -- and then leaving
+       apportionment off withholds nothing and the tab must not claim it does. */
+    const store = side === 'fed' ? state.fedResults : state.provResults;
+    const loose = (store && store.report && store.report.unmatchedVotes) || 0;
     out.push({ id: side, label: `${meta.vintage} ${meta.label}`, of,
+               route: apportioned ? 'interpolated' : 'counted',
+               apportionedShare: apportioned && total > 0 ? moved / total : 0,
+               electionDayOnly: !apportioned && loose > 0,
+               looseBallots: apportioned ? 0 : loose,
+               looseShare: !apportioned && loose > 0 ? loose / (total + loose) : 0,
                unitOf: (row) => row.by[side] || null });
   }
   const on = state.muni && state.muni.on && state.muni.on[unit];
@@ -247,6 +280,9 @@ function refreshNonvoters() {
     rollOf: roll.of, ballotsOf: ballots.of,
     rollViaAddresses: roll.viaAddresses,
     rollLabel: roll.rollLabel, rollVintage: roll.rollVintage,
+    /* Undefined for the municipal side, which has no apportionment setting and
+       whose route routeOf already answers correctly. */
+    ballotRoute: ballots.route || null,
     cappedIds: nvCappedAreas(nv.unit), idOf: (row) => String(nvFeatureId(nv.unit, row)),
   });
 
@@ -301,7 +337,13 @@ function refreshNonvoters() {
                  coherent: pairing.coherent,
                  /* Counted by point-in-polygon, or counted by the agency. Both
                     are counts and they are not the same claim. */
-                 viaAddresses: Boolean(roll.viaAddresses) };
+                 viaAddresses: Boolean(roll.viaAddresses),
+                 /* What the ballots half is missing, and what was modelled into
+                    it. Exactly one of these is ever set. */
+                 electionDayOnly: Boolean(ballots.electionDayOnly),
+                 apportionedShare: ballots.apportionedShare || 0,
+                 looseBallots: ballots.looseBallots || 0,
+                 looseShare: ballots.looseShare || 0 };
   rows.forEach((r) => { r.basketKey = nvBasketKey(nv.unit, r); });
   nv.rows = sortNonvoterRows(rows);
   nv.on = { [nv.unit]: new Map(rows.map((r) => [nvFeatureId(nv.unit, r), {
@@ -414,6 +456,37 @@ function nonvoterProse(rows, s, ctx) {
       ? 'Both figures are counts. The roll was placed on these areas one address at a time; the '
         + 'ballots were reported on them.'
       : 'Both figures are counts, reported on these areas by the agency that ran the election.'));
+
+  /* 2b. What the ballots half is made of, which is a setting rather than a
+         source -- and therefore something routeOf could never see.
+
+         Both states of the apportionment control put a wrong number on this
+         tab, in opposite directions, and neither used to say so. Off, the
+         ballots are a genuine count of election-day voting and everybody who
+         voted early lands in "did not vote": the live 2025 federal file reads
+         68.9% against a true 31.1%, which is not a rounding error, it is
+         double. On, the missing ballots are spread back and the figure is
+         right, but a majority of the ballots are now modelled and 74 divisions
+         go negative where 8 did before -- same roll, same divisions, purely
+         from the setting.
+
+         So the number gets named either way. A qualifier that lives next to a
+         control on another tab does not travel with the figure a reader
+         quotes. */
+  if (p.apportionedShare > 0) {
+    out.push(el('p', 'text-small text-warning',
+      `${fmtPct(p.apportionedShare)} of those ballots were not reported in the ${one} they are `
+      + 'counted in. Advance and special ballots have no boundary, and the Turnout tab is '
+      + 'currently spreading them back over the areas that fed each advance poll, and over whole '
+      + 'districts for the rest. The total is right; where it sits is modelled.'));
+  } else if (p.electionDayOnly) {
+    out.push(el('p', 'text-small text-warning',
+      `These are election-day ballots only. ${fmtInt(p.looseBallots)} more were cast in advance or `
+      + `by special ballot — ${fmtPct(p.looseShare)} of all of them — and the agency reports those `
+      + 'without a boundary, so they are missing from every subtraction above. Everybody who voted '
+      + 'early is counted here as not having voted. Apportion them on the Turnout tab to put them '
+      + 'back.'));
+  }
   const rep = ctx.roll.id === 'muni' ? (state.points && state.points.report) : null;
   if (rep && rep.snapped) {
     const located = rep.matched + rep.snapped;
@@ -432,10 +505,26 @@ function nonvoterProse(rows, s, ctx) {
 
   /* 3. The diagnostic counts, which is what this tab is worth most for. */
   if (s.negative) {
+    /* Which half to go and look at, and the answer changes with the setting.
+
+       Blaming the roll is right when the ballots were counted: a division
+       cannot report more ballots than it holds electors unless the roll is
+       wrong about who lives there. It is false the moment the ballots are
+       apportioned, because then a division can be handed more advance ballots
+       than it has electors by the model alone, and the roll had nothing to do
+       with it. Sending somebody to audit the roll over that is worse than
+       saying nothing -- they would be looking for a defect that is not
+       there. */
     out.push(el('p', 'text-small text-warning',
       `${fmtInt(s.negative)} ${one}${s.negative === 1 ? '' : 's'} came out with more ballots than `
-      + 'roll electors. In those the roll does not describe the people who voted there, which is a '
-      + 'fact about the roll rather than about the ballots.'));
+      + 'roll electors. '
+      + (p.ballotRoute === 'counted'
+        ? 'In those the roll does not describe the people who voted there, which is a fact about '
+          + 'the roll rather than about the ballots.'
+        : 'Either half could be responsible: the roll may not describe the people who voted '
+          + `there, or the apportionment may have handed the ${one} more ballots than it can `
+          + 'hold. Turn apportionment off to see which of the two it is — the ones that stay '
+          + 'negative on counted ballots are the roll.')));
   }
   if (s.capped) {
     out.push(el('p', 'text-small text-warning',
