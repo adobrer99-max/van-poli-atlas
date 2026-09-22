@@ -1357,7 +1357,13 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
     const head = splitCsv(csv[0].replace(/^﻿/, ''));
     const body = csv.slice(1).map(splitCsv).filter((r) => r[0] !== '');
     const sc = head.indexOf('target_score');
-    return body.map((r) => ({ addr: r[1], size: Number(r[2]), score: r[sc] }));
+    /* The weight column, not the row count. This fixture is one row per
+       ADDRESS with an electors weight, so the row count is 1 everywhere and a
+       monotonic check over it passes in either direction -- which is exactly
+       how the previous version of this assertion passed while testing
+       nothing. Read the column whose values differ. */
+    const sizeCol = head.indexOf('weight') >= 0 ? head.indexOf('weight') : 2;
+    return body.map((r) => ({ addr: r[1], size: Number(r[sizeCol]), score: r[sc] }));
   };
   const byLargest = await orderUnder('largest');
   const bySmallest = await orderUnder('smallest');
@@ -1372,12 +1378,19 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
   ok(`the fixture actually produces tied doors to order (${tied(byLargest).length} pairs)`,
      tied(byLargest).length > 0,
      byLargest.map((r) => `${r.addr}:${r.size}=${r.score}`).join(' | '));
+  /* A tied pair whose two doors are the same size proves nothing about the
+     direction of the sort, because every ordering satisfies it. Require the
+     pair to differ before asking which way round it came out. */
+  const differing = (rows) => tied(rows).filter(([a, b]) => a.size !== b.size);
+  ok(`the tied pair differs in size, so its order can be wrong (${differing(byLargest).length})`,
+     differing(byLargest).length > 0,
+     tied(byLargest).map(([a, b]) => `${a.addr}:${a.size} vs ${b.addr}:${b.size}`).join(' | '));
   ok('largest first puts the bigger building above the smaller one',
-     tied(byLargest).every(([a, b]) => a.size >= b.size),
-     tied(byLargest).map(([a, b]) => `${a.addr}:${a.size} then ${b.addr}:${b.size}`).join(' | '));
+     differing(byLargest).length > 0 && differing(byLargest).every(([a, b]) => a.size > b.size),
+     differing(byLargest).map(([a, b]) => `${a.addr}:${a.size} then ${b.addr}:${b.size}`).join(' | '));
   ok('and smallest first reverses exactly that',
-     tied(bySmallest).every(([a, b]) => a.size <= b.size),
-     tied(bySmallest).map(([a, b]) => `${a.addr}:${a.size} then ${b.addr}:${b.size}`).join(' | '));
+     differing(bySmallest).length > 0 && differing(bySmallest).every(([a, b]) => a.size < b.size),
+     differing(bySmallest).map(([a, b]) => `${a.addr}:${a.size} then ${b.addr}:${b.size}`).join(' | '));
   ok('while address order expresses no preference about the building',
      tied(byAddress).every(([a, b]) => a.addr <= b.addr),
      tied(byAddress).map(([a, b]) => `${a.addr} then ${b.addr}`).join(' | '));
@@ -1393,18 +1406,28 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
      doors first and said nothing about it. */
   await page.locator('#target-clear').click();
   await page.waitForTimeout(250);
-  await addMeasure(/^address\|count\|/);
+  /* The weighted measure, because the row count is 1 at every address in this
+     fixture and ranking on a constant proves nothing in either direction. */
+  await addMeasure(/^address\|weight\|/);
   const orderNow = async () => {
     const dl = page.waitForEvent('download', { timeout: 15000 });
     await page.locator('#export-addresses').click();
     const csv = require('fs').readFileSync(await (await dl).path(), 'utf8')
       .split(/\r?\n/).filter(Boolean);
+    const head = splitCsv(csv[0].replace(/^\ufeff/, ''));
+    const col = head.indexOf('weight') >= 0 ? head.indexOf('weight') : 2;
     const body = csv.slice(1).map(splitCsv).filter((r) => r[0] !== '');
-    return body.map((r) => Number(r[2]));
+    return body.map((r) => Number(r[col]));
   };
   const moreIsBetter = await orderNow();
+  /* Distinct values first. A monotonic check over a constant sequence is true
+     whichever way the sort runs, and that is how the first version of this
+     passed on a column that was 1 at every address. */
+  ok(`the ranked doors carry distinct values to order (${new Set(moreIsBetter).size} distinct)`,
+     new Set(moreIsBetter).size > 1, moreIsBetter.join(','));
   ok(`more is better ranks the biggest door first (${moreIsBetter.join(',')})`,
-     moreIsBetter.every((v, i) => i === 0 || moreIsBetter[i - 1] >= v),
+     new Set(moreIsBetter).size > 1
+     && moreIsBetter.every((v, i) => i === 0 || moreIsBetter[i - 1] >= v),
      moreIsBetter.join(','));
   const dirButton = page.locator('#target-list li button', { hasText: 'More is better' }).first();
   ok('the row says which end it is ranking from', await dirButton.count() === 1);
@@ -1412,8 +1435,12 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
   await page.waitForTimeout(250);
   const fewerIsBetter = await orderNow();
   ok(`and flipping it ranks the smallest door first (${fewerIsBetter.join(',')})`,
-     fewerIsBetter.every((v, i) => i === 0 || fewerIsBetter[i - 1] <= v),
+     new Set(fewerIsBetter).size > 1
+     && fewerIsBetter.every((v, i) => i === 0 || fewerIsBetter[i - 1] <= v),
      fewerIsBetter.join(','));
+  ok('so the two orderings are actually different',
+     moreIsBetter.join(',') !== fewerIsBetter.join(','),
+     `${moreIsBetter.join(',')} vs ${fewerIsBetter.join(',')}`);
   ok('with the direction named in the measure column, not left to be inferred',
      /fewer first/i.test(await page.locator('#points-export-basis').innerText()),
      await page.locator('#points-export-basis').innerText());
