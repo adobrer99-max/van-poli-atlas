@@ -449,7 +449,21 @@ function exportAddresses() {
       score = (sum / bases.length) * 100;
     }
     if (bases.length > 1) cells.push(whole ? Math.round(score * 10) / 10 : '');
-    return { cells, value: whole ? score : null, size: a.rows, key: a.key };
+    /* Two different quantities, kept apart because they answer different
+       questions and one of them used to answer both.
+
+       `count` is what the noun column holds and what the running total adds up,
+       so the two agree by construction. `size` is how big a drop this door is,
+       which is what "largest building first" is an argument about -- and where
+       a reader has named a weight column, the weight IS that quantity and the
+       row count is not. A roll with one row per elector makes them equal and
+       hides the difference; a file with one row per address and a count in a
+       column makes the row count 1 everywhere, which left the tie-break sorting
+       on a constant and doing nothing at all. */
+    return { cells, value: whole ? score : null,
+             count: a.rows,
+             size: (p.report && p.report.weighted) ? a.weight : a.rows,
+             key: a.key };
   });
 
   if (basis) {
@@ -481,7 +495,7 @@ function exportAddresses() {
     let reached = 0, rank = 0;
     for (const b of built) {
       if (b.value == null) { b.cells.unshift(''); b.cells.push(''); continue; }
-      reached += b.size;
+      reached += b.count;
       b.cells.unshift(++rank);
       b.cells.push(reached);
     }
