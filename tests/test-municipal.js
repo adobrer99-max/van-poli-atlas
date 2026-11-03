@@ -276,6 +276,8 @@ eq('three were inferred, not read, and the count says so', vp26.inferredAdvance,
 const mayor26Csv = [
   '2026 MAYOR Results by Location (Vote for  1)   ,,,,,,,,,,,,',
   'Precinct,Times Cast,Undervotes,,Overvotes,"50 HARDWICK, Colleen\n(TEAM) ",,"51 FRY, Pete\n(GREEN) ",,"55 CALIMAN, Amauri\n ",,Total Votes',
+  'City,,,,,,,,,,,',
+  'City of Vancouver,,,,,,,,,,,',
   '10 - Dunbar Community Centre,"1,200",10,,0,100,,"1,000",,90,,"1,190"',
   '50 - Mount Pleasant Community Centre,900,5,,1,50,,800,,44,,894',
   '210 - Dunbar Community Centre,"2,000",20,,0,300,,"1,600",,80,,"1,980"',
@@ -296,6 +298,12 @@ const read26 = P.readPlaces(out26.table, P.detectPlaceLayout(out26.table.header)
 ok('the 2xx place goes in as advance', P.isFinalVoting(read26.places[2].opportunity) === false);
 eq('no total disagrees with its parts', read26.warnings.length, 0);
 eq('the year comes off the title', M.yearOf(race26.title), '2026');
+eq('the blank heading rows are neither places nor summaries',
+   out26.report.summaries.map((x) => x.label), ['Total']);
+eq('races sort the way the ballot does',
+   ['Q1', 'SchoolTrustee', 'Councillor', 'ParkCommissioner', 'Mayor']
+     .sort((a, b) => M.raceRank(a) - M.raceRank(b)),
+   ['Mayor', 'Councillor', 'ParkCommissioner', 'SchoolTrustee', 'Q1']);
 
 console.log('\n== 2026 sheet names ==');
 const n26 = (x) => `2026MunicipalElectionsResult_${x}.csv`;
