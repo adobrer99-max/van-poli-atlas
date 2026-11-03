@@ -660,7 +660,7 @@ const MAP_SHOW = {
   prov: { layer: 'prov',
           modes: ['prov-party', 'turnout-prov', 'prov-per-elector', 'prov-per-resident',
                   'catchment'] },
-  muni: { layer: 'fed', modes: ['muni-party', 'muni-ballots'] },
+  muni: { layer: 'fed', modes: ['muni-party', 'muni-swing', 'muni-swing-rel', 'muni-ballots'] },
   census: { layer: 'da', modes: ['variable'] },
   /* Deliberately its own heading. A measure that subtracts one election from
      another is not a federal result or a provincial one, and filing it under
@@ -671,7 +671,8 @@ const MAP_SHOW = {
 };
 const SHOW_SELECT = { fed: 'shade-by', prov: 'shade-prov-by', da: 'shade-da-by' };
 const SHOW_PARTY = { 'fed-party': 'shade-party-fed', 'prov-party': 'shade-party-prov',
-                     'muni-party': 'muni-party' };
+                     'muni-party': 'muni-party',
+                     'muni-swing': 'muni-swing-party', 'muni-swing-rel': 'muni-swing-party' };
 /* Set while Show/Measure are writing to the selectors, so the listener that
    keeps Show in step with the selectors does not fight the write that caused
    it and land on "Several layers" halfway through setting one. */
@@ -816,7 +817,7 @@ for (const id of ['map-show', 'map-measure']) {
 /* The selectors can move without Show touching them -- Map options, another
    tab's "show this on the map" button, a file arriving and unhiding a mode. */
 for (const id of ['shade-by', 'shade-prov-by', 'shade-da-by', 'shade-da-var',
-                  'shade-party-fed', 'shade-party-prov', 'muni-party']) {
+                  'shade-party-fed', 'shade-party-prov', 'muni-party', 'muni-swing-party']) {
   const node = $(id);
   if (node) node.addEventListener('change', syncShowFromSelects);
 }

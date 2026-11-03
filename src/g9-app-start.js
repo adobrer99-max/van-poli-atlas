@@ -56,6 +56,8 @@ async function adoptPayloads() {
     ['prov-electors', (f) => loadProvincialElectors(f[0])],
     ['muni-places', (f) => loadMuniFile(f[0], 'places')],
     ['muni-results', (f) => loadMuniFile(f, 'results')],
+    ['muni-base-places', (f) => loadMuniFile(f[0], 'places', 'base')],
+    ['muni-base-results', (f) => loadMuniFile(f, 'results', 'base')],
     /* The city's civic addresses, so a roll that arrives on the day has
        something to be geocoded against without a second file being found
        first. The roll itself is never here and there is no key for it. */
@@ -103,6 +105,8 @@ adoptPayloads().then((payload) => {
     census: 'census variables', 'fed-results': 'federal 2025 results',
     'prov-results': 'provincial 2024 results', 'prov-electors': 'provincial electors',
     'muni-places': 'municipal voting places', 'muni-results': 'municipal results',
+    'muni-base-places': 'earlier municipal voting places',
+    'muni-base-results': 'earlier municipal results',
   };
   const names = payload.done.map((k) => LABEL[k] || k);
   if (names.length) {

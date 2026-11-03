@@ -501,6 +501,29 @@ Three details the files make you handle, each covered by a test:
   A facility name is not a key either: 21 of the 104 names are shared by two
   places, so everything joins on the id.
 
+### The swing map
+
+Load a second year's archive and voting places under *Compare with an earlier
+election* on the Data tab (or bake them with `--muni-base-results` and
+`--muni-base-places`) and the map gains two measures for the race being shown:
+
+- **Municipal swing, points**: a party's share in the mapped election minus
+  its share in the earlier one, area by area.
+- **Municipal swing against the city-wide swing**: the same, minus the
+  city-wide swing. When a party moved the same way everywhere, as ABC did from
+  51.0% to 32.7% in the mayoral race between 2022 and 2026 (−18.3 points), this
+  is the version that shows where it held up and where it fell furthest.
+
+Each year is smoothed from its own voting places with the same bandwidths, then
+the shares are subtracted. The race always follows the one being mapped. Mayor,
+Councillor, Park Board and School Trustee are matched across years (2022's
+ParkBoard is 2026's ParkCommissioner); the questions never are, because they ask
+about different things. Only parties on the ballot both times under the same
+name are offered: equating a renamed party with its predecessor is a political
+claim, not a reading of the file. The voting places moved between elections, so
+an area's swing is partly a change in where people could vote; the city-wide
+figure has no such problem, and the legend gives it alongside.
+
 The 2026 files changed shape in four ways, each also covered by a test:
 
 - The race sheets head the id column **`Precinct`** instead of `Voting Place

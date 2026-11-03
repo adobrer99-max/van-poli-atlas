@@ -12,6 +12,9 @@ const el = (tag, className, text) => {
 };
 const fmtInt = (n) => Math.round(n).toLocaleString();
 const fmtPct = (n, dp = 1) => (n == null || !isFinite(n)) ? '--' : (n * 100).toFixed(dp) + '%';
+/* A change in share, signed, in percentage points: +4.2 pts, −3.1 pts. */
+const fmtSwing = (v) => (v == null || !isFinite(v)) ? '--'
+  : `${v >= 0 ? '+' : '−'}${Math.abs(v * 100).toFixed(1)} pts`;
 const fmtNum = (n, dp = 3) => (n == null || !isFinite(n)) ? '--' : n.toFixed(dp);
 
 /* The six ridings that make up the City of Vancouver in the 2023
@@ -63,6 +66,9 @@ const state = {
      assigned, and it carries no per-area turnout at any point. */
   muni: null,
   muniFiles: { places: null, races: null, overview: null, year: null },
+  /* An earlier municipal election, held only to be subtracted: the swing map. */
+  muniBase: null,
+  muniBaseFiles: { places: null, races: null, overview: null, year: null },
   socio: { outcome: 'turnout-agg', minElectors: 50, selected: new Set(), extra: new Map(),
            rows: null, byDa: null, table: null, sortKey: 'absR', sortDir: 'desc', picked: null },
   /* Electors on a roll minus ballots cast, per area, for the pairing the
@@ -556,7 +562,12 @@ const POINT_MODES = new Set(['points-count', 'points-weight']);
    smoothed -- the voting place network, not the electorate, is most of what
    such a map would show. The city-wide rate the city publishes is shown on the
    Results tab instead, as the single figure it honestly is. */
-const MUNI_MODES = new Set(['muni-party', 'muni-ballots']);
+const MUNI_MODES = new Set(['muni-party', 'muni-ballots', 'muni-swing', 'muni-swing-rel']);
+/* A party's share in the mapped election minus its share in an earlier one,
+   in points; and the same against the city-wide swing, which is the version
+   that shows where a party held up or fell furthest when it moved the same way
+   everywhere. */
+const SWING_MODES = new Set(['muni-swing', 'muni-swing-rel']);
 /* Electors on a roll minus ballots cast, from the Non-voters tab. Deliberately
    not called `gap-*`: `gap` is already this atlas's name for federal minus
    provincial party share, three lines up in the same select, and one word
@@ -575,7 +586,33 @@ function muniUnit(layerKey, f) {
    party the map is showing -- a target list names its own, and reading the
    selector there would rank a file by a party nobody chose for it. Omitted, it
    falls back to the selector, which is what every shading path wants. */
+function muniBaseUnit(layerKey, f) {
+  const on = state.muniBase && state.muniBase.on && state.muniBase.on[layerKey];
+  if (!on) return null;
+  return on.get(layerKey === 'fed' ? f.idx : f.__idx) || null;
+}
+
+const swingParty = () => ($('muni-swing-party') ? $('muni-swing-party').value : '');
+
+/* Points of share gained (positive) or lost, for one party, and the city-wide
+   swing it can be read against. */
+function muniSwing(layerKey, f, party) {
+  const u = muniUnit(layerKey, f), b = muniBaseUnit(layerKey, f);
+  if (!u || !b || !party) return null;
+  const now = Analysis.shareOf(u, party), then = Analysis.shareOf(b, party);
+  if (now == null || then == null) return null;
+  const c = state.muniBase.city && state.muniBase.city.get(party);
+  const city = c && c.now != null && c.then != null ? c.now - c.then : null;
+  return { now, then, swing: now - then, city };
+}
+
 function muniValue(layerKey, f, mode, muniParty) {
+  if (SWING_MODES.has(mode)) {
+    const s = muniSwing(layerKey, f, swingParty());
+    if (!s) return null;
+    if (mode === 'muni-swing') return s.swing;
+    return s.city == null ? null : s.swing - s.city;
+  }
   const u = muniUnit(layerKey, f);
   if (!u) return null;
   if (mode === 'muni-ballots') return u.ballots;
@@ -588,6 +625,24 @@ function muniValue(layerKey, f, mode, muniParty) {
    count of anything that happened inside the area. */
 function muniLegend(mode, layerKey, on) {
   const where = { fed: 'on federal polls', prov: 'on voting areas', da: 'on dissemination areas' }[layerKey];
+  if (SWING_MODES.has(mode)) {
+    const party = swingParty(), b = state.muniBase, m = state.muni;
+    if (!party || !b || !m) return [];
+    const c = b.city && b.city.get(party);
+    const city = c && c.now != null && c.then != null ? c.now - c.then : null;
+    const years = `${b.year}\u2192${m.year}`;
+    const rel = mode === 'muni-swing-rel';
+    return [['var(--viz-series-1)', rel
+              ? `${party} did better than its city-wide swing, ${years}, ${where}`
+              : `${party} gained share, ${years}, ${where}`],
+            ['var(--viz-series-2)', rel
+              ? `${party} did worse than its city-wide swing`
+              : `${party} lost share`],
+            ['note', `${m.race}. City-wide, ${party} went from ${fmtPct(c ? c.then : null)} to `
+              + `${fmtPct(c ? c.now : null)} (${fmtSwing(city)}). Full colour at `
+              + `${rel ? '5' : '20'} points. Each year is smoothed from its own voting places, `
+              + 'which moved between elections.']];
+  }
   if (mode === 'muni-party') {
     const party = $('muni-party') ? $('muni-party').value : '';
     if (!party) return [];
@@ -708,8 +763,13 @@ function muniLine(layerKey, f) {
   if (!u) return 'no municipal ballots reached this area';
   const party = $('muni-party') ? $('muni-party').value : '';
   const share = party ? Analysis.shareOf(u, party) : null;
+  const sp = swingParty();
+  const s = state.muniBase && sp ? muniSwing(layerKey, f, sp) : null;
   return `${fmtInt(u.ballots)} municipal ballots (smoothed)`
-    + (share == null ? '' : ` · ${party} ${fmtPct(share)}`);
+    + (share == null ? '' : ` · ${party} ${fmtPct(share)}`)
+    + (s ? ` · ${sp} ${fmtPct(s.then)} (${state.muniBase.year}) \u2192 ${fmtPct(s.now)} `
+      + `(${state.muni.year}), ${fmtSwing(s.swing)}`
+      + (s.city == null ? '' : `; city-wide ${fmtSwing(s.city)}`) : '');
 }
 
 /* The non-voter line on a readout card. Both half-labels travel with it, and
@@ -759,6 +819,8 @@ function shadeDomain(layerKey, sel, mode, fedParty, provParty) {
 function rampT(mode, v, domain) {
   if (mode === 'gap') return Math.min(1, Math.abs(v) / 0.3);
   if (mode === 'turnout-delta') return Math.min(1, Math.abs(v) / 0.15);
+  if (mode === 'muni-swing') return Math.min(1, Math.abs(v) / 0.2);
+  if (mode === 'muni-swing-rel') return Math.min(1, Math.abs(v) / 0.05);
   if (DATA_MODES.has(mode) && domain) {
     return Math.max(0, Math.min(1, (v - domain.lo) / (domain.hi - domain.lo)));
   }
@@ -768,6 +830,7 @@ function rampT(mode, v, domain) {
 function fillColour(mode, v, fedParty, provParty) {
   if (mode === 'gap') return v >= 0 ? partyColour(fedParty) : partyColour(provParty);
   if (mode === 'turnout-delta') return v >= 0 ? 'var(--viz-series-1)' : 'var(--viz-series-2)';
+  if (SWING_MODES.has(mode)) return v >= 0 ? 'var(--viz-series-1)' : 'var(--viz-series-2)';
   if (mode === 'variable') return 'var(--viz-series-3)';
   if (TURNOUT_MODES.has(mode)) return 'var(--viz-series-1)';
   if (mode === 'prov-per-elector') return 'var(--viz-series-4)';

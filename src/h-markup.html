@@ -148,6 +148,8 @@
           <option value="gap">Federal minus provincial party share</option>
           <option value="muni-party" hidden>Municipal party share</option>
           <option value="muni-ballots" hidden>Municipal ballots cast (smoothed)</option>
+          <option value="muni-swing" hidden>Municipal swing, points</option>
+          <option value="muni-swing-rel" hidden>Municipal swing against the city-wide swing</option>
           <option value="points-count" hidden>Places loaded (count)</option>
           <option value="points-weight" hidden>Places loaded (weighted)</option>
           <option value="nonvoters-count" hidden>Did not vote (count)</option>
@@ -162,6 +164,9 @@
       </label>
       <label class="form-label grow" for="muni-party" id="muni-party-label" hidden>Municipal party
         <select class="form-select" id="muni-party"><option value="">Load the municipal results</option></select>
+      </label>
+      <label class="form-label grow" for="muni-swing-party" id="muni-swing-party-label" hidden>Municipal swing party
+        <select class="form-select" id="muni-swing-party"><option value="">Load an earlier election</option></select>
       </label>
     </div>
     <div class="viz-controls">
@@ -187,6 +192,8 @@
         <option value="prov-per-resident" hidden>Ballots per resident 15+ (not turnout)</option>
         <option value="muni-party" hidden>Municipal party share</option>
         <option value="muni-ballots" hidden>Municipal ballots cast (smoothed)</option>
+        <option value="muni-swing" hidden>Municipal swing, points</option>
+        <option value="muni-swing-rel" hidden>Municipal swing against the city-wide swing</option>
         <option value="points-count" hidden>Places loaded (count)</option>
         <option value="points-weight" hidden>Places loaded (weighted)</option>
         <option value="nonvoters-count" hidden>Did not vote (count)</option>
@@ -209,6 +216,8 @@
         <option value="variable">A census variable</option>
         <option value="muni-party" hidden>Municipal party share</option>
         <option value="muni-ballots" hidden>Municipal ballots cast (smoothed)</option>
+        <option value="muni-swing" hidden>Municipal swing, points</option>
+        <option value="muni-swing-rel" hidden>Municipal swing against the city-wide swing</option>
         <option value="points-count" hidden>Places loaded (count)</option>
         <option value="points-weight" hidden>Places loaded (weighted)</option>
       </select>
@@ -504,6 +513,25 @@
       </label>
     </div>
     <div id="status-muni" class="status"></div>
+    <h3>Compare with an earlier election (optional)</h3>
+    <p class="text-small text-muted">
+      Load another year&rsquo;s results and voting places &mdash; the 2022 pair, say &mdash;
+      and the map can show the <em>swing</em>: how much a party&rsquo;s share rose or fell in
+      each area between the two elections, for the race chosen above. Only parties on the
+      ballot both times under the same name are offered.
+    </p>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-muni-base-results">Earlier results archive (2022MunicipalElectionResults.zip)
+        <input class="form-control" type="file" id="file-muni-base-results" accept=".zip,.csv,.xlsx">
+      </label>
+      <button type="button" class="btn" id="clear-muni-base" hidden>Remove</button>
+    </div>
+    <div class="viz-controls">
+      <label class="form-label grow" for="file-muni-base-places">Earlier voting places (voting-places-2022.csv)
+        <input class="form-control" type="file" id="file-muni-base-places" accept=".csv,.tsv,.txt,.xlsx,.zip,.geojson,.json">
+      </label>
+    </div>
+    <div id="status-muni-base" class="status"></div>
   </div>
   </details>
 
@@ -1389,6 +1417,25 @@
       ten-seat council race a ballot carries up to ten votes, so the party columns are votes
       and the ballots column is ballots; the atlas keeps them apart rather than reporting
       nine times the turnout.
+    </p>
+
+    <h3>The swing between two municipal elections</h3>
+    <p>
+      With an earlier election loaded, the map can show a party's <em>swing</em>: its share in
+      the mapped election minus its share in the earlier one, for the same race. Each year is
+      smoothed from its own voting places with the same bandwidths, and only then are the two
+      shares subtracted, so the swing inherits everything said above about municipal shares:
+      it is blurred by travel, but a share is not biased by it the way a rate is.
+    </p>
+    <p>
+      Two cautions are specific to the swing. The voting places moved between elections
+      &mdash; 104 in 2022, 147 in 2026 &mdash; so part of an area's swing is a change in where
+      its neighbours could vote. And when a party moved the same way everywhere, a map of raw
+      swing is one colour; the version measured against the city-wide swing is the one that
+      shows where it held up. The city-wide swing itself is computed from every ballot,
+      mail included, and involves no smoothing at all. Only parties on the ballot both times,
+      under the same name, are offered; the questions are never compared, because they ask
+      about different things each time.
     </p>
 
     <h3>Two denominators that are not an electorate</h3>

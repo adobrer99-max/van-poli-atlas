@@ -18,6 +18,8 @@
          [--prov-electors file]             registered voters by district
          [--muni-results file]              the city's results archive
          [--muni-places file]               the city's voting places
+         [--muni-base-results file]         an earlier election's results archive,
+         [--muni-base-places file]          and its voting places, for the swing map
          [--points-ref file]                civic addresses, to geocode a roll
          [--precision 5] [--no-clip]
 
@@ -126,7 +128,8 @@ if (argv.includes('--help') || argv.length < 3) {
    nothing, so it must not mark an existing payload failed on its way out --
    which is why this runs here rather than inside the run. */
 const TAKES_VALUE = new Set(['out', 'precision', 'census', 'points-ref', 'prov-geo',
-  'fed-results', 'prov-results', 'prov-electors', 'muni-results', 'muni-places']);
+  'fed-results', 'prov-results', 'prov-electors', 'muni-results', 'muni-places',
+  'muni-base-results', 'muni-base-places']);
 const TAKES_NOTHING = new Set(['help', 'no-clip', 'bbox-only']);
 
 function checkCommandLine() {
@@ -326,7 +329,8 @@ async function tables(key, inputs) {
 function checkInputs() {
   const named = [];
   for (const flag of ['census', 'points-ref', 'prov-geo', 'fed-results', 'prov-results',
-                      'prov-electors', 'muni-results', 'muni-places']) {
+                      'prov-electors', 'muni-results', 'muni-places',
+                      'muni-base-results', 'muni-base-places']) {
     for (const value of args(flag)) named.push([flag, value]);
   }
   /* Reachable, by the same standard the work itself uses: a directory this can
@@ -492,7 +496,9 @@ function manifest(state, extra = {}) {
                                ['prov-results', 'provincial results'],
                                ['prov-electors', 'provincial electors'],
                                ['muni-results', 'municipal results'],
-                               ['muni-places', 'municipal voting places']]) {
+                               ['muni-places', 'municipal voting places'],
+                               ['muni-base-results', 'earlier municipal results'],
+                               ['muni-base-places', 'earlier municipal voting places']]) {
     const inputs = args(flag);
     if (!inputs.length) continue;
     console.log(`${flag}: ${await tables(flag, inputs)} file(s) — ${label}`);

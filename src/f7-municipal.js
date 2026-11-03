@@ -196,7 +196,9 @@ const Municipal = (() => {
       const h = header[i];
       /* Blank columns sit between candidates; the bookkeeping columns are
          named and are not candidates either. */
-      if (!h || /undervote|overvote|^total/i.test(h)) continue;
+      /* 2022's question sheets also carry a Registered Voters column, which is
+         a denominator and not a choice anyone voted for. */
+      if (!h || /undervote|overvote|^total|registered\s*voters/i.test(h)) continue;
       const party = candidateParty(h);
       if (party) candidates.push({ index: i, label: h, party });
     }
@@ -404,6 +406,43 @@ const Municipal = (() => {
              elections: rows.map((r) => r.name) };
   }
 
+  /* --- Two elections compared ----------------------------------------------
+
+     A swing map subtracts one election's share from another's, so both sides
+     have to be the same race. Mayor, Councillor, Park Board and School Trustee
+     recur every four years and are matched by what they are (2022 calls the
+     park race ParkBoard, 2026 ParkCommissioner). The questions are not: Q1 in
+     2022 and Q1 in 2026 asked about different things, so a question is never
+     matched to anything. */
+  function matchRace(name, races) {
+    const rank = raceRank(name);
+    if (rank >= RACE_ORDER.length - 1) return null;
+    return (races || []).find((r) => raceRank(r.name) === rank) || null;
+  }
+
+  /* The parties a swing can be drawn for: on the ballot both times, under the
+     same name. A party that renamed itself is a different name here on
+     purpose -- equating two is a claim about politics, not a reading of the
+     file. Yes and No are answers, not parties. */
+  function swingParties(newer, older) {
+    const had = new Set((older || []).map((p) => (Array.isArray(p) ? p[0] : p)));
+    return (newer || []).map((p) => (Array.isArray(p) ? p[0] : p))
+      .filter((n) => had.has(n) && !/^(yes|no)$/i.test(n));
+  }
+
+  /* A party's share of all votes in a read voting-places table, city-wide. The
+     same arithmetic as an area's share, over every place, so the area figures
+     and the city figure they are read against are the same kind of number. */
+  function cityShare(read, party) {
+    let mine = 0, all = 0;
+    for (const p of [...(read.places || []), ...(read.unlocated || [])]) {
+      all += p.total;
+      mine += p.byParty.get(party) || 0;
+    }
+    return all > 0 ? mine / all : null;
+  }
+
   return { readVotingPlaces, detectRace, candidateParty, toPlacesTable, isRaceSheet,
+           matchRace, swingParties, cityShare,
            raceLabel, raceRank, yearOf, readOverview, isOverviewSheet, catalogueLink, placeId };
 })();
