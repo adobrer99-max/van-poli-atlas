@@ -260,6 +260,8 @@ async function loadMuniResults(input) {
     throw new Error('No race sheet was found. The archive holds Mayor, Councillor, '
       + 'Park Board, School Trustee and three questions; load that archive, or one of its sheets.');
   }
+  races.sort((a, b) => Municipal.raceRank(a.name) - Municipal.raceRank(b.name)
+    || a.name.localeCompare(b.name));
   state.muniFiles.races = races;
   state.muniFiles.overview = overview;
   state.muniFiles.year = year;

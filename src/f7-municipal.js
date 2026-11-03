@@ -239,6 +239,10 @@ const Municipal = (() => {
          quietly, because a file that grows a second summary row should show up
          here rather than in a total nobody rechecks. */
       if (!m && !/^\d+$/.test(raw)) {
+        /* 2026 puts two heading rows, "City" and "City of Vancouver", between
+           the header and the first place, with every other cell blank. They
+           carry no count, so they are neither places nor summaries. */
+        if (r.slice(1).every((c) => norm(c) === '')) continue;
         summaries.push({ label: raw, ballots: race.castCol >= 0 ? num(r[race.castCol]) : 0 });
         continue;
       }
@@ -356,6 +360,15 @@ const Municipal = (() => {
   const RACE_SHEET = /mayor|council|park|trustee|^q\d/i;
   const isRaceSheet = (name) => RACE_SHEET.test(raceLabel(name));
 
+  /* The archive lists its sheets alphabetically, which puts Councillor first
+     and makes it what the atlas opens on. Mayor is the race a reader comes
+     for, so races are ordered the way the ballot is. */
+  const RACE_ORDER = [/mayor/i, /council/i, /park/i, /trustee/i, /^q\d/i];
+  const raceRank = (label) => {
+    const i = RACE_ORDER.findIndex((re) => re.test(label));
+    return i < 0 ? RACE_ORDER.length : i;
+  };
+
   /* The election's year, from a sheet title ("2026 MAYOR Results by
      Location") or the archive's own name ("2026MunicipalElectionResults.zip").
      The question sheets carry no year in their title, so the name is the
@@ -392,5 +405,5 @@ const Municipal = (() => {
   }
 
   return { readVotingPlaces, detectRace, candidateParty, toPlacesTable, isRaceSheet,
-           raceLabel, yearOf, readOverview, isOverviewSheet, catalogueLink, placeId };
+           raceLabel, raceRank, yearOf, readOverview, isOverviewSheet, catalogueLink, placeId };
 })();
