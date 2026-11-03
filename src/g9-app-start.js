@@ -102,7 +102,7 @@ adoptPayloads().then((payload) => {
     'db-geo': 'dissemination blocks', 'geo-attr': 'block populations',
     census: 'census variables', 'fed-results': 'federal 2025 results',
     'prov-results': 'provincial 2024 results', 'prov-electors': 'provincial electors',
-    'muni-places': 'municipal voting places', 'muni-results': 'municipal 2022 results',
+    'muni-places': 'municipal voting places', 'muni-results': 'municipal results',
   };
   const names = payload.done.map((k) => LABEL[k] || k);
   if (names.length) {

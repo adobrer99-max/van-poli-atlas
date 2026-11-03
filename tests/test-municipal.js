@@ -236,6 +236,104 @@ eq('a year that is not there names no link rather than the wrong one',
 ok('a race sheet is not mistaken for the index', M.catalogueLink(mayor) == null);
 ok('nor is the voting-places file', M.catalogueLink(placeTable) == null);
 
+/* 2026 changed four things about the same two files, any one of which stopped
+   the 2022 reader: the id column is headed "Precinct", the places export
+   writes its integer key as "10.0", the coordinates sit in a column called
+   "geometry" that holds a "lat, lon" pair rather than GeoJSON, and Advance
+   Only now marks a building that held nothing else -- so the advance place
+   at a building that also voted on the day reads No. The fixtures copy those
+   shapes from the real files, including the candidate header that breaks
+   across a line before its party. */
+console.log('\n== The 2026 files ==');
+const places26Csv = [
+  'voting_place_id;facility_name;facility_address;location;advance_only;supercentre;ice;accessbility;bike_rack_location;nearest_transit_within_5_min_walk;local_area;geometry',
+  '10.0;Dunbar Community Centre;4747 Dunbar Street;Gymnasium;NO;YES;NO;accessible;near entrance;#007;Dunbar-Southlands;49.24380814, -123.1859217',
+  '50.0;Mount Pleasant Community Centre;1 Kingsway;Gym;NO;YES;NO;accessible;near entrance;"#003, #008\nSkytrain: Main St";Mount Pleasant;49.2626, -123.1002',
+  '210.0;Dunbar Community Centre;4747 Dunbar Street;Gymnasium;NO;YES;NO;accessible;near entrance;#007;Dunbar-Southlands;49.24380814, -123.1859217',
+  '228.0;Fraser Lands Church;3185 SE Marine Drive;Hall;YES;YES;NO;accessible;near entrance;#100;Killarney;49.2089, -123.0420',
+  '101.0;UBC - AMS Student Nest;6133 University Blvd;Atrium;NO;NO;NO;accessible;near entrance;#099;UBC Lands & UEL;49.2667, -123.2499',
+  '301.0;UBC - AMS Student Nest;6133 University Blvd;Atrium;NO;NO;NO;accessible;near entrance;#099;UBC Lands & UEL;49.2667, -123.2499',
+  '7.0;Morris J. Wosk Centre for Dialogue;580 W Hastings Street;Concourse;NO;YES;NO;accessible;on Seymour;#003;Downtown;49.28428113, -123.1130153',
+  '207.0;Morris J. Wosk Centre for Dialogue;580 West Hastings Street;Concourse;NO;YES;NO;accessible;on Seymour;#003;Downtown;49.28428113, -123.1130153',
+  '12.0;Lord Kitchener Elementary School;3455 West King Edward Avenue;Gym;NO;YES;NO;accessible;front;#025;Dunbar-Southlands;49.2484, -123.1795',
+  '312.0;Lord Kitchener Elementary School;3455 West King Edward Avenue;Gym;NO;YES;NO;accessible;front;#025;Kitsilano;49.2700, -123.1600',
+].join('\n');
+const vp26 = M.readVotingPlaces(await Ingest.loadTable('voting-places-2026.csv', Buffer.from(places26Csv)));
+eq('every 2026 place is read', vp26.count, 10);
+eq('and every one is located from the geometry column', vp26.unlocated, 0);
+ok('"10.0" is keyed as 10, the way the race sheet writes it', vp26.byId.has('10') && !vp26.byId.has('10.0'));
+near('the pair in "geometry" is read latitude first', vp26.byId.get('10').lat, 49.2438, 1e-3);
+near('and longitude second', vp26.byId.get('10').lon, -123.1859, 1e-3);
+ok('the day-of place is not advance', vp26.byId.get('10').advanceOnly === false);
+ok('the second row for the same building is its advance place', vp26.byId.get('210').advanceOnly === true);
+ok('a building marked Advance Only stays advance', vp26.byId.get('228').advanceOnly === true);
+ok('the advance place at the Nest is advance, and outside the city',
+   vp26.byId.get('301').advanceOnly === true && vp26.byId.get('301').outsideCity === true);
+ok('one building spelled two ways is still one building', vp26.byId.get('207').advanceOnly === true);
+ok('but a shared name 2.5 km away is a different building', vp26.byId.get('312').advanceOnly === false);
+eq('three were inferred, not read, and the count says so', vp26.inferredAdvance, 3);
+
+const mayor26Csv = [
+  '2026 MAYOR Results by Location (Vote for  1)   ,,,,,,,,,,,,',
+  'Precinct,Times Cast,Undervotes,,Overvotes,"50 HARDWICK, Colleen\n(TEAM) ",,"51 FRY, Pete\n(GREEN) ",,"55 CALIMAN, Amauri\n ",,Total Votes',
+  '10 - Dunbar Community Centre,"1,200",10,,0,100,,"1,000",,90,,"1,190"',
+  '50 - Mount Pleasant Community Centre,900,5,,1,50,,800,,44,,894',
+  '210 - Dunbar Community Centre,"2,000",20,,0,300,,"1,600",,80,,"1,980"',
+  '400 - Mail Results,500,5,,0,100,,390,,5,,495',
+  '401 - SVO Results,50,0,,0,10,,38,,2,,50',
+  'Total,"4,650",40,,1,560,,"3,828",,221,,"4,609"',
+].join('\n');
+const mayor26 = await Ingest.loadTable('2026MunicipalElectionsResult_ResultsMayor.csv', Buffer.from(mayor26Csv));
+const race26 = M.detectRace(mayor26);
+ok('a sheet headed "Precinct" is a race sheet', Boolean(race26));
+eq('the party is read across the line break', race26.candidates.map((c) => c.party), ['TEAM', 'GREEN', 'CALIMAN']);
+eq('and Total Votes is not a candidate', race26.candidates.length, 3);
+const out26 = M.toPlacesTable(mayor26, vp26, { district: 'CoV' });
+eq('three places matched', out26.report.matched, 3);
+eq('mail and special voting are kept, unplaced',
+   out26.report.unplaced.map((u) => u.id), ['400', '401']);
+const read26 = P.readPlaces(out26.table, P.detectPlaceLayout(out26.table.header));
+ok('the 2xx place goes in as advance', P.isFinalVoting(read26.places[2].opportunity) === false);
+eq('no total disagrees with its parts', read26.warnings.length, 0);
+eq('the year comes off the title', M.yearOf(race26.title), '2026');
+
+console.log('\n== 2026 sheet names ==');
+const n26 = (x) => `2026MunicipalElectionsResult_${x}.csv`;
+ok('every 2026 race sheet is a race',
+   ['ResultsMayor', 'ResultsCouncillor', 'ResultsParkCommissioner', 'ResultsSchoolTrustee',
+    'ResultsQ1', 'ResultsQ2', 'ResultsQ3'].every((x) => M.isRaceSheet(n26(x))));
+ok('and the totals and overview are not', !M.isRaceSheet(n26('Election2026Totals'))
+   && !M.isRaceSheet(n26('Overview')));
+eq('the race is named for what it is', ['ResultsParkCommissioner', 'ResultsQ1'].map((x) => M.raceLabel(n26(x))),
+   ['ParkCommissioner', 'Q1']);
+eq('2022 names still read the same way', M.raceLabel('2022MunicipalElectionResults - Mayor.csv'), 'Mayor');
+eq('the question sheets carry no year, so the name supplies it',
+   M.yearOf('1. CAPITAL BORROWING: PARKS (Vote for  1)', '2026MunicipalElectionResults.zip'), '2026');
+
+console.log('\n== The 2026 overview ==');
+const ov26 = M.readOverview(await Ingest.loadTable('Overview.csv', Buffer.from([
+  'City of Vancouver: 2026 Municipal Election Official Results Overview,,,,,,',
+  ' Registered Voters (CoV) ," 474,125 ", Registered voters on the voters\' list in the City of Vancouver  ,,,,',
+  ' Registered Voters (UBC Lands and UEL) ," 9,199 ", School Trustee only ,,,,',
+  ' Registered Voters - Total ," 483,324 ",,,,,',
+  ',,,,,,',
+  ' Ballots Cast (CoV) ," 208,514 ",,,,,',
+  ' Ballots Cast Total ," 209,711 ",,,,,',
+  ' Voter Turnout ,43.39%, Ballots Cast Total / Registered Voters Total ,,,,',
+].join('\n'))));
+eq('the padded figures are read', [ov26.electors, ov26.ballots], [474125, 208514]);
+near('the city rate', ov26.turnout, 208514 / 474125);
+near('and the published one, which counts UBC and the UEL', ov26.turnoutAsPublished, 209711 / 483324);
+
+console.log('\n== The newest general election, when no year is asked for ==');
+const cat26 = { header: catalogue.header, rows: [
+  ['2026 Public Safety', 'https://example.invalid/ps.zip', '', ''],
+  ['2018 Municipal Election', 'https://example.invalid/2018.zip', '', ''],
+  ['2026 Municipal Election', 'https://example.invalid/2026.zip', '', ''],
+  ['2025 Municipal By-Election', 'https://example.invalid/2025.zip', '', ''],
+] };
+eq('is 2026, not a plebiscite or a by-election', M.catalogueLink(cat26).url, 'https://example.invalid/2026.zip');
+
 console.log(fails ? `\n${fails} FAILED` : '\nAll municipal checks passed.');
 process.exit(fails ? 1 : 0);
 })();

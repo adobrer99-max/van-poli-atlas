@@ -144,7 +144,8 @@ function nvBallotSources(rows, unit) {
   const on = state.muni && state.muni.on && state.muni.on[unit];
   if (on && on.size) {
     out.push({
-      id: 'muni', label: '2022 municipal ballots (smoothed)',
+      id: 'muni', label: `${muniYear()} municipal ballots (smoothed)`.trim(),
+      vintage: muniYear(),
       of: (row) => {
         const id = nvFeatureId(unit, row);
         const u = id == null ? null : on.get(id);
@@ -283,6 +284,7 @@ function refreshNonvoters() {
     /* Undefined for the municipal side, which has no apportionment setting and
        whose route routeOf already answers correctly. */
     ballotRoute: ballots.route || null,
+    ballotVintage: ballots.vintage != null ? ballots.vintage : null,
     cappedIds: nvCappedAreas(nv.unit), idOf: (row) => String(nvFeatureId(nv.unit, row)),
   });
 

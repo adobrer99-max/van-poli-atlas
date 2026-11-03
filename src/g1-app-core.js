@@ -62,7 +62,7 @@ const state = {
      place in the city, so its ballots are smoothed onto areas rather than
      assigned, and it carries no per-area turnout at any point. */
   muni: null,
-  muniFiles: { places: null, races: null, overview: null },
+  muniFiles: { places: null, races: null, overview: null, year: null },
   socio: { outcome: 'turnout-agg', minElectors: 50, selected: new Set(), extra: new Map(),
            rows: null, byDa: null, table: null, sortKey: 'absR', sortDir: 'desc', picked: null },
   /* Electors on a roll minus ballots cast, per area, for the pairing the
@@ -591,13 +591,13 @@ function muniLegend(mode, layerKey, on) {
   if (mode === 'muni-party') {
     const party = $('muni-party') ? $('muni-party').value : '';
     if (!party) return [];
-    return [[partyColour(party), `${party} share, 2022 municipal, ${where}`],
+    return [[partyColour(party), `${party} share, ${muniYear()} municipal, ${where}`.replace(/  +/g, ' ')],
             ['note', 'Smoothed by distance from each voting place, not assigned: you may vote '
              + 'anywhere in Vancouver, so a ballot says less about where its voter lives.']];
   }
   const dom = state.shadeDomain[layerKey];
   return [['var(--viz-series-3)',
-           `2022 municipal ballots ${where}, smoothed`
+           `${muniYear()} municipal ballots ${where}, smoothed`.trim()
            + (dom ? ` — ${fmtInt(dom.lo)} to ${fmtInt(dom.hi)}` : '')],
           ['note', 'Ballots, not turnout. This atlas reports no municipal turnout by area; '
            + '“How to read this” says why.']];

@@ -293,8 +293,8 @@ node tools/make-payload.js --out payload \
     --fed-results pollresults/ \
     --prov-geo BCGW_voting_areas.zip \
     --prov-results provincial_2024_voting_places.csv \
-    --muni-results 2022MunicipalElectionResults.zip \
-    --muni-places voting-places-2022.csv \
+    --muni-results 2026MunicipalElectionResults.zip \
+    --muni-places voting-places-2026.csv \
     --points-ref property-addresses.csv
 python3 build.py --payload payload --out share/vancouver-atlas.html
 ```
@@ -414,11 +414,15 @@ Adapted from Statistics Canada, Census Profile, 2021 Census of Population, and
 the 2021 Geographic Attribute File. This does not constitute an endorsement by
 Statistics Canada.
 
-## The municipal election (2022)
+## The municipal election (2026, and 2022)
 
 Vancouver's own election is the third that can be loaded, from two files the
-city publishes: `2022MunicipalElectionResults.zip` and `voting-places-2022.csv`,
-joined on the numeric voting place id. Pick a race (Mayor, Councillor, Park
+city publishes for each year: `2026MunicipalElectionResults.zip` and
+`voting-places-2026.csv` (the 2022 pair still loads), joined on the numeric
+voting place id. Both are on the city's open data portal: the archive is linked
+from the *Municipal election results* dataset, and the places are the *Voting
+places 2026* dataset, exported as CSV. The year shown in labels is read from the
+files, never assumed. Pick a race (Mayor, Councillor, Park
 Board, School Trustee, or a referendum question) and its ballots are spread onto
 whichever polygon layers are loaded.
 
@@ -430,6 +434,13 @@ in the city**, and in 2022 almost everyone did: of the 104 places, 68 were
 vote-anywhere centres carrying 54.8% of the ballots and 22 were advance places
 carrying another 40.1%. Twelve ordinary neighbourhood places took the remaining
 5.1%.
+
+2026 went further the same way. 83 of the 85 election-day places were
+vote-anywhere centres carrying 40.9% of the ballots, 59 advance places in the
+city carried 49.4% (more than election day), and the two ordinary
+neighbourhood places took 0.3%. Mail was 8.2% of the count, reported as one
+city-wide row with no place, so it stays off the map. The measurements in this
+section were made on 2022 and have not been re-run on 2026.
 
 So the catchment is the wrong instrument here, and it fails loudly. Applied to
 the 2022 results it puts more ballots into 32 federal polling divisions than
@@ -471,8 +482,10 @@ with its neighbours within a kilometre at **r 0.76**. The surface that survives
 is offered; the one that does not is absent.
 
 The one turnout figure the election contributes is the city's own, read from the
-Overview sheet: 170,274 ballots on 464,126 registered voters in the City of
-Vancouver. It has no geographic modelling in it whatever.
+Overview sheet: 208,514 ballots on 474,125 registered voters in the City of
+Vancouver in 2026, 44.0% (170,274 on 464,126 in 2022). The city's headline
+43.39% divides by a total that includes the UBC Lands and the UEL. It has no
+geographic modelling in it whatever.
 
 Three details the files make you handle, each covered by a test:
 
@@ -487,6 +500,20 @@ Three details the files make you handle, each covered by a test:
   excluded from City of Vancouver figures, as the city's own Overview does.
   A facility name is not a key either: 21 of the 104 names are shared by two
   places, so everything joins on the id.
+
+The 2026 files changed shape in four ways, each also covered by a test:
+
+- The race sheets head the id column **`Precinct`** instead of `Voting Place
+  ID`, and break each candidate header across a line before the party.
+- The places export writes its key as **`10.0`** while the sheets write `10`;
+  both are read as `10`.
+- Coordinates arrive in a column named **`geometry`** holding a `lat, lon` pair
+  rather than GeoJSON, and are read as the pair they are.
+- **Advance Only** now marks a building that held advance voting and nothing
+  else, so 59 of the 60 advance places read No. Each is a second row for a
+  building that also voted on the day, under a higher id with the same name at
+  the same point (10 and 210 are both Dunbar), and is read as that building's
+  advance place. The status line says how many were inferred this way.
 
 Contains information licensed under the Open Government Licence – Vancouver.
 
