@@ -41,7 +41,9 @@ const Roll = (() => {
   const BALLOT_SOURCES = {
     fed:  { label: 'federal ballots', vintage: '2025', native: 'fed' },
     prov: { label: 'provincial ballots', vintage: '2024', native: 'prov' },
-    muni: { label: 'municipal ballots', vintage: '2022', native: null },
+    /* No vintage of its own: the municipal results are whichever year's archive
+       was loaded, and the caller says which (ballotVintage). */
+    muni: { label: 'municipal ballots', vintage: '', native: null },
   };
 
   /* counted < interpolated < smoothed, weakest wins a subtraction. */
@@ -74,6 +76,7 @@ const Roll = (() => {
       roll, ballots, rollOf, ballotsOf,
       rollViaAddresses = false, target = 'fed', cappedIds = null, idOf = null,
       rollLabel = null, rollVintage = null, ballotRoute: ballotRouteGiven = null,
+      ballotVintage = null,
     } = options;
     if (!roll || !ballots || typeof rollOf !== 'function' || typeof ballotsOf !== 'function') {
       for (const row of rows) delete row.g;
@@ -90,7 +93,9 @@ const Roll = (() => {
     const rollMeta = { ...base,
       label: rollLabel || base.label,
       vintage: rollVintage != null ? rollVintage : base.vintage };
-    const ballotMeta = BALLOT_SOURCES[ballots] || { label: ballots, vintage: '', native: null };
+    const ballotBase = BALLOT_SOURCES[ballots] || { label: ballots, vintage: '', native: null };
+    const ballotMeta = { ...ballotBase,
+      vintage: ballotVintage != null ? ballotVintage : ballotBase.vintage };
     const rollRoute = routeOf(roll, target, rollViaAddresses);
     /* The ballots side can be modelled even when its source is native to the
        target geography, and only the caller knows.

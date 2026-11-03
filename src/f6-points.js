@@ -344,7 +344,13 @@ const Points = (() => {
 
     if (lon >= 0 && lat >= 0) return { ...base, kind: 'lonlat', lon, lat, order: { order: 'lon,lat', by: 'named columns' } };
     if (usable('geometry', geometry)) return { ...base, kind: 'geometry', geometry, order: { order: 'lon,lat', by: 'GeoJSON' } };
-    if (usable('pair', pair)) {
+    /* The portal's 2026 CSV export names its only coordinate column "geometry"
+       and fills it with "49.284, -123.113": a pair, not GeoJSON. Read as what
+       it holds rather than what it is called. */
+    const pairCol = usable('pair', pair) ? pair
+      : (geometry >= 0 && rows.length && parses('pair', geometry) ? geometry : -1);
+    if (pairCol >= 0) {
+      const pair = pairCol;
       const samples = [];
       for (const r of rows.slice(0, 200)) {
         const m = /(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)/.exec(String(r[pair] || ''));

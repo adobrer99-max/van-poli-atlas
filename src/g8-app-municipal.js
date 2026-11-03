@@ -15,6 +15,14 @@
    where it does not: an area with no electors would otherwise take no ballots
    at all, which is wrong for a park with a tower on its edge and very wrong
    for a layer with no results loaded yet. */
+/* The year of the municipal results that are loaded: read from the race sheet
+   titles or the archive's name, never assumed, so a 2022 archive still says
+   2022 and a 2026 one says 2026. Empty until something is loaded. */
+function muniYear() {
+  return (state.muni && state.muni.year)
+    || (state.muniFiles && state.muniFiles.year) || '';
+}
+
 function muniTargets() {
   const out = [];
   const areaOf = (f) => (f.__area || (f.__area = Geo.areaM2(f.geometry))) || 1;
@@ -92,6 +100,7 @@ function applyMunicipal() {
     state.muni = {
       ...spread,
       race: race.name,
+      year: files.year || Municipal.yearOf(built.report.title) || '',
       built,
       read: inCity,
       parties: read.parties,
@@ -119,6 +128,13 @@ function renderMuniReport() {
   const r = m.built.report;
   const lines = [];
   lines.push(`${r.title || m.race}: ${fmtInt(m.ballots)} ballots on ${fmtInt(r.matched)} voting places.`);
+  const vp = state.muniFiles.places;
+  if (vp && vp.inferredAdvance) {
+    lines.push(el('p', 'text-small text-muted',
+      `${fmtInt(vp.inferredAdvance)} voting places share a building with a lower-numbered one `
+      + 'and are not marked Advance Only; each is read as that building\u2019s advance place. The '
+      + '2026 file uses Advance Only for buildings that held nothing else.'));
+  }
   if (r.seats > 1) {
     lines.push(el('p', 'text-small text-muted',
       `Every ballot in this race carries up to ${fmtInt(r.seats)} votes, so the party columns are `
@@ -183,6 +199,10 @@ function updateMuniControls() {
       if (!option) continue;
       const ok = Boolean(m && m.on[key]);
       option.hidden = !ok;
+      /* The markup names no year, so the option says which election it is
+         showing once one is loaded. */
+      if (!option.dataset.base) option.dataset.base = option.textContent.trim();
+      option.textContent = m && m.year ? `${option.dataset.base} (${m.year})` : option.dataset.base;
       if (!ok && node.value === value) node.value = 'none';
     }
   }
@@ -200,20 +220,23 @@ async function loadMuniResults(input) {
   const files = Array.isArray(input) ? input : [input];
   setStatus('status-muni', 'busy', `Reading ${files.map((f) => f.name).join(', ')}…`);
   const races = [], seen = new Set();
-  let overview = null, catalogue = null;
+  let overview = null, catalogue = null, year = null;
   const add = (name, bytesIn) => {
     const table = TextFormats.parseDelimited(TextFormats.decodeBytes(bytesIn));
     if (!table.header.length) return;
     catalogue = catalogue || Municipal.catalogueLink(table);
     if (Municipal.isOverviewSheet(name)) { overview = Municipal.readOverview(table) || overview; return; }
     if (!Municipal.isRaceSheet(name) || seen.has(name)) return;
-    const label = name.replace(/^.*[-\/]/, '').replace(/\.[a-z]+$/i, '').trim() || name;
+    const label = Municipal.raceLabel(name);
+    const race = Municipal.detectRace(table);
+    year = year || Municipal.yearOf(race && race.title, name);
     seen.add(name);
     races.push({ name: label, table });
   };
   for (const file of files) {
     const bytes = await readFile(file);
     if (/\.zip$/i.test(file.name)) {
+      year = year || Municipal.yearOf(file.name);
       const zip = BinaryFormats.readZip(bytes);
       for (const [name, open] of zip) {
         /* The archive carries the resource forks a Mac adds when it is
@@ -234,11 +257,12 @@ async function loadMuniResults(input) {
         : `That is the open-data portal's list of elections, not the results. It offers `
           + `${catalogue.elections.join(', ')}; download the archive for the one you want and load that.`);
     }
-    throw new Error('No race sheet was found. The 2022 archive holds Mayor, Councillor, '
-      + 'ParkBoard, SchoolTrustee and three questions; load that archive, or one of its sheets.');
+    throw new Error('No race sheet was found. The archive holds Mayor, Councillor, '
+      + 'Park Board, School Trustee and three questions; load that archive, or one of its sheets.');
   }
   state.muniFiles.races = races;
   state.muniFiles.overview = overview;
+  state.muniFiles.year = year;
 }
 
 async function loadMuniPlaces(file) {
@@ -288,7 +312,7 @@ if ($('file-muni-results')) {
   $('muni-party').addEventListener('change', () => { draw(); renderReadout(); });
   $('clear-muni').addEventListener('click', () => {
     state.muni = null;
-    state.muniFiles = { places: null, races: null, overview: null };
+    state.muniFiles = { places: null, races: null, overview: null, year: null };
     $('clear-muni').hidden = true;
     $('muni-controls').hidden = true;
     $('muni-party-label').hidden = true;

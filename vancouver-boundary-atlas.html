@@ -2321,7 +2321,7 @@ html>body{padding:0}
         <option value="none">Nothing (plain boundaries)</option>
         <option value="fed">Federal result (2025)</option>
         <option value="prov">Provincial result (2024)</option>
-        <option value="muni" hidden>Municipal result (2022)</option>
+        <option value="muni" hidden>Municipal result</option>
         <option value="census">Census indicator</option>
         <option value="both">Both elections compared</option>
         <!-- "The roll" rather than "the loaded roll": these modes resolve as
@@ -2360,8 +2360,8 @@ html>body{padding:0}
           <option value="turnout-agg">Aggregate turnout, both elections</option>
           <option value="turnout-delta">Federal minus provincial turnout</option>
           <option value="gap">Federal minus provincial party share</option>
-          <option value="muni-party" hidden>Municipal (2022) party share</option>
-          <option value="muni-ballots" hidden>Municipal (2022) ballots cast (smoothed)</option>
+          <option value="muni-party" hidden>Municipal party share</option>
+          <option value="muni-ballots" hidden>Municipal ballots cast (smoothed)</option>
           <option value="points-count" hidden>Places loaded (count)</option>
           <option value="points-weight" hidden>Places loaded (weighted)</option>
           <option value="nonvoters-count" hidden>Did not vote (count)</option>
@@ -2374,7 +2374,7 @@ html>body{padding:0}
       <label class="form-label grow" for="shade-party-prov">Provincial (2024) party
         <select class="form-select" id="shade-party-prov" disabled><option>Load 2024 provincial results</option></select>
       </label>
-      <label class="form-label grow" for="muni-party" id="muni-party-label" hidden>Municipal (2022) party
+      <label class="form-label grow" for="muni-party" id="muni-party-label" hidden>Municipal party
         <select class="form-select" id="muni-party"><option value="">Load the municipal results</option></select>
       </label>
     </div>
@@ -2399,8 +2399,8 @@ html>body{padding:0}
         <option value="catchment" hidden>Voting-place catchment (modelled)</option>
         <option value="prov-per-elector" hidden>Ballots per federal elector (not turnout)</option>
         <option value="prov-per-resident" hidden>Ballots per resident 15+ (not turnout)</option>
-        <option value="muni-party" hidden>Municipal (2022) party share</option>
-        <option value="muni-ballots" hidden>Municipal (2022) ballots cast (smoothed)</option>
+        <option value="muni-party" hidden>Municipal party share</option>
+        <option value="muni-ballots" hidden>Municipal ballots cast (smoothed)</option>
         <option value="points-count" hidden>Places loaded (count)</option>
         <option value="points-weight" hidden>Places loaded (weighted)</option>
         <option value="nonvoters-count" hidden>Did not vote (count)</option>
@@ -2421,8 +2421,8 @@ html>body{padding:0}
         <option value="turnout-fed">Federal (2025) turnout</option>
         <option value="turnout-prov">Provincial (2024) turnout</option>
         <option value="variable">A census variable</option>
-        <option value="muni-party" hidden>Municipal (2022) party share</option>
-        <option value="muni-ballots" hidden>Municipal (2022) ballots cast (smoothed)</option>
+        <option value="muni-party" hidden>Municipal party share</option>
+        <option value="muni-ballots" hidden>Municipal ballots cast (smoothed)</option>
         <option value="points-count" hidden>Places loaded (count)</option>
         <option value="points-weight" hidden>Places loaded (weighted)</option>
       </select>
@@ -2677,17 +2677,18 @@ html>body{padding:0}
   </div>
 
   <div class="card">
-    <h2>6. Vancouver&rsquo;s municipal election (2022)</h2>
+    <h2>6. Vancouver&rsquo;s municipal election</h2>
     <p class="text-small text-muted">
       Two files from the City of Vancouver open data portal: the results archive
-      and the voting places, joined on the numeric voting place id. Load either
-      first &mdash; the results appear once both are in.
+      and the voting places for the same year, joined on the numeric voting place
+      id. 2026 and 2022 both read. Load either first &mdash; the results appear
+      once both are in.
     </p>
     <p class="text-small text-muted">
       This election is not like the other two. You may vote at any voting place in
-      Vancouver, and in 2022 most people did: 68 of the 104 places were
-      vote-anywhere centres and 22 more were advance places drawing from across the
-      city. So the ballots are <em>smoothed</em> onto areas by distance rather than
+      Vancouver, and most people do: in 2026, 83 of the 85 election-day places were
+      vote-anywhere centres and 59 more were advance places drawing from across the
+      city, together holding 90% of the ballots. So the ballots are <em>smoothed</em> onto areas by distance rather than
       assigned to the nearest place, and <strong>there is no municipal turnout by
       area anywhere in this atlas</strong> &mdash; measured against the federal
       turnout surface, any such map agrees at about r&nbsp;0.2 however it is built.
@@ -2695,13 +2696,13 @@ html>body{padding:0}
       city-wide rate is on the Results tab. &ldquo;How to read this&rdquo; has the numbers.
     </p>
     <div class="viz-controls">
-      <label class="form-label grow" for="file-muni-results">Results archive (2022MunicipalElectionResults.zip)
+      <label class="form-label grow" for="file-muni-results">Results archive (2026MunicipalElectionResults.zip)
         <input class="form-control" type="file" id="file-muni-results" accept=".zip,.csv,.xlsx">
       </label>
       <button type="button" class="btn" id="clear-muni" hidden>Remove</button>
     </div>
     <div class="viz-controls">
-      <label class="form-label grow" for="file-muni-places">Voting places (voting-places-2022.csv)
+      <label class="form-label grow" for="file-muni-places">Voting places (voting-places-2026.csv)
         <input class="form-control" type="file" id="file-muni-places" accept=".csv,.tsv,.txt,.xlsx,.zip,.geojson,.json">
       </label>
     </div>
@@ -3541,6 +3542,16 @@ html>body{padding:0}
       took 5.1% of the vote.
     </p>
     <p>
+      2026 went further in the same direction. 83 of the 85 election-day places were
+      vote-anywhere centres, carrying 40.9% of the ballots; 59 advance places in the city
+      carried 49.4%, more than election day did; the two ordinary neighbourhood places took
+      0.3%. Mail ballots were 8.2% of the count and are reported as one city-wide row with no
+      place, so they are kept off the map rather than put somewhere plausible. The
+      measurements below were made on 2022 and have not been re-run on 2026; with even less
+      of the vote cast near home, there is no reason to expect a municipal turnout surface to
+      have become more trustworthy.
+    </p>
+    <p>
       So a nearest-place catchment is the wrong instrument here, and it fails visibly. Applied
       to the 2022 results it put more ballots into 32 polling divisions than those divisions
       have electors &mdash; one advance place at Dunbar dropped 4,166 ballots onto four
@@ -3582,10 +3593,12 @@ html>body{padding:0}
       does not is absent.
     </p>
     <p>
-      The one turnout figure this election does contribute is the city's own: 170,274 ballots
-      on 464,126 registered voters in the City of Vancouver. That has no geographic modelling
-      in it whatever, and the city publishes it. The two places on the UBC Lands and the
-      University Endowment Lands are excluded throughout &mdash; their electors vote for
+      The one turnout figure this election does contribute is the city's own: 208,514 ballots
+      on 474,125 registered voters in the City of Vancouver in 2026, 44.0% (170,274 on 464,126
+      in 2022). That has no geographic modelling in it whatever, and the city publishes it;
+      the Data tab reads it from whichever archive is loaded. The city's headline 43.39%
+      divides by a total that includes the UBC Lands and the UEL. The places there
+      &mdash; three in 2026, counting the advance place at the Nest &mdash; are excluded throughout &mdash; their electors vote for
       School Trustee and nothing else, and the city counts them separately too. And in a
       ten-seat council race a ballot carries up to ten votes, so the party columns are votes
       and the ballots column is ballots; the atlas keeps them apart rather than reporting
@@ -8518,7 +8531,13 @@ const Points = (() => {
 
     if (lon >= 0 && lat >= 0) return { ...base, kind: 'lonlat', lon, lat, order: { order: 'lon,lat', by: 'named columns' } };
     if (usable('geometry', geometry)) return { ...base, kind: 'geometry', geometry, order: { order: 'lon,lat', by: 'GeoJSON' } };
-    if (usable('pair', pair)) {
+    /* The portal's 2026 CSV export names its only coordinate column "geometry"
+       and fills it with "49.284, -123.113": a pair, not GeoJSON. Read as what
+       it holds rather than what it is called. */
+    const pairCol = usable('pair', pair) ? pair
+      : (geometry >= 0 && rows.length && parses('pair', geometry) ? geometry : -1);
+    if (pairCol >= 0) {
+      const pair = pairCol;
       const samples = [];
       for (const r of rows.slice(0, 200)) {
         const m = /(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)/.exec(String(r[pair] || ''));
@@ -8981,6 +9000,13 @@ const Municipal = (() => {
     const n = parseFloat(norm(v).replace(/[,\s]/g, ''));
     return isFinite(n) ? n : 0;
   };
+  /* The 2026 voting places export writes its integer key as "7.0" while the
+     race sheets write "7 - Morris J. Wosk...". Compared as text they never
+     meet, and every place would land in the unplaced list. */
+  const placeId = (v) => {
+    const s = norm(v);
+    return /^\d+\.0+$/.test(s) ? s.replace(/\.0+$/, '') : s;
+  };
 
   /* --- The voting places --------------------------------------------------- */
 
@@ -9035,7 +9061,7 @@ const Municipal = (() => {
     const byId = new Map();
     let p = 0, unlocated = 0;
     for (const r of table.rows || []) {
-      const id = norm(cell(r, idCol));
+      const id = placeId(cell(r, idCol));
       if (!id) continue;
       const point = read.points[p];
       /* A row with no id was skipped above, so the next point belongs to this
@@ -9054,13 +9080,38 @@ const Municipal = (() => {
         lon: point.lon, lat: point.lat,
       });
     }
+    /* Which places took advance ballots. In 2022 the file said so: every
+       advance place was its own row marked Advance Only. In 2026 the same
+       column means "this building held advance voting and nothing else", so
+       59 of the 60 advance places are marked No -- each is a second row for a
+       building that also has a final-day place, under a higher id (10 is
+       Dunbar on the day, 210 is Dunbar in advance). That pairing is what is
+       read: a row with the same facility name as a lower id, standing within
+       100 m of it, is that building's advance place. Name and point together,
+       not the address, because the file spells one building's address two
+       ways (7 is on "W Hastings", 207 on "West Hastings"). Never a range of
+       ids, because the numbering is a property of one year's file. */
+    let inferredAdvance = 0;
+    const metres = (a, b) => {
+      const r = Math.PI / 180;
+      const x = (b.lon - a.lon) * r * Math.cos(((a.lat + b.lat) / 2) * r);
+      return 6371000 * Math.hypot(x, (b.lat - a.lat) * r);
+    };
+    const firsts = [];
+    const sorted = [...byId.values()].sort((a, b) => (+a.id) - (+b.id) || a.id.localeCompare(b.id));
+    for (const v of sorted) {
+      const key = v.name.toLowerCase();
+      if (firsts.some((f) => f.key === key && metres(f, v) <= 100)) {
+        if (!v.advanceOnly) { v.advanceOnly = true; inferredAdvance++; }
+      } else firsts.push({ key, lon: v.lon, lat: v.lat });
+    }
     /* Two places can share a facility name -- 21 of the 104 in 2022 do, because
        a building hosts both an advance place and a final-day one. Everything
        here keys on the id for that reason; a name is a label, not a key. */
     const names = new Map();
     for (const p of byId.values()) names.set(p.name, (names.get(p.name) || 0) + 1);
     const sharedNames = [...names.values()].filter((n) => n > 1).length;
-    return { byId, order: layout.order, unlocated, count: byId.size, sharedNames };
+    return { byId, order: layout.order, unlocated, count: byId.size, sharedNames, inferredAdvance };
   }
 
   /* --- A race sheet -------------------------------------------------------- */
@@ -9078,7 +9129,9 @@ const Municipal = (() => {
     return norm(surname) || null;
   }
 
-  const ID_HEADER = /voting\s*place\s*id/i;
+  /* 2022 heads the column "Voting Place ID"; 2026 heads it "Precinct" and
+     fills it the same way, "7 - Morris J. Wosk Centre for Dialogue". */
+  const ID_HEADER = /voting\s*place\s*id|^precinct$/i;
   const CAST = /times\s*cast|ballots\s*cast/i;
   /* "2022 Election COUNCILLOR Results by Location (Vote for  10)". The seat
      count matters: in a ten-seat race every ballot carries up to ten votes, so
@@ -9159,7 +9212,7 @@ const Municipal = (() => {
         summaries.push({ label: raw, ballots: race.castCol >= 0 ? num(r[race.castCol]) : 0 });
         continue;
       }
-      const id = m ? m[1] : raw;
+      const id = placeId(m ? m[1] : raw);
       const name = m ? norm(m[2]) : raw;
       const cast = race.castCol >= 0 ? num(r[race.castCol]) : 0;
       const byParty = new Map();
@@ -9191,7 +9244,7 @@ const Municipal = (() => {
         place ? place.address : '',
         place ? String(place.lon) : '',
         place ? String(place.lat) : '',
-        String(cast),
+        race.castCol >= 0 ? String(cast) : '',
         String(rejected),
       ].concat(parties.map((p) => String(byParty.get(p) || 0))));
       if (place && place.outsideCity) rows[rows.length - 1][0] = 'UBC/UEL';
@@ -9263,16 +9316,34 @@ const Municipal = (() => {
   /* Which sheet in the results zip is a race rather than a summary. The zip
      carries Mayor, Councillor, Park Board, School Trustee, three referendum
      questions, an Overview and a Totals sheet. */
-  const RACE_SHEET = /mayor|councillor|council|park.?board|school.?trustee|trustee|\bq\d/i;
-  const isRaceSheet = (name) =>
-    RACE_SHEET.test(String(name).replace(/^.*[-\/]/, '').trim());
+  /* 2022 names its sheets "...-Mayor.csv"; 2026 names them
+     "2026MunicipalElectionsResult_ResultsMayor.csv", with the park race as
+     ParkCommissioner and the questions as ResultsQ1. Both are cut down to the
+     race before they are tested or shown. */
+  const raceLabel = (name) => String(name)
+    .replace(/^.*[\/]/, '').replace(/\.[a-z]+$/i, '')
+    .replace(/^.*[-_]/, '').replace(/^results/i, '').trim() || String(name);
+  const RACE_SHEET = /mayor|council|park|trustee|^q\d/i;
+  const isRaceSheet = (name) => RACE_SHEET.test(raceLabel(name));
+
+  /* The election's year, from a sheet title ("2026 MAYOR Results by
+     Location") or the archive's own name ("2026MunicipalElectionResults.zip").
+     The question sheets carry no year in their title, so the name is the
+     fallback rather than a guess. */
+  const yearOf = (...texts) => {
+    for (const t of texts) {
+      const m = /(?:^|\D)((?:19|20)\d\d)(?!\d)/.exec(String(t || ''));
+      if (m) return m[1];
+    }
+    return null;
+  };
 
   /* The open-data portal's dataset page exports its own INDEX -- one row per
      election, with a link to each archive -- under a filename that reads like
      results: municipal-election-results.csv. It is the likeliest wrong file to
      arrive here, and it happens to contain the address of the right one, so
      say which link to follow rather than "no race sheet was found". */
-  function catalogueLink(table, year = '2022') {
+  function catalogueLink(table, year = null) {
     const at = (name) => table.header.findIndex((h) => name.test(String(h).trim()));
     const election = at(/^election$/i), link = at(/^link to csv$/i);
     if (election < 0 || link < 0) return null;
@@ -9280,13 +9351,18 @@ const Municipal = (() => {
       .map((r) => ({ name: String(r[election] || '').trim(), url: String(r[link] || '').trim() }))
       .filter((r) => r.name && /^https?:/i.test(r.url));
     if (!rows.length) return null;
-    const want = rows.find((r) => r.name.includes(year));
+    /* With no year asked for, the newest general election in the list: the
+       portal's order is not chronological, and a by-election is not the
+       atlas's comparison. */
+    const general = rows.filter((r) => /municipal election/i.test(r.name) && !/by-?election/i.test(r.name));
+    const newest = general.sort((a, b) => (yearOf(b.name) || 0) - (yearOf(a.name) || 0))[0];
+    const want = year ? rows.find((r) => r.name.includes(year)) : newest;
     return { url: want ? want.url : null, name: want ? want.name : null,
              elections: rows.map((r) => r.name) };
   }
 
   return { readVotingPlaces, detectRace, candidateParty, toPlacesTable, isRaceSheet,
-           readOverview, isOverviewSheet, catalogueLink };
+           raceLabel, yearOf, readOverview, isOverviewSheet, catalogueLink, placeId };
 })();
 
 /* --- Who did not vote, and where --------------------------------------------
@@ -9332,7 +9408,9 @@ const Roll = (() => {
   const BALLOT_SOURCES = {
     fed:  { label: 'federal ballots', vintage: '2025', native: 'fed' },
     prov: { label: 'provincial ballots', vintage: '2024', native: 'prov' },
-    muni: { label: 'municipal ballots', vintage: '2022', native: null },
+    /* No vintage of its own: the municipal results are whichever year's archive
+       was loaded, and the caller says which (ballotVintage). */
+    muni: { label: 'municipal ballots', vintage: '', native: null },
   };
 
   /* counted < interpolated < smoothed, weakest wins a subtraction. */
@@ -9365,6 +9443,7 @@ const Roll = (() => {
       roll, ballots, rollOf, ballotsOf,
       rollViaAddresses = false, target = 'fed', cappedIds = null, idOf = null,
       rollLabel = null, rollVintage = null, ballotRoute: ballotRouteGiven = null,
+      ballotVintage = null,
     } = options;
     if (!roll || !ballots || typeof rollOf !== 'function' || typeof ballotsOf !== 'function') {
       for (const row of rows) delete row.g;
@@ -9381,7 +9460,9 @@ const Roll = (() => {
     const rollMeta = { ...base,
       label: rollLabel || base.label,
       vintage: rollVintage != null ? rollVintage : base.vintage };
-    const ballotMeta = BALLOT_SOURCES[ballots] || { label: ballots, vintage: '', native: null };
+    const ballotBase = BALLOT_SOURCES[ballots] || { label: ballots, vintage: '', native: null };
+    const ballotMeta = { ...ballotBase,
+      vintage: ballotVintage != null ? ballotVintage : ballotBase.vintage };
     const rollRoute = routeOf(roll, target, rollViaAddresses);
     /* The ballots side can be modelled even when its source is native to the
        target geography, and only the caller knows.
@@ -9769,7 +9850,7 @@ const state = {
      place in the city, so its ballots are smoothed onto areas rather than
      assigned, and it carries no per-area turnout at any point. */
   muni: null,
-  muniFiles: { places: null, races: null, overview: null },
+  muniFiles: { places: null, races: null, overview: null, year: null },
   socio: { outcome: 'turnout-agg', minElectors: 50, selected: new Set(), extra: new Map(),
            rows: null, byDa: null, table: null, sortKey: 'absR', sortDir: 'desc', picked: null },
   /* Electors on a roll minus ballots cast, per area, for the pairing the
@@ -10298,13 +10379,13 @@ function muniLegend(mode, layerKey, on) {
   if (mode === 'muni-party') {
     const party = $('muni-party') ? $('muni-party').value : '';
     if (!party) return [];
-    return [[partyColour(party), `${party} share, 2022 municipal, ${where}`],
+    return [[partyColour(party), `${party} share, ${muniYear()} municipal, ${where}`.replace(/  +/g, ' ')],
             ['note', 'Smoothed by distance from each voting place, not assigned: you may vote '
              + 'anywhere in Vancouver, so a ballot says less about where its voter lives.']];
   }
   const dom = state.shadeDomain[layerKey];
   return [['var(--viz-series-3)',
-           `2022 municipal ballots ${where}, smoothed`
+           `${muniYear()} municipal ballots ${where}, smoothed`.trim()
            + (dom ? ` — ${fmtInt(dom.lo)} to ${fmtInt(dom.hi)}` : '')],
           ['note', 'Ballots, not turnout. This atlas reports no municipal turnout by area; '
            + '“How to read this” says why.']];
@@ -15898,6 +15979,14 @@ if ($('file-points')) {
    where it does not: an area with no electors would otherwise take no ballots
    at all, which is wrong for a park with a tower on its edge and very wrong
    for a layer with no results loaded yet. */
+/* The year of the municipal results that are loaded: read from the race sheet
+   titles or the archive's name, never assumed, so a 2022 archive still says
+   2022 and a 2026 one says 2026. Empty until something is loaded. */
+function muniYear() {
+  return (state.muni && state.muni.year)
+    || (state.muniFiles && state.muniFiles.year) || '';
+}
+
 function muniTargets() {
   const out = [];
   const areaOf = (f) => (f.__area || (f.__area = Geo.areaM2(f.geometry))) || 1;
@@ -15975,6 +16064,7 @@ function applyMunicipal() {
     state.muni = {
       ...spread,
       race: race.name,
+      year: files.year || Municipal.yearOf(built.report.title) || '',
       built,
       read: inCity,
       parties: read.parties,
@@ -16002,6 +16092,13 @@ function renderMuniReport() {
   const r = m.built.report;
   const lines = [];
   lines.push(`${r.title || m.race}: ${fmtInt(m.ballots)} ballots on ${fmtInt(r.matched)} voting places.`);
+  const vp = state.muniFiles.places;
+  if (vp && vp.inferredAdvance) {
+    lines.push(el('p', 'text-small text-muted',
+      `${fmtInt(vp.inferredAdvance)} voting places share a building with a lower-numbered one `
+      + 'and are not marked Advance Only; each is read as that building\u2019s advance place. The '
+      + '2026 file uses Advance Only for buildings that held nothing else.'));
+  }
   if (r.seats > 1) {
     lines.push(el('p', 'text-small text-muted',
       `Every ballot in this race carries up to ${fmtInt(r.seats)} votes, so the party columns are `
@@ -16066,6 +16163,10 @@ function updateMuniControls() {
       if (!option) continue;
       const ok = Boolean(m && m.on[key]);
       option.hidden = !ok;
+      /* The markup names no year, so the option says which election it is
+         showing once one is loaded. */
+      if (!option.dataset.base) option.dataset.base = option.textContent.trim();
+      option.textContent = m && m.year ? `${option.dataset.base} (${m.year})` : option.dataset.base;
       if (!ok && node.value === value) node.value = 'none';
     }
   }
@@ -16083,20 +16184,23 @@ async function loadMuniResults(input) {
   const files = Array.isArray(input) ? input : [input];
   setStatus('status-muni', 'busy', `Reading ${files.map((f) => f.name).join(', ')}…`);
   const races = [], seen = new Set();
-  let overview = null, catalogue = null;
+  let overview = null, catalogue = null, year = null;
   const add = (name, bytesIn) => {
     const table = TextFormats.parseDelimited(TextFormats.decodeBytes(bytesIn));
     if (!table.header.length) return;
     catalogue = catalogue || Municipal.catalogueLink(table);
     if (Municipal.isOverviewSheet(name)) { overview = Municipal.readOverview(table) || overview; return; }
     if (!Municipal.isRaceSheet(name) || seen.has(name)) return;
-    const label = name.replace(/^.*[-\/]/, '').replace(/\.[a-z]+$/i, '').trim() || name;
+    const label = Municipal.raceLabel(name);
+    const race = Municipal.detectRace(table);
+    year = year || Municipal.yearOf(race && race.title, name);
     seen.add(name);
     races.push({ name: label, table });
   };
   for (const file of files) {
     const bytes = await readFile(file);
     if (/\.zip$/i.test(file.name)) {
+      year = year || Municipal.yearOf(file.name);
       const zip = BinaryFormats.readZip(bytes);
       for (const [name, open] of zip) {
         /* The archive carries the resource forks a Mac adds when it is
@@ -16117,11 +16221,12 @@ async function loadMuniResults(input) {
         : `That is the open-data portal's list of elections, not the results. It offers `
           + `${catalogue.elections.join(', ')}; download the archive for the one you want and load that.`);
     }
-    throw new Error('No race sheet was found. The 2022 archive holds Mayor, Councillor, '
-      + 'ParkBoard, SchoolTrustee and three questions; load that archive, or one of its sheets.');
+    throw new Error('No race sheet was found. The archive holds Mayor, Councillor, '
+      + 'Park Board, School Trustee and three questions; load that archive, or one of its sheets.');
   }
   state.muniFiles.races = races;
   state.muniFiles.overview = overview;
+  state.muniFiles.year = year;
 }
 
 async function loadMuniPlaces(file) {
@@ -16171,7 +16276,7 @@ if ($('file-muni-results')) {
   $('muni-party').addEventListener('change', () => { draw(); renderReadout(); });
   $('clear-muni').addEventListener('click', () => {
     state.muni = null;
-    state.muniFiles = { places: null, races: null, overview: null };
+    state.muniFiles = { places: null, races: null, overview: null, year: null };
     $('clear-muni').hidden = true;
     $('muni-controls').hidden = true;
     $('muni-party-label').hidden = true;
@@ -16220,7 +16325,7 @@ function datasetInventory() {
         + (state.provResults.kind === 'places' ? ', reported by voting place' : '')
       : 'not loaded',
     'Elections BC');
-  add('Municipal results (2022)', Boolean(state.muni),
+  add(`Municipal results${muniYear() ? ` (${muniYear()})` : ''}`, Boolean(state.muni),
     state.muni ? `${state.muni.race}, ${fmtInt(n(state.muni.ballots))} ballots` : 'not loaded',
     'City of Vancouver');
   add('Census geography (2021)', state.da.all.length > 0,
@@ -16391,7 +16496,7 @@ function headlineFindings() {
   }
 
   if (state.muni) {
-    push(`Municipal ${state.muni.race.toLowerCase()} (2022)`, fmtInt(state.muni.ballots),
+    push(`Municipal ${state.muni.race.toLowerCase()}${muniYear() ? ` (${muniYear()})` : ''}`, fmtInt(state.muni.ballots),
       'ballots cast citywide; party share is mapped, turnout by area is not',
       'smoothed');
   }
@@ -16430,7 +16535,7 @@ const CAVEATS = [
    + 'estimating votes. Both halves of the subtraction are named wherever the figure appears, '
    + 'since they are rarely the same election.'],
   ['There is no municipal turnout by area, anywhere in this atlas.',
-   'You may vote at any place in Vancouver and in 2022 most people did, so ballots are smoothed by '
+   'You may vote at any place in Vancouver and most people do, so ballots are smoothed by '
    + 'distance rather than assigned. Measured against the federal turnout surface any municipal '
    + 'turnout map agrees at about r 0.2 however it is built. Party share survives that; turnout '
    + 'does not, so it is not offered.'],
@@ -16499,7 +16604,7 @@ const SOURCES = [
    'Open Government Licence – Canada', 'https://open.canada.ca/en/open-government-licence-canada'],
   ['Elections BC', '2024 voting areas and results by voting place',
    'Elections BC Open Data Licence', 'https://www.elections.bc.ca/docs/EBC-Open-Data-Licence.pdf'],
-  ['City of Vancouver', '2022 municipal election results and voting places',
+  ['City of Vancouver', 'municipal election results and voting places',
    'Open Government Licence – Vancouver', 'https://opendata.vancouver.ca/pages/licence/'],
   ['Statistics Canada', '2021 Census Profile, dissemination geography and the Geographic Attribute File',
    'Statistics Canada Open Licence', 'https://www.statcan.gc.ca/en/reference/licence'],
@@ -16701,7 +16806,8 @@ function nvBallotSources(rows, unit) {
   const on = state.muni && state.muni.on && state.muni.on[unit];
   if (on && on.size) {
     out.push({
-      id: 'muni', label: '2022 municipal ballots (smoothed)',
+      id: 'muni', label: `${muniYear()} municipal ballots (smoothed)`.trim(),
+      vintage: muniYear(),
       of: (row) => {
         const id = nvFeatureId(unit, row);
         const u = id == null ? null : on.get(id);
@@ -16840,6 +16946,7 @@ function refreshNonvoters() {
     /* Undefined for the municipal side, which has no apportionment setting and
        whose route routeOf already answers correctly. */
     ballotRoute: ballots.route || null,
+    ballotVintage: ballots.vintage != null ? ballots.vintage : null,
     cappedIds: nvCappedAreas(nv.unit), idOf: (row) => String(nvFeatureId(nv.unit, row)),
   });
 
@@ -17515,7 +17622,7 @@ adoptPayloads().then((payload) => {
     'db-geo': 'dissemination blocks', 'geo-attr': 'block populations',
     census: 'census variables', 'fed-results': 'federal 2025 results',
     'prov-results': 'provincial 2024 results', 'prov-electors': 'provincial electors',
-    'muni-places': 'municipal voting places', 'muni-results': 'municipal 2022 results',
+    'muni-places': 'municipal voting places', 'muni-results': 'municipal results',
   };
   const names = payload.done.map((k) => LABEL[k] || k);
   if (names.length) {

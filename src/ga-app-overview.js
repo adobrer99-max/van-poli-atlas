@@ -37,7 +37,7 @@ function datasetInventory() {
         + (state.provResults.kind === 'places' ? ', reported by voting place' : '')
       : 'not loaded',
     'Elections BC');
-  add('Municipal results (2022)', Boolean(state.muni),
+  add(`Municipal results${muniYear() ? ` (${muniYear()})` : ''}`, Boolean(state.muni),
     state.muni ? `${state.muni.race}, ${fmtInt(n(state.muni.ballots))} ballots` : 'not loaded',
     'City of Vancouver');
   add('Census geography (2021)', state.da.all.length > 0,
@@ -208,7 +208,7 @@ function headlineFindings() {
   }
 
   if (state.muni) {
-    push(`Municipal ${state.muni.race.toLowerCase()} (2022)`, fmtInt(state.muni.ballots),
+    push(`Municipal ${state.muni.race.toLowerCase()}${muniYear() ? ` (${muniYear()})` : ''}`, fmtInt(state.muni.ballots),
       'ballots cast citywide; party share is mapped, turnout by area is not',
       'smoothed');
   }
@@ -247,7 +247,7 @@ const CAVEATS = [
    + 'estimating votes. Both halves of the subtraction are named wherever the figure appears, '
    + 'since they are rarely the same election.'],
   ['There is no municipal turnout by area, anywhere in this atlas.',
-   'You may vote at any place in Vancouver and in 2022 most people did, so ballots are smoothed by '
+   'You may vote at any place in Vancouver and most people do, so ballots are smoothed by '
    + 'distance rather than assigned. Measured against the federal turnout surface any municipal '
    + 'turnout map agrees at about r 0.2 however it is built. Party share survives that; turnout '
    + 'does not, so it is not offered.'],
@@ -316,7 +316,7 @@ const SOURCES = [
    'Open Government Licence – Canada', 'https://open.canada.ca/en/open-government-licence-canada'],
   ['Elections BC', '2024 voting areas and results by voting place',
    'Elections BC Open Data Licence', 'https://www.elections.bc.ca/docs/EBC-Open-Data-Licence.pdf'],
-  ['City of Vancouver', '2022 municipal election results and voting places',
+  ['City of Vancouver', 'municipal election results and voting places',
    'Open Government Licence – Vancouver', 'https://opendata.vancouver.ca/pages/licence/'],
   ['Statistics Canada', '2021 Census Profile, dissemination geography and the Geographic Attribute File',
    'Statistics Canada Open Licence', 'https://www.statcan.gc.ca/en/reference/licence'],

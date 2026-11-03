@@ -30,6 +30,13 @@ const Municipal = (() => {
     const n = parseFloat(norm(v).replace(/[,\s]/g, ''));
     return isFinite(n) ? n : 0;
   };
+  /* The 2026 voting places export writes its integer key as "7.0" while the
+     race sheets write "7 - Morris J. Wosk...". Compared as text they never
+     meet, and every place would land in the unplaced list. */
+  const placeId = (v) => {
+    const s = norm(v);
+    return /^\d+\.0+$/.test(s) ? s.replace(/\.0+$/, '') : s;
+  };
 
   /* --- The voting places --------------------------------------------------- */
 
@@ -84,7 +91,7 @@ const Municipal = (() => {
     const byId = new Map();
     let p = 0, unlocated = 0;
     for (const r of table.rows || []) {
-      const id = norm(cell(r, idCol));
+      const id = placeId(cell(r, idCol));
       if (!id) continue;
       const point = read.points[p];
       /* A row with no id was skipped above, so the next point belongs to this
@@ -103,13 +110,38 @@ const Municipal = (() => {
         lon: point.lon, lat: point.lat,
       });
     }
+    /* Which places took advance ballots. In 2022 the file said so: every
+       advance place was its own row marked Advance Only. In 2026 the same
+       column means "this building held advance voting and nothing else", so
+       59 of the 60 advance places are marked No -- each is a second row for a
+       building that also has a final-day place, under a higher id (10 is
+       Dunbar on the day, 210 is Dunbar in advance). That pairing is what is
+       read: a row with the same facility name as a lower id, standing within
+       100 m of it, is that building's advance place. Name and point together,
+       not the address, because the file spells one building's address two
+       ways (7 is on "W Hastings", 207 on "West Hastings"). Never a range of
+       ids, because the numbering is a property of one year's file. */
+    let inferredAdvance = 0;
+    const metres = (a, b) => {
+      const r = Math.PI / 180;
+      const x = (b.lon - a.lon) * r * Math.cos(((a.lat + b.lat) / 2) * r);
+      return 6371000 * Math.hypot(x, (b.lat - a.lat) * r);
+    };
+    const firsts = [];
+    const sorted = [...byId.values()].sort((a, b) => (+a.id) - (+b.id) || a.id.localeCompare(b.id));
+    for (const v of sorted) {
+      const key = v.name.toLowerCase();
+      if (firsts.some((f) => f.key === key && metres(f, v) <= 100)) {
+        if (!v.advanceOnly) { v.advanceOnly = true; inferredAdvance++; }
+      } else firsts.push({ key, lon: v.lon, lat: v.lat });
+    }
     /* Two places can share a facility name -- 21 of the 104 in 2022 do, because
        a building hosts both an advance place and a final-day one. Everything
        here keys on the id for that reason; a name is a label, not a key. */
     const names = new Map();
     for (const p of byId.values()) names.set(p.name, (names.get(p.name) || 0) + 1);
     const sharedNames = [...names.values()].filter((n) => n > 1).length;
-    return { byId, order: layout.order, unlocated, count: byId.size, sharedNames };
+    return { byId, order: layout.order, unlocated, count: byId.size, sharedNames, inferredAdvance };
   }
 
   /* --- A race sheet -------------------------------------------------------- */
@@ -127,7 +159,9 @@ const Municipal = (() => {
     return norm(surname) || null;
   }
 
-  const ID_HEADER = /voting\s*place\s*id/i;
+  /* 2022 heads the column "Voting Place ID"; 2026 heads it "Precinct" and
+     fills it the same way, "7 - Morris J. Wosk Centre for Dialogue". */
+  const ID_HEADER = /voting\s*place\s*id|^precinct$/i;
   const CAST = /times\s*cast|ballots\s*cast/i;
   /* "2022 Election COUNCILLOR Results by Location (Vote for  10)". The seat
      count matters: in a ten-seat race every ballot carries up to ten votes, so
@@ -208,7 +242,7 @@ const Municipal = (() => {
         summaries.push({ label: raw, ballots: race.castCol >= 0 ? num(r[race.castCol]) : 0 });
         continue;
       }
-      const id = m ? m[1] : raw;
+      const id = placeId(m ? m[1] : raw);
       const name = m ? norm(m[2]) : raw;
       const cast = race.castCol >= 0 ? num(r[race.castCol]) : 0;
       const byParty = new Map();
@@ -240,7 +274,7 @@ const Municipal = (() => {
         place ? place.address : '',
         place ? String(place.lon) : '',
         place ? String(place.lat) : '',
-        String(cast),
+        race.castCol >= 0 ? String(cast) : '',
         String(rejected),
       ].concat(parties.map((p) => String(byParty.get(p) || 0))));
       if (place && place.outsideCity) rows[rows.length - 1][0] = 'UBC/UEL';
@@ -312,16 +346,34 @@ const Municipal = (() => {
   /* Which sheet in the results zip is a race rather than a summary. The zip
      carries Mayor, Councillor, Park Board, School Trustee, three referendum
      questions, an Overview and a Totals sheet. */
-  const RACE_SHEET = /mayor|councillor|council|park.?board|school.?trustee|trustee|\bq\d/i;
-  const isRaceSheet = (name) =>
-    RACE_SHEET.test(String(name).replace(/^.*[-\/]/, '').trim());
+  /* 2022 names its sheets "...-Mayor.csv"; 2026 names them
+     "2026MunicipalElectionsResult_ResultsMayor.csv", with the park race as
+     ParkCommissioner and the questions as ResultsQ1. Both are cut down to the
+     race before they are tested or shown. */
+  const raceLabel = (name) => String(name)
+    .replace(/^.*[\/]/, '').replace(/\.[a-z]+$/i, '')
+    .replace(/^.*[-_]/, '').replace(/^results/i, '').trim() || String(name);
+  const RACE_SHEET = /mayor|council|park|trustee|^q\d/i;
+  const isRaceSheet = (name) => RACE_SHEET.test(raceLabel(name));
+
+  /* The election's year, from a sheet title ("2026 MAYOR Results by
+     Location") or the archive's own name ("2026MunicipalElectionResults.zip").
+     The question sheets carry no year in their title, so the name is the
+     fallback rather than a guess. */
+  const yearOf = (...texts) => {
+    for (const t of texts) {
+      const m = /(?:^|\D)((?:19|20)\d\d)(?!\d)/.exec(String(t || ''));
+      if (m) return m[1];
+    }
+    return null;
+  };
 
   /* The open-data portal's dataset page exports its own INDEX -- one row per
      election, with a link to each archive -- under a filename that reads like
      results: municipal-election-results.csv. It is the likeliest wrong file to
      arrive here, and it happens to contain the address of the right one, so
      say which link to follow rather than "no race sheet was found". */
-  function catalogueLink(table, year = '2022') {
+  function catalogueLink(table, year = null) {
     const at = (name) => table.header.findIndex((h) => name.test(String(h).trim()));
     const election = at(/^election$/i), link = at(/^link to csv$/i);
     if (election < 0 || link < 0) return null;
@@ -329,11 +381,16 @@ const Municipal = (() => {
       .map((r) => ({ name: String(r[election] || '').trim(), url: String(r[link] || '').trim() }))
       .filter((r) => r.name && /^https?:/i.test(r.url));
     if (!rows.length) return null;
-    const want = rows.find((r) => r.name.includes(year));
+    /* With no year asked for, the newest general election in the list: the
+       portal's order is not chronological, and a by-election is not the
+       atlas's comparison. */
+    const general = rows.filter((r) => /municipal election/i.test(r.name) && !/by-?election/i.test(r.name));
+    const newest = general.sort((a, b) => (yearOf(b.name) || 0) - (yearOf(a.name) || 0))[0];
+    const want = year ? rows.find((r) => r.name.includes(year)) : newest;
     return { url: want ? want.url : null, name: want ? want.name : null,
              elections: rows.map((r) => r.name) };
   }
 
   return { readVotingPlaces, detectRace, candidateParty, toPlacesTable, isRaceSheet,
-           readOverview, isOverviewSheet, catalogueLink };
+           raceLabel, yearOf, readOverview, isOverviewSheet, catalogueLink, placeId };
 })();
