@@ -529,7 +529,7 @@ write_csv("fixtures/e2e_muni_places.csv",
           ["Voting Place ID", "Facility Name", "Facility Address", "Advance Only",
            "Supercentre", "Local Area", "geo_point_2d"], muni_places)
 
-def muni_sheet(title, seats, parties, base):
+def muni_sheet(title, seats, parties, base, year=2022):
     """A race sheet: title row, header, one row per place, then a Total."""
     header = ["Voting Place ID # - Voting Place", "Times Cast", "Undervotes", "Overvotes"]
     for n, (label, _) in enumerate(parties):
@@ -569,7 +569,7 @@ def muni_sheet(title, seats, parties, base):
         if n < len(parties) - 1:
             total_row.append("")
     rows.append(total_row)
-    return [[f"2022 Election {title} Results by Location (Vote for  {seats})"] + [""] * 6,
+    return [[f"{year} Election {title} Results by Location (Vote for  {seats})"] + [""] * 6,
             header] + rows
 
 MUNI_RACES = [
@@ -608,6 +608,16 @@ with zipfile.ZipFile("fixtures/e2e_muni_results.zip", "w", zipfile.ZIP_DEFLATED)
                        ["Voting Place ID - Voting Place", "Ballots Cast"]]))
     # A Mac resource fork, which parses as an empty table if it is not skipped.
     z.writestr("__MACOSX/._2022MunicipalElectionResults - Mayor.csv", "\x00\x05")
+
+# An earlier election for the swing map: the same places, a Mayor race in which
+# ABC ran well behind where it finishes in 2022, so the swing is a gain and its
+# sign is something the test can check rather than infer.
+MUNI_2018_MAYOR = ("MAYOR", 1, [('7 SIM, Ken (ABC Vancouver)', 0.28),
+                                ('51 STEWART, Kennedy (Forward with Kennedy Stewart)', 0.48),
+                                ('50 SHOTTHA, Satwant', 0.09)], 900)
+with zipfile.ZipFile("fixtures/e2e_muni_results_2018.zip", "w", zipfile.ZIP_DEFLATED) as z:
+    z.writestr("2018MunicipalElectionResults - Mayor.csv",
+               as_csv(muni_sheet(*MUNI_2018_MAYOR, year=2018)))
 
 expected["municipal"] = {
     "places": len(muni_places),

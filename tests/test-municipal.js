@@ -342,6 +342,28 @@ const cat26 = { header: catalogue.header, rows: [
 ] };
 eq('is 2026, not a plebiscite or a by-election', M.catalogueLink(cat26).url, 'https://example.invalid/2026.zip');
 
+console.log('\n== Two elections compared ==');
+const races22 = ['Mayor', 'Councillor', 'ParkBoard', 'SchoolTrustee', 'Q1', 'Q2'].map((name) => ({ name }));
+eq('Mayor is matched to Mayor', M.matchRace('Mayor', races22).name, 'Mayor');
+eq('the park race is matched across its two names', M.matchRace('ParkCommissioner', races22).name, 'ParkBoard');
+eq('a question is never matched, because the questions change', M.matchRace('Q1', races22), null);
+eq('a race the other year did not hold has no match', M.matchRace('Mayor', [{ name: 'Councillor' }]), null);
+eq('only parties on the ballot both times, under the same name',
+   M.swingParties([['Green', 1], ['ABC Vancouver', 1], ['TEAM', 1], ['Vancouver Liberals', 1]],
+                  [['ABC Vancouver', 1], ['Forward With Kennedy Stewart', 1], ['TEAM', 1]]),
+   ['ABC Vancouver', 'TEAM']);
+eq('and never Yes or No', M.swingParties([['Yes', 1], ['No', 1]], [['Yes', 1], ['No', 1]]), []);
+const cityRead = { places: [{ total: 300, byParty: new Map([['ABC', 100]]) }],
+                   unlocated: [{ total: 100, byParty: new Map([['ABC', 60]]) }] };
+near('the city-wide share counts unplaced mail as well', M.cityShare(cityRead, 'ABC'), 160 / 400);
+const q22 = await Ingest.loadTable('Q1.csv', Buffer.from([
+  '1. CAPITAL PLAN (Vote for  1),,,,,,,',
+  'Voting Place ID # - Voting Place,Times Cast,Undervotes,Overvotes,Yes,,No,,Registered Voters',
+  '1 - Dunbar Community Centre,100,0,0,60,,40,,"1,200"',
+].join('\n')));
+eq('a Registered Voters column is not an answer anyone voted for',
+   M.detectRace(q22).candidates.map((c) => c.party), ['Yes', 'No']);
+
 console.log(fails ? `\n${fails} FAILED` : '\nAll municipal checks passed.');
 process.exit(fails ? 1 : 0);
 })();

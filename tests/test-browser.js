@@ -2288,6 +2288,76 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
   ok('and the legend says it is on dissemination areas',
      /dissemination areas/.test(await page.locator('#map-legend').innerText()));
 
+  /* The swing map: an earlier election loaded beside the mapped one, the same
+     race subtracted area by area. The 2018 fixture has ABC well behind its 2022
+     share, so the swing must be a gain everywhere and the city-wide figure must
+     agree with the two published totals. */
+  console.log('\n== The swing map, against an earlier election ==');
+  await page.locator('#tab-data').click();
+  await page.waitForTimeout(150);
+  await page.locator('#file-muni-base-results').setInputFiles('fixtures/e2e_muni_results_2018.zip');
+  await page.waitForTimeout(400);
+  await page.locator('#file-muni-base-places').setInputFiles('fixtures/e2e_muni_places.csv');
+  await page.waitForTimeout(1500);
+  const baseStatus = (await page.locator('#status-muni-base').innerText()).replace(/\s+/g, ' ');
+  ok('the earlier election is read and matched to the same race',
+     /2018 Mayor: [\d,]+ ballots/.test(baseStatus) && /compared with 2022 Mayor/.test(baseStatus),
+     baseStatus.slice(0, 200));
+  ok('and the parties offered are the ones on the ballot both times',
+     /same name: ABC Vancouver, Forward With Kennedy Stewart, SHOTTHA/i.test(baseStatus),
+     baseStatus.slice(0, 300));
+  const swing = await page.evaluate(() => {
+    const st = window.vanPoliAtlas.state, b = st.muniBase;
+    const sh = (u, p) => { let t = 0; for (const v of u.parties.values()) t += v; return t ? (u.parties.get(p) || 0) / t : null; };
+    const v = [];
+    for (const [id, u] of st.muni.on.fed) { const o = b.on.fed.get(id); if (o) v.push(sh(u, 'ABC Vancouver') - sh(o, 'ABC Vancouver')); }
+    const c = b.city.get('ABC Vancouver');
+    return { n: v.length, min: Math.min(...v), city: c.now - c.then,
+             options: ['muni-swing', 'muni-swing-rel'].map((m) => !document.querySelector(`#shade-by option[value="${m}"]`).hidden) };
+  });
+  ok('every poll the mapped election reached has a swing', swing.n > 500, String(swing.n));
+  ok('ABC gained everywhere, as the fixture was built to', swing.min > 0, String(swing.min));
+  ok('the city-wide swing is a gain too', swing.city > 0.05, String(swing.city));
+  ok('both swing options appear', swing.options.every(Boolean), JSON.stringify(swing.options));
+  await page.locator('#tab-map').click();
+  await page.waitForTimeout(200);
+  await page.locator('#muni-swing-party').selectOption('ABC Vancouver');
+  await page.locator('#shade-by').selectOption('muni-swing');
+  await page.waitForTimeout(700);
+  const swingLegend = (await page.locator('#map-legend').innerText()).replace(/\s+/g, ' ');
+  ok('the swing legend names both years and the direction',
+     /2018→2022/.test(swingLegend) && /gained share/.test(swingLegend)
+     && /lost share/.test(swingLegend), swingLegend.slice(0, 220));
+  ok('and gives the city-wide figure it should be read against',
+     /City-wide, ABC Vancouver went from [\d.]+% to [\d.]+% \(\+[\d.]+ pts\)/.test(swingLegend),
+     swingLegend.slice(0, 400));
+  const swingShaded = await page.evaluate(() => [...document.querySelectorAll('.layer-fed path')]
+    .filter((p) => p.style.fill && p.style.fill !== 'none').length);
+  ok(`the swing shades the polls (${swingShaded})`, swingShaded > 500, String(swingShaded));
+  await page.locator('#shade-by').selectOption('muni-swing-rel');
+  await page.waitForTimeout(500);
+  ok('the swing against the city-wide one says what it is measured against',
+     /better than its city-wide swing/.test(await page.locator('#map-legend').innerText()));
+  /* A race the earlier election did not hold: no counterpart, so no swing
+     rather than a subtraction of two different contests. */
+  await page.locator('#tab-data').click();
+  await page.locator('#muni-race').selectOption('Councillor');
+  await page.waitForTimeout(900);
+  ok('a race with no counterpart says so and offers no swing',
+     /no counterpart/.test(await page.locator('#status-muni-base').innerText())
+     && await page.evaluate(() => document.querySelector('#shade-by option[value="muni-swing"]').hidden));
+  await page.locator('#muni-race').selectOption('Mayor');
+  await page.waitForTimeout(900);
+  await page.locator('#clear-muni-base').click();
+  await page.waitForTimeout(400);
+  ok('Remove takes the swing away again',
+     await page.evaluate(() => window.vanPoliAtlas.state.muniBase === null
+       && document.querySelector('#shade-by option[value="muni-swing"]').hidden));
+  await page.locator('#tab-map').click();
+  await page.waitForTimeout(300);
+  await page.locator('#shade-by').selectOption('muni-party');
+  await page.waitForTimeout(300);
+
   console.log('\n== One opacity slider, every overlay it governs ==');
   const opacityOf = (layer) => page.evaluate((l) => {
     const n = document.querySelector(`.layer-${l} path[style*="fill"]`);

@@ -81,45 +81,140 @@ function spreadMunicipal(read) {
   return { on, reports, bandwidth };
 }
 
+/* One race from one election's two files, joined and spread onto every
+   loaded layer. Both the election being mapped and the one it is compared
+   with go through here, so the two sides of a swing are made the same way. */
+function spreadRace(files, race) {
+  const built = Municipal.toPlacesTable(race.table, files.places, { district: 'CoV' });
+  const layout = Places.detectPlaceLayout(built.table.header);
+  if (!layout) throw new Error('The joined table carried no party columns to read.');
+  const read = Places.readPlaces(built.table, layout);
+  /* UBC and the UEL are a different jurisdiction whose electors vote for
+     School Trustee and nothing else. Their places are held out of the city
+     spread rather than quietly folded into a City of Vancouver map. */
+  const inCity = { ...read, places: read.places.filter((p) => p.ed === 'COV'),
+                   unlocated: read.unlocated.filter((p) => p.ed === 'COV') };
+  const spread = spreadMunicipal(inCity);
+  return {
+    ...spread,
+    race: race.name,
+    year: files.year || Municipal.yearOf(built.report.title) || '',
+    built,
+    read: inCity,
+    parties: read.parties,
+    overview: files.overview,
+    ballots: inCity.places.reduce((a, p) =>
+      a + (p.declaredTotal == null ? p.total + p.rejected : p.declaredTotal), 0),
+  };
+}
+
 function applyMunicipal() {
   const files = state.muniFiles;
   if (!files.places || !files.races || !files.races.length) return;
   const raceName = $('muni-race') && $('muni-race').value;
   const race = files.races.find((r) => r.name === raceName) || files.races[0];
   try {
-    const built = Municipal.toPlacesTable(race.table, files.places, { district: 'CoV' });
-    const layout = Places.detectPlaceLayout(built.table.header);
-    if (!layout) throw new Error('The joined table carried no party columns to read.');
-    const read = Places.readPlaces(built.table, layout);
-    /* UBC and the UEL are a different jurisdiction whose electors vote for
-       School Trustee and nothing else. Their two places are held out of the
-       city spread rather than quietly folded into a City of Vancouver map. */
-    const inCity = { ...read, places: read.places.filter((p) => p.ed === 'COV'),
-                     unlocated: read.unlocated.filter((p) => p.ed === 'COV') };
-    const spread = spreadMunicipal(inCity);
-    state.muni = {
-      ...spread,
-      race: race.name,
-      year: files.year || Municipal.yearOf(built.report.title) || '',
-      built,
-      read: inCity,
-      parties: read.parties,
-      overview: files.overview,
-      ballots: inCity.places.reduce((a, p) =>
-        a + (p.declaredTotal == null ? p.total + p.rejected : p.declaredTotal), 0),
-    };
+    state.muni = spreadRace(files, race);
+    const read = state.muni.read;
     fillSelect($('muni-party'), read.parties.map(([name]) => ({ value: name, label: name })),
       $('muni-party').value);
     fillSelect($('muni-race'), files.races.map((r) => ({ value: r.name, label: r.name })), race.name);
     $('muni-party-label').hidden = false;
     $('muni-controls').hidden = false;
     $('clear-muni').hidden = false;
+    applyMuniBase(false);
     updateMuniControls();
     renderMuniReport();
     draw(); renderReadout(); refreshResults(true);
   } catch (err) {
     setStatus('status-muni', 'error', [String(err.message || err)]);
   }
+}
+
+/* --- The earlier election, for a swing -------------------------------------
+
+   Loaded the same way as the main one and spread onto the same layers with the
+   same bandwidths, then held beside it. Nothing else in the atlas reads it: it
+   exists to be subtracted. The race always follows the one being mapped, so
+   the two sides of a swing are never different contests. */
+function applyMuniBase(redraw = true) {
+  const files = state.muniBaseFiles;
+  state.muniBase = null;
+  const finish = () => {
+    updateMuniControls();
+    renderMuniBaseReport();
+    if (redraw) { draw(); renderReadout(); }
+  };
+  if (!files.places || !files.races || !files.races.length) { finish(); return; }
+  if (!state.muni) {
+    setStatus('status-muni-base', 'busy', [
+      `${files.year || 'Earlier'} results and voting places read. Load the election above `
+      + 'to compare them with.']);
+    if (redraw) updateMuniControls();
+    return;
+  }
+  const race = Municipal.matchRace(state.muni.race, files.races);
+  if (!race) { finish(); return; }
+  try {
+    const base = spreadRace(files, race);
+    const parties = Municipal.swingParties(state.muni.parties, base.parties);
+    base.swingParties = parties;
+    base.city = new Map(parties.map((p) => [p, {
+      now: Municipal.cityShare(state.muni.read, p),
+      then: Municipal.cityShare(base.read, p),
+    }]));
+    state.muniBase = base;
+    fillSelect($('muni-swing-party'), parties.map((p) => ({ value: p, label: p })),
+      $('muni-swing-party').value);
+    $('muni-swing-party-label').hidden = !parties.length;
+  } catch (err) {
+    setStatus('status-muni-base', 'error', [String(err.message || err)]);
+    return;
+  }
+  finish();
+}
+
+function renderMuniBaseReport() {
+  const files = state.muniBaseFiles;
+  const b = state.muniBase, m = state.muni;
+  $('clear-muni-base').hidden = !(files.places || files.races);
+  if (!files.places && !files.races) { setStatus('status-muni-base', 'idle', []); return; }
+  if (!b) {
+    if (m && files.races && files.places) {
+      setStatus('status-muni-base', 'busy', [
+        `${m.race} has no counterpart in the ${files.year || 'earlier'} results to compare with. `
+        + 'Mayor, Councillor, Park Board and School Trustee are compared; the questions change '
+        + 'from one election to the next, so they never are.']);
+    }
+    return;
+  }
+  const lines = [];
+  lines.push(`${b.year} ${b.race}: ${fmtInt(b.ballots)} ballots on `
+    + `${fmtInt(b.built.report.matched)} voting places, compared with ${m.year} ${m.race}.`);
+  if (b.year && m.year && +b.year >= +m.year) {
+    lines.push(el('p', 'text-small text-muted',
+      `The comparison election (${b.year}) is not earlier than the one mapped (${m.year}). `
+      + 'The swing is still the mapped year minus the comparison year, so read its sign accordingly.'));
+  }
+  if (b.swingParties.length) {
+    const city = b.swingParties.map((p) => {
+      const c = b.city.get(p);
+      return c.now == null || c.then == null ? null
+        : `${p} ${fmtSwing(c.now - c.then)}`;
+    }).filter(Boolean);
+    lines.push(el('p', 'text-small text-muted',
+      `On the ballot both times, under the same name: ${b.swingParties.join(', ')}. `
+      + `City-wide swing: ${city.join(' · ')}.`));
+  } else {
+    lines.push(el('p', 'text-small text-muted',
+      'No party ran in this race under the same name both times, so there is no swing to draw.'));
+  }
+  lines.push(el('p', 'text-small text-muted',
+    'Each year is smoothed from its own voting places with the bandwidths above, then the shares '
+    + 'are subtracted. The voting places moved between the two elections, so a swing in one area '
+    + 'is partly a change in where people could vote; the city-wide swing has no such problem, and '
+    + 'the map offers the swing against it for that reason.'));
+  setStatus('status-muni-base', 'ok', lines);
 }
 
 function renderMuniReport() {
@@ -194,15 +289,19 @@ function updateMuniControls() {
   for (const [sel, key] of [['shade-by', 'fed'], ['shade-prov-by', 'prov'], ['shade-da-by', 'da']]) {
     const node = $(sel);
     if (!node) continue;
-    for (const value of ['muni-party', 'muni-ballots']) {
+    const b = state.muniBase;
+    for (const value of ['muni-party', 'muni-ballots', 'muni-swing', 'muni-swing-rel']) {
       const option = node.querySelector(`option[value="${value}"]`);
       if (!option) continue;
-      const ok = Boolean(m && m.on[key]);
+      const swing = value.startsWith('muni-swing');
+      const ok = Boolean(m && m.on[key])
+        && (!swing || Boolean(b && b.on[key] && b.swingParties.length));
       option.hidden = !ok;
       /* The markup names no year, so the option says which election it is
          showing once one is loaded. */
       if (!option.dataset.base) option.dataset.base = option.textContent.trim();
-      option.textContent = m && m.year ? `${option.dataset.base} (${m.year})` : option.dataset.base;
+      const years = swing ? (b && b.year && m.year ? `${b.year}\u2192${m.year}` : '') : (m && m.year) || '';
+      option.textContent = years ? `${option.dataset.base} (${years})` : option.dataset.base;
       if (!ok && node.value === value) node.value = 'none';
     }
   }
@@ -216,9 +315,19 @@ function updateMuniControls() {
 /* One archive, or the sheets from inside one already unpacked -- a payload
    baked into the build carries them separately, because an archive would have
    to be base64 to survive being inlined. */
-async function loadMuniResults(input) {
+/* The main election and the comparison one load through the same code into
+   their own slot, and report on their own status line. */
+const MUNI_SLOT = {
+  main: { files: () => state.muniFiles, status: 'status-muni',
+          inputs: ['file-muni-results', 'file-muni-places'] },
+  base: { files: () => state.muniBaseFiles, status: 'status-muni-base',
+          inputs: ['file-muni-base-results', 'file-muni-base-places'] },
+};
+
+async function loadMuniResults(input, slot = 'main') {
+  const S = MUNI_SLOT[slot];
   const files = Array.isArray(input) ? input : [input];
-  setStatus('status-muni', 'busy', `Reading ${files.map((f) => f.name).join(', ')}…`);
+  setStatus(S.status, 'busy', `Reading ${files.map((f) => f.name).join(', ')}…`);
   const races = [], seen = new Set();
   let overview = null, catalogue = null, year = null;
   const add = (name, bytesIn) => {
@@ -262,37 +371,41 @@ async function loadMuniResults(input) {
   }
   races.sort((a, b) => Municipal.raceRank(a.name) - Municipal.raceRank(b.name)
     || a.name.localeCompare(b.name));
-  state.muniFiles.races = races;
-  state.muniFiles.overview = overview;
-  state.muniFiles.year = year;
+  const into = S.files();
+  into.races = races;
+  into.overview = overview;
+  into.year = year;
 }
 
-async function loadMuniPlaces(file) {
-  setStatus('status-muni', 'busy', `Reading ${file.name}…`);
+async function loadMuniPlaces(file, slot = 'main') {
+  const S = MUNI_SLOT[slot];
+  setStatus(S.status, 'busy', `Reading ${file.name}…`);
   const table = await Ingest.loadTable(file.name, await readFile(file));
-  state.muniFiles.places = Municipal.readVotingPlaces(table);
+  S.files().places = Municipal.readVotingPlaces(table);
 }
 
-async function loadMuniFile(file, which) {
+async function loadMuniFile(file, which, slot = 'main') {
+  const S = MUNI_SLOT[slot];
   try {
-    if (which === 'results') await loadMuniResults(file);
-    else await loadMuniPlaces(Array.isArray(file) ? file[0] : file);
-    const files = state.muniFiles;
+    if (which === 'results') await loadMuniResults(file, slot);
+    else await loadMuniPlaces(Array.isArray(file) ? file[0] : file, slot);
+    const files = S.files();
     if (!files.places) {
-      setStatus('status-muni', 'busy', [
+      setStatus(S.status, 'busy', [
         `${fmtInt(files.races.length)} races read. Now load the voting places file, which carries the `
         + 'coordinates these results have to be joined to.']);
       return;
     }
     if (!files.races) {
-      setStatus('status-muni', 'busy', [
+      setStatus(S.status, 'busy', [
         `${fmtInt(files.places.count)} voting places read. Now load the results archive.`]);
       return;
     }
-    applyMunicipal();
+    if (slot === 'base') applyMuniBase();
+    else applyMunicipal();
   } catch (err) {
-    setStatus('status-muni', 'error', [String(err.message || err)]);
-    clearInput(which === 'results' ? 'file-muni-results' : 'file-muni-places');
+    setStatus(S.status, 'error', [String(err.message || err)]);
+    clearInput(which === 'results' ? S.inputs[0] : S.inputs[1]);
   }
 }
 
@@ -312,9 +425,27 @@ if ($('file-muni-results')) {
     $(id).addEventListener('change', () => { if (state.muni) applyMunicipal(); });
   }
   $('muni-party').addEventListener('change', () => { draw(); renderReadout(); });
+  $('muni-swing-party').addEventListener('change', () => { draw(); renderReadout(); });
+  $('file-muni-base-results').addEventListener('change', (e) => {
+    if (e.target.files.length) loadMuniFile(e.target.files[0], 'results', 'base');
+    e.target.value = '';
+  });
+  $('file-muni-base-places').addEventListener('change', (e) => {
+    if (e.target.files.length) loadMuniFile(e.target.files[0], 'places', 'base');
+    e.target.value = '';
+  });
+  $('clear-muni-base').addEventListener('click', () => {
+    state.muniBase = null;
+    state.muniBaseFiles = { places: null, races: null, overview: null, year: null };
+    $('muni-swing-party-label').hidden = true;
+    applyMuniBase();
+  });
   $('clear-muni').addEventListener('click', () => {
     state.muni = null;
+    state.muniBase = null;
     state.muniFiles = { places: null, races: null, overview: null, year: null };
+    $('muni-swing-party-label').hidden = true;
+    applyMuniBase(false);
     $('clear-muni').hidden = true;
     $('muni-controls').hidden = true;
     $('muni-party-label').hidden = true;
