@@ -25,7 +25,7 @@ The city does not publish ballots per machine, so Times Cast is the machine's
 mayoral votes, which is ballots less the few that left mayor blank. Mayor is
 read by candidate, council and school trustee by elector organization, as for
 Richmond and Surrey."""
-import argparse, csv, difflib, io, json, re, sys, zipfile
+import argparse, csv, io, json, re, sys, zipfile
 
 SHEET = {'Mayor': 'Mayor', 'Councillor': 'Councillor', 'School Trustee': 'SchoolTrustee'}
 SEATS = {'Mayor': 1, 'Councillor': 8, 'School Trustee': 7}
@@ -60,18 +60,28 @@ def main():
         slates[(r['office'], r['candidate'])] = r['elector_organization'].strip()
 
     labels = {int(k): v for k, v in data['machines'].items()}
+    # a machine with no votes at all (one not deployed, the ballot-marking
+    # device that tabulates nothing) is left out
+    empty = [m for m in labels if not any(c.get(str(m)) for r in data['races'].values() for c in r.values())]
+    for m in empty:
+        print(f'machine {m} "{labels.pop(m)}" has no votes; left out')
     places, ids = [], {}
     for m in sorted(labels):
         lab = re.sub(r'^\s*\d{1,2}\s*[-–]?\s*', '', labels[m]).strip()
         if re.search(r'mail', lab, re.I):
             ids[m] = f'MBV{m} - {lab}'
             continue
-        adv = bool(re.search(r'advance', lab, re.I))
-        name = re.sub(r'\b(advance( voting)?|tab\s*[a-z])\b', ' ', lab, flags=re.I)
-        best = max(locs.values(), key=lambda L: difflib.SequenceMatcher(None, key(name), key(L['name'])).ratio())
-        score = difflib.SequenceMatcher(None, key(name), key(best['name'])).ratio()
-        if score < 0.55:
+        adv = bool(re.search(r'\bADV\b|advance', lab, re.I))
+        name = re.sub(r'\b(adv|advance( voting)?|tab\s*[a-z])\b', ' ', lab, flags=re.I)
+        # the OCR'd name can have its words out of order, so compare word sets
+        def sim(L):
+            A, B = set(key(name).split()), set(key(L['name']).split())
+            return len(A & B) / max(1, len(B))
+        best = max(locs.values(), key=sim)
+        score = sim(best)
+        if score < 0.5:
             sys.exit(f'Machine {m} "{labels[m]}" matches no voting location (best {best["name"]}, {score:.2f})')
+        print(f'  {m:2d} {labels[m][:50]:50s} -> {best["name"]} ({score:.2f})')
         code = f'M{m:02d}'
         ids[m] = f'{code} - {best["name"]}'
         places.append([code, best['name'] + (' (advance)' if adv else f' (machine {m})'), best['addr'],

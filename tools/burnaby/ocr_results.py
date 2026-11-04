@@ -101,6 +101,52 @@ def read_cell(path, box, threshold=150, scale=3):
     return CACHE[k]
 
 
+def glyphs(path, box, threshold=170):
+    """The digits in a cell, left to right, each as a 16x24 bitmap plus its
+    width: split where a column of the crop has no ink."""
+    img = IMAGES.get(path) or IMAGES.setdefault(path, Image.open(path).convert('L'))
+    crop = img.crop(box).point(lambda v: 1 if v < threshold else 0)
+    w, h = crop.size
+    px = crop.load()
+    cols = [any(px[x, y] for y in range(h)) for x in range(w)]
+    runs, start = [], None
+    for x, ink in enumerate(cols + [False]):
+        if ink and start is None:
+            start = x
+        elif not ink and start is not None:
+            runs.append((start, x)); start = None
+    # two digits that touch ("44") make one run twice as wide; digits here
+    # are 14 to 18 pixels wide, so a wider run is cut into equal parts
+    cut = []
+    for x0, x1 in runs:
+        n = max(1, round((x1 - x0) / 17.5)) if x1 - x0 > 26 else 1
+        cut += [(x0 + (x1 - x0) * i // n, x0 + (x1 - x0) * (i + 1) // n) for i in range(n)]
+    out = []
+    for x0, x1 in cut:
+        if x1 - x0 < 3:
+            continue
+        g = crop.crop((x0, 0, x1, h))
+        ys = [y for y in range(h) if any(g.getpixel((x, y)) for x in range(x1 - x0))]
+        if not ys or ys[-1] - ys[0] < 15:     # a speck, not a digit
+            continue
+        g = g.crop((0, ys[0], x1 - x0, ys[-1] + 1))
+        out.append((x1 - x0, tuple(g.resize((16, 24)).tobytes())))
+    return out
+
+
+IMAGES = {}
+
+
+def match(gs, templates):
+    """Read a cell's glyphs against the digit templates."""
+    digits = ''
+    for w, bits in gs:
+        best = min(templates, key=lambda d: sum(a != b for a, b in zip(bits, templates[d][1]))
+                   + 8 * abs(w - templates[d][0]))
+        digits += best
+    return int(digits) if digits else None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--pdf', required=True)
@@ -220,9 +266,27 @@ def main():
         missing = [m for m in range(1, MACHINES + 1) if m not in seen]
         if missing or len(block) != MACHINES:
             print(f'  {race} from {cands[0]}: {len(block)} rows; machines not found: {missing}')
+        # a machine's name runs over two to four lines around its numbers:
+        # every word in the name column nearer this row than its neighbours
+        for i, r in enumerate(block):
+            if r['machine'] in labels:
+                continue
+            words = [w for w in tsv(r['page'].replace('.png', '-bw.png')) if w['left'] < 600 and w['top'] >= 280]
+            same = [x['y'] for x in block if x['page'] == r['page']]
+            lo = max([y for y in same if y < r['y']], default=None)
+            hi = min([y for y in same if y > r['y']], default=None)
+            top = (lo + r['y']) / 2 if lo is not None else r['y'] - 130
+            bot = (hi + r['y']) / 2 if hi is not None else r['y'] + 130
+            mine = sorted((w for w in words if top <= w['top'] + w['height'] / 2 < bot),
+                          key=lambda w: (round((w['top'] + w['height'] / 2) / 20), w['left']))
+            text = ' '.join(w['text'] for w in mine if not re.match(r'^(Votes|by|Voting|Machine)$', w['text']))
+            # the tail of the row above can leak in ahead of the number
+            at = [mm.start() for mm in re.finditer(rf'(^|\s){r["machine"]}\b', text)]
+            text = text[at[-1]:] if at else text
+            text = re.sub(r'\s*\.(\s+\.)*(\s+6)?\s+', ' ', text).strip()
+            labels[r['machine']] = text
         for r in block:
             m = r['machine']
-            labels.setdefault(m, r['label'])
             byj = {}
             for w in r['cells']:
                 j = min(range(len(centres)), key=lambda k: abs(centres[k] - (w['left'] + w['width'] / 2)))
@@ -238,7 +302,39 @@ def main():
         if bad:
             print(f'  {race} from {cands[0]}: rows {bad} were short of a cell; read by column position')
 
-    # 4. reconcile with the official totals
+    # 4. The font is the same everywhere, so the digits of the columns that
+    # already add up teach the shape of every digit; each cell is then read
+    # again by matching its glyphs against those shapes.
+    good = [k for k, cells in result.items()
+            if sum(v or 0 for v in cells.values()) == totals[k] and None not in cells.values()]
+    samples = collections.defaultdict(list)
+    for k in good:
+        for m, (page, box) in boxes[k].items():
+            gs = glyphs(page, box)
+            txt = str(result[k][m])
+            if len(gs) == len(txt):
+                for d, g in zip(txt, gs):
+                    if len(samples[d]) < 60:
+                        samples[d].append(g)
+    templates = {}
+    for d, gl in samples.items():
+        w = sum(g[0] for g in gl) / len(gl)
+        bits = tuple(1 if sum(g[1][i] for g in gl) * 2 > len(gl) else 0 for i in range(16 * 24))
+        templates[d] = (w, bits)
+    print(f'digit shapes learned from {len(good)} columns: {sorted(templates)}')
+    shape = {}
+    for k in result:
+        for m, (page, box) in boxes[k].items():
+            gs = glyphs(page, box)
+            shape[(k, m)] = match(gs, templates) if gs else 0
+    # The shape reading is the better one (tesseract confuses 5, 9 and 7 in
+    # this font), so it is the first reading; tesseract's are the alternatives.
+    tess = {k: dict(v) for k, v in result.items()}
+    for k in result:
+        for m in result[k]:
+            result[k][m] = shape[(k, m)]
+
+    # 5. reconcile with the official totals
     problems = []
     for key, cells in result.items():
         want = totals[key]
@@ -246,7 +342,7 @@ def main():
             continue
         alts = {}
         for m, (page, box) in boxes[key].items():
-            opts = {result[key][m]}
+            opts = {result[key][m], tess[key][m]}
             for th, sc in ((120, 3), (180, 3), (150, 4), (150, 2), (100, 4), (200, 3)):
                 opts.add(read_cell(page, box, th, sc))
             alts[m] = sorted(o for o in opts if o is not None) or [0]

@@ -810,6 +810,61 @@ Contains information from the City of Richmond, used with attribution. The
 derived files are not committed, for the same reason the other cities' data is
 not.
 
+## Surrey and Burnaby
+
+Both vote anywhere, as Vancouver does: an elector may vote at any of the
+city's places, so each place's ballots are smoothed over the areas around it
+rather than assigned. Each has a `CITIES` entry in `src/g1-app-core.js`, and
+markup marked `data-city="surrey"` or `"burnaby"`.
+
+**Federal.** `boundaries/surrey/fed_polls.geojson` holds the 1,245 polling
+divisions of the seven ridings that touch Surrey, and
+`boundaries/burnaby/fed_polls.geojson` the 797 of the four that touch Burnaby,
+both built by `tools/city_polls.py`. Divisions outside the city (White Rock,
+Langley, Delta; North Vancouver, Vancouver, New Westminster) are tagged and
+left out of city figures unless Area is widened.
+
+**Surrey's results** come from the city's results site, as a table per race
+with a row per poll, plus its turnout-by-poll PDF and its where-to-vote page.
+`tools/surrey/results.py` converts them, and geocodes each place with the
+city's own geocoder:
+
+```sh
+python3 tools/surrey/results.py \
+    --results electionresultspercandidate.html --turnout Voter-Turnout-by-Poll.pdf \
+    --locations where-vote.html --year 2026 \
+    --out-results surrey-2026-results.zip --out-places surrey-voting-places-2026.csv
+```
+
+**Burnaby's results** by voting machine are published only in the council
+report's attachment ("Voter Participation and Detailed Results"), and its text
+cannot be copied out: every page uses a font whose characters stand for the
+wrong letters. So `tools/burnaby/ocr_results.py` reads the page images. The
+tables are in a fixed order (six candidates each, alphabetical, all 57
+machines), so where a number sits says whose it is. Each cell is read by
+matching its digits against the shapes of the font's digits, with tesseract's
+reading as a second opinion. Every candidate's 57 machines must add up to the
+total on the city's results site (`elections.burnaby.ca/data/arearesults.json`);
+in 2026 all 64 do. `tools/burnaby/results.py` then matches each machine to the
+city's voting-locations layer and writes the race sheets. The city publishes
+no ballots per machine, so Times Cast is the machine's mayoral votes.
+
+```sh
+python3 tools/burnaby/ocr_results.py --pdf "Attachment 1.pdf" \
+    --totals arearesults.json --out burnaby-2026-machines.json --work ocr/
+python3 tools/burnaby/results.py --machines burnaby-2026-machines.json \
+    --locations ElectionLocations.json --slates tools/burnaby/slates-2026.csv \
+    --year 2026 --out-results burnaby-2026-results.zip \
+    --out-places burnaby-voting-places-2026.csv
+```
+
+Bake each in with `--city surrey` or `--city burnaby` and build with
+`--payload-surrey` and `--payload-burnaby`. Neither city has a 2022 per-poll
+file in this form yet, so neither has a swing map.
+
+Contains information from the City of Surrey and the City of Burnaby, used
+with attribution.
+
 ## Rebuilding
 
 ```sh

@@ -75,7 +75,7 @@ const Places = (() => {
     'abc', 'npa', 'team', 'cope', 'vote', 'ovc', 'ia', 'ii', 'iii']);
   /* Richmond's slates spell themselves in capitals too: RITE Richmond (the
      Richmond Independent Team of Electors) and ONE Richmond. */
-  const SPELLINGS = new Map([['onecity', 'OneCity'], ['rite', 'RITE'], ['one', 'ONE']]);
+  const SPELLINGS = new Map([['onecity', 'OneCity'], ['rite', 'RITE'], ['one', 'ONE'], ['abcrobinhood', 'ABCRobinhood']]);
 
   function partyLabel(stem) {
     return stem.split(/[_\s]+/).filter(Boolean).map((word, i) => {
