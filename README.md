@@ -4,6 +4,10 @@
 provincial and municipal results over one map of the City of Vancouver, poll by
 poll and voting area by voting area, with the 2021 census beside them.
 
+It now covers **Richmond** as well. A picker beside the title switches city;
+the page reloads with that city's federal layer and that city's baked-in data
+(`#city=richmond` in the address does the same). See [Richmond](#richmond).
+
 `vancouver-boundary-atlas.html` opens straight from disk: no server, no build
 step, no account. It carries the 2025 federal polling divisions (1,406 polygons,
 Elections Canada) inline and draws provincial voting areas over them once you
@@ -730,6 +734,81 @@ Three things the code handles that are easy to get wrong:
 - **Advance polls.** They have no boundary in either geography. Whenever
   results load, the Data tab reports what fraction of the file's votes landed in
   a mapped poll. Quote that number alongside any correlation.
+
+## Richmond
+
+The same atlas, pointed at the City of Richmond. Everything that is not about
+one city -- the provincial layer, the census, every tab's analysis -- is shared
+code; what differs is kept in one place, the `CITIES` table at the top of
+`src/g1-app-core.js`, and in markup marked `data-city="richmond"`.
+
+**Federal.** `boundaries/richmond/fed_polls.geojson` is the 387 polling
+divisions of Richmond Centre--Marpole (59027) and Richmond East--Steveston
+(59028), from Elections Canada's 2025 polling division boundaries, clipped to
+land with the city's island outlines and built by `tools/city_polls.py`. The 42
+divisions of Richmond Centre--Marpole that are in Marpole are tagged as outside
+the city and left out of city figures unless Area is widened. The poll results
+load as for Vancouver (`pollresults_resultatsbureau59027.csv` and `...59028.csv`,
+from `elections.ca/res/rep/off/ovrGE45/62/data_donnees/`).
+
+**Municipal.** Richmond votes by division: on general voting day each elector
+votes at the place for their own division, 38 of them, RC01 to RS11. So the
+ballots go on the division, with no smoothing: each area takes a share of the
+divisions it lies in by how much of it lies inside each, times its electorate
+where it has one, and every division's count is conserved. Advance and mail
+ballots have no division -- 32.6% of the 2026 mayoral ballots, cast
+at twelve advance places and by mail -- and count only city-wide. There is no
+turnout by division: the city does not publish electors per division.
+
+Two inputs, prepared from what the city publishes:
+
+- **Results.** The city's results-by-voting-place PDFs, converted to race
+  sheets in the shape Vancouver's archive uses:
+
+  ```sh
+  python3 tools/richmond/results.py \
+      --results 2026_Election_Results_Poll_by_Poll_Candidate.pdf \
+      --ballots 2026_Election_Results_Total_Ballots_Cast_per_voting_opportunity.pdf \
+      --slates tools/richmond/slates-2026.csv --year 2026 --out richmond-2026-results.zip
+  ```
+
+  Every candidate's places are checked against their total before anything is
+  written. Mayor is read by candidate; council and school trustee by elector
+  organization, from the city's declaration of candidates (2026) and
+  VoteMate's candidate list (2022), kept as `slates-2026.csv` and
+  `slates-2022.csv`. RITE Richmond and the Richmond Citizens' Association are
+  spelled the same way in both years, since each is one organization under
+  two ballot spellings; nothing else is equated.
+
+- **Voting divisions.** The city publishes the boundaries only as pictures,
+  the schedules to Civic Election Administration and Procedure Bylaw No. 7244
+  as amended in 2018. `tools/richmond/divisions/` traces them: fetch the scans
+  and the city's street centrelines, island outlines and boundary
+  (`0_fetch.py`); register each scan to the street network (`1_register.py`,
+  `2_polish.py`, north up, scale and shift only); cut the city into faces
+  along its streets and give each face the division the scans draw it in
+  (`3_build.py`); check by eye (`4_check.py`); name each division from the
+  ballots-cast PDF (`5_name.py`). Run them in order from an empty directory;
+  the result is deterministic. The lines follow the streets they run down
+  and are good to about a block. The 2026 web maps show the same 38
+  divisions; if a later bylaw moves a line, the seeds in `3_build.py` are
+  where to start.
+
+Bake it all in with `--city richmond` and build with `--payload-richmond`:
+
+```sh
+node tools/make-payload.js --city richmond --out payload-richmond \
+    --fed-results pollresults-richmond/ \
+    --muni-results richmond-2026-results.zip \
+    --muni-places richmond-voting-divisions.geojson \
+    --muni-base-results richmond-2022-results.zip \
+    --muni-base-places richmond-voting-divisions.geojson
+python3 build.py --payload payload --payload-richmond payload-richmond --out share/atlas.html
+```
+
+Contains information from the City of Richmond, used with attribution. The
+derived files are not committed, for the same reason the other cities' data is
+not.
 
 ## Rebuilding
 

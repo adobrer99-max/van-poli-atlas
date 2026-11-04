@@ -559,7 +559,7 @@ $('export-joined').addEventListener('click', () => {
       ...provParties.map((p) => (row.prov.parties.get(p) || 0).toFixed(2)),
       ...provParties.map((p) => { const s = Analysis.shareOf(row.prov, p); return s == null ? '' : s.toFixed(6); })]);
   }
-  downloadCsv(`vancouver-${c.unit}-joined.csv`, rows);
+  downloadCsv(`${CITY.fileStem}-${c.unit}-joined.csv`, rows);
 });
 
 $('export-crosswalk').addEventListener('click', () => {
@@ -571,7 +571,7 @@ $('export-crosswalk').addEventListener('click', () => {
     rows.push([f?.fedNum ?? '', f?.poll ?? '', provLabel(v),
       p.shareOfFed.toFixed(6), p.shareOfProv.toFixed(6), Math.round(p.count)]);
   }
-  downloadCsv('vancouver-federal-provincial-crosswalk.csv', rows);
+  downloadCsv(`${CITY.fileStem}-federal-provincial-crosswalk.csv`, rows);
 });
 
 /* --- Finder menus and wiring -------------------------------------------------- */

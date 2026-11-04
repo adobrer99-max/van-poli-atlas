@@ -4,8 +4,8 @@
    build.py so they share the same scope. */
 
 /* The boundary payload is a sibling of #atlas, not a child of it. */
-const payload = document.getElementById('federal-polls');
-if (!payload) throw new Error('The embedded federal boundary layer is missing.');
+const payload = document.getElementById(CITY.id === 'vancouver' ? 'federal-polls' : `federal-polls-${CITY.id}`);
+if (!payload) throw new Error(`The embedded federal boundary layer for ${CITY.name} is missing.`);
 state.fed.all = prepareFederal(JSON.parse(payload.textContent).features);
 
 /* --- Datasets baked into the build ----------------------------------------
@@ -37,7 +37,11 @@ function payloadFile(node) {
 }
 
 async function adoptPayloads() {
-  const nodes = [...document.querySelectorAll('script[data-payload]')];
+  /* Only this city's: a build can carry several, and each city's results
+     belong on its own map. A block with no city is from a build that had
+     only Vancouver. */
+  const nodes = [...document.querySelectorAll('script[data-payload]')]
+    .filter((n) => (n.dataset.city || 'vancouver') === CITY.id);
   if (!nodes.length) return null;
   const by = {};
   for (const n of nodes) (by[n.dataset.payload] ||= []).push(n);
@@ -117,7 +121,7 @@ adoptPayloads().then((payload) => {
         + 'below simply replaces it. Nothing here was uploaded and nothing is fetched: the '
         + 'data is inside this file.'),
       el('p', 'text-small text-muted',
-        'Contains information from Elections Canada, Elections BC, the City of Vancouver and '
+        `Contains information from Elections Canada, Elections BC, the ${CITY.cityName} and `
         + 'Statistics Canada, used under their respective open licences. None of those agencies '
         + 'has endorsed this work or is responsible for it.'),
     ]);
@@ -197,5 +201,5 @@ new ResizeObserver(markTabScroll).observe(tabRow);
 markTabScroll();
 /* For the browser console and the test suites: the live state, read-only by
    convention. */
-window.vanPoliAtlas = { state, crossPair, map, selectAt, fedValues, provValues };
+window.vanPoliAtlas = { state, crossPair, map, selectAt, fedValues, provValues, city: CITY.id };
 })();

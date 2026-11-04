@@ -442,8 +442,8 @@ $('export-turnout').addEventListener('click', () => {
      the points lookup needs to find the feature its counts are keyed by. */
   const unit = state.turnout.unit;
   const extra = pointsColumns(unit, (r) => state[unit].active[+r.key]);
-  downloadCsv(`vancouver-turnout-${unit}.csv`, Turnout.toCsv(rows, ['fed', 'prov'], extra));
-  $('turnout-note').textContent = `Saved vancouver-turnout-${state.turnout.unit}.csv (${fmtInt(rows.length)} rows).`;
+  downloadCsv(`${CITY.fileStem}-turnout-${unit}.csv`, Turnout.toCsv(rows, ['fed', 'prov'], extra));
+  $('turnout-note').textContent = `Saved ${CITY.fileStem}-turnout-${state.turnout.unit}.csv (${fmtInt(rows.length)} rows).`;
 });
 $('basket-add-top').addEventListener('click', () => {
   const n = Math.max(1, parseInt($('basket-top-n').value, 10) || 50);

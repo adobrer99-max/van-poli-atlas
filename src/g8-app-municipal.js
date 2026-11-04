@@ -60,41 +60,49 @@ function muniBandwidth() {
    ballots than an area has voters, never a target. Constraining to a target
    returns that target everywhere, which is an answer rather than a
    measurement. */
-function spreadMunicipal(read) {
+function spreadMunicipal(read, places) {
   const on = {}, reports = {};
   const bandwidth = muniBandwidth();
+  /* Where the places are divisions, each row's polygon is found by its point:
+     the joined table carries the division's label point and nothing else. */
+  let divisionOf = null;
+  if (places && places.kind === 'divisions') {
+    const at = new Map([...places.byId.values()].map((d) => [`${d.lon},${d.lat}`, d.geometry]));
+    divisionOf = (p) => at.get(`${p.lon},${p.lat}`) || null;
+  }
   for (const t of muniTargets()) {
     const idx = new Map(t.features.map((f, i) => [i, f]));
     const spread = Places.smoothToAreas(t.features, read, {
       bandwidth,
+      divisionOf,
       pointOf: (f) => (f.__pt || (f.__pt = Geo.representativePoint(f.geometry))),
       weightOf: (i) => t.weightOf(idx.get(i)),
       capOf: (i) => t.capOf(idx.get(i)),
       pollOf: (f) => String(t.idOf(f)),
-      districtOf: () => 'CoV',
+      districtOf: () => CITY.muniDistrict,
     });
     const byId = new Map();
     for (const [i, u] of spread.values) byId.set(t.idOf(t.features[i]), u);
     on[t.key] = byId;
     reports[t.key] = spread.report;
   }
-  return { on, reports, bandwidth };
+  return { on, reports, bandwidth: divisionOf ? null : bandwidth };
 }
 
 /* One race from one election's two files, joined and spread onto every
    loaded layer. Both the election being mapped and the one it is compared
    with go through here, so the two sides of a swing are made the same way. */
 function spreadRace(files, race) {
-  const built = Municipal.toPlacesTable(race.table, files.places, { district: 'CoV' });
+  const built = Municipal.toPlacesTable(race.table, files.places, { district: CITY.muniDistrict });
   const layout = Places.detectPlaceLayout(built.table.header);
   if (!layout) throw new Error('The joined table carried no party columns to read.');
   const read = Places.readPlaces(built.table, layout);
   /* UBC and the UEL are a different jurisdiction whose electors vote for
      School Trustee and nothing else. Their places are held out of the city
      spread rather than quietly folded into a City of Vancouver map. */
-  const inCity = { ...read, places: read.places.filter((p) => p.ed === 'COV'),
-                   unlocated: read.unlocated.filter((p) => p.ed === 'COV') };
-  const spread = spreadMunicipal(inCity);
+  const inCity = { ...read, places: read.places.filter((p) => p.ed === CITY.muniDistrict),
+                   unlocated: read.unlocated.filter((p) => p.ed === CITY.muniDistrict) };
+  const spread = spreadMunicipal(inCity, files.places);
   return {
     ...spread,
     race: race.name,
@@ -190,7 +198,8 @@ function renderMuniBaseReport() {
   }
   const lines = [];
   lines.push(`${b.year} ${b.race}: ${fmtInt(b.ballots)} ballots on `
-    + `${fmtInt(b.built.report.matched)} voting places, compared with ${m.year} ${m.race}.`);
+    + `${fmtInt(b.built.report.matched)} voting ${CITY.muni === 'divisions' ? 'divisions' : 'places'}, `
+    + `compared with ${m.year} ${m.race}.`);
   if (b.year && m.year && +b.year >= +m.year) {
     lines.push(el('p', 'text-small text-muted',
       `The comparison election (${b.year}) is not earlier than the one mapped (${m.year}). `
@@ -209,11 +218,15 @@ function renderMuniBaseReport() {
     lines.push(el('p', 'text-small text-muted',
       'No party ran in this race under the same name both times, so there is no swing to draw.'));
   }
-  lines.push(el('p', 'text-small text-muted',
-    'Each year is smoothed from its own voting places with the bandwidths above, then the shares '
-    + 'are subtracted. The voting places moved between the two elections, so a swing in one area '
-    + 'is partly a change in where people could vote; the city-wide swing has no such problem, and '
-    + 'the map offers the swing against it for that reason.'));
+  lines.push(el('p', 'text-small text-muted', CITY.muni === 'divisions'
+    ? 'Each year is placed on the same voting divisions, then the shares are subtracted. Only '
+      + 'election-day ballots have a division, and the share of voters who voted early changed '
+      + 'between the two elections, so an area\u2019s swing is a swing among election-day voters; '
+      + 'the city-wide swing counts everyone.'
+    : 'Each year is smoothed from its own voting places with the bandwidths above, then the shares '
+      + 'are subtracted. The voting places moved between the two elections, so a swing in one area '
+      + 'is partly a change in where people could vote; the city-wide swing has no such problem, and '
+      + 'the map offers the swing against it for that reason.'));
   setStatus('status-muni-base', 'ok', lines);
 }
 
@@ -222,7 +235,8 @@ function renderMuniReport() {
   if (!m) { setStatus('status-muni', 'idle', []); return; }
   const r = m.built.report;
   const lines = [];
-  lines.push(`${r.title || m.race}: ${fmtInt(m.ballots)} ballots on ${fmtInt(r.matched)} voting places.`);
+  lines.push(`${r.title || m.race}: ${fmtInt(m.ballots)} ballots on ${fmtInt(r.matched)} voting `
+    + `${CITY.muni === 'divisions' ? 'divisions' : 'places'}.`);
   const vp = state.muniFiles.places;
   if (vp && vp.inferredAdvance) {
     lines.push(el('p', 'text-small text-muted',
@@ -241,7 +255,15 @@ function renderMuniReport() {
       + `${r.summaries.length === 1 ? 'is a summary row and is' : 'are summary rows and are'} `
       + 'held out rather than added as places, which would count the election twice.'));
   }
-  if (r.unplaced.length) {
+  if (r.unplaced.length && CITY.muni === 'divisions') {
+    const off = r.unplaced.reduce((a, u) => a + u.ballots, 0);
+    const adv = r.unplaced.filter((u) => /^ADV/.test(u.id));
+    const all = off + r.ballotsMatched;
+    lines.push(el('p', 'text-small text-muted',
+      `${fmtInt(off)} ballots (${fmtPct(all ? off / all : null)}) were cast at ${fmtInt(adv.length)} `
+      + 'advance places and by mail, which have no division. They count in every city-wide figure '
+      + 'and are left off the map rather than put somewhere plausible.'));
+  } else if (r.unplaced.length) {
     lines.push(el('p', 'text-small text-muted',
       `${r.unplaced.map((u) => `${u.name} (${fmtInt(u.ballots)})`).join(', ')}: reported without a `
       + 'voting place, so they are left off the map rather than put somewhere plausible.'));
@@ -263,19 +285,26 @@ function renderMuniReport() {
   for (const [key, rep] of Object.entries(m.reports)) {
     const name = { fed: 'federal polling divisions', prov: 'provincial voting areas',
                    da: 'dissemination areas' }[key];
-    lines.push(el('p', 'text-small text-muted',
-      `${name}: spread over ${fmtInt(rep.areasAssigned)} of ${fmtInt(rep.areasTotal)}, `
-      + `each resting on about ${rep.placesPerArea.median.toFixed(1)} voting places `
-      + `(${rep.placesPerArea.min.toFixed(1)} to ${rep.placesPerArea.max.toFixed(1)})`
-      + (rep.capsBinding
-        ? `, and ${fmtInt(rep.capsBinding)} were pulled back to their own electorate`
-        : '') + '.'));
+    lines.push(el('p', 'text-small text-muted', m.bandwidth
+      ? `${name}: spread over ${fmtInt(rep.areasAssigned)} of ${fmtInt(rep.areasTotal)}, `
+        + `each resting on about ${rep.placesPerArea.median.toFixed(1)} voting places `
+        + `(${rep.placesPerArea.min.toFixed(1)} to ${rep.placesPerArea.max.toFixed(1)})`
+        + (rep.capsBinding
+          ? `, and ${fmtInt(rep.capsBinding)} were pulled back to their own electorate`
+          : '') + '.'
+      : `${name}: ${fmtInt(rep.areasAssigned)} of ${fmtInt(rep.areasTotal)} lie in a division; `
+        + `${fmtInt(rep.areasAssigned - rep.onePlace)} straddle `
+        + 'a division line and take a share of each by how much of them lies inside it.'));
   }
-  lines.push(el('p', 'text-small text-muted',
-    `Spread at ${fmtInt(m.bandwidth.finalM)} m for final-day places and `
-    + `${fmtInt(m.bandwidth.advanceM)} m for advance ones. Widening these flattens the map and `
-    + 'narrowing them concentrates it; neither makes it agree better with a real turnout surface, '
-    + 'which is why the party share is what this election is here for.'));
+  lines.push(el('p', 'text-small text-muted', m.bandwidth
+    ? `Spread at ${fmtInt(m.bandwidth.finalM)} m for final-day places and `
+      + `${fmtInt(m.bandwidth.advanceM)} m for advance ones. Widening these flattens the map and `
+      + 'narrowing them concentrates it; neither makes it agree better with a real turnout surface, '
+      + 'which is why the party share is what this election is here for.'
+    : 'On election day each elector votes in their own division, so a division\u2019s ballots are '
+      + 'placed on the areas inside it, in proportion to their electors where the area has them. '
+      + 'The division lines are traced from the city\u2019s bylaw maps onto its street centrelines '
+      + 'and are good to about a block.'));
   setStatus('status-muni', 'ok', lines);
 }
 
@@ -380,8 +409,29 @@ async function loadMuniResults(input, slot = 'main') {
 async function loadMuniPlaces(file, slot = 'main') {
   const S = MUNI_SLOT[slot];
   setStatus(S.status, 'busy', `Reading ${file.name}…`);
-  const table = await Ingest.loadTable(file.name, await readFile(file));
+  const bytes = await readFile(file);
+  /* A GeoJSON here is a set of voting divisions (Richmond); a table is a set
+     of voting places with coordinates (Vancouver). */
+  if (/\.(geo)?json$/i.test(file.name)) {
+    const text = TextFormats.decodeBytes(bytes);
+    S.files().places = Municipal.readDivisions(JSON.parse(text));
+    if (slot === 'main') drawDivisionOutlines(S.files().places);
+    return;
+  }
+  const table = await Ingest.loadTable(file.name, bytes);
   S.files().places = Municipal.readVotingPlaces(table);
+}
+
+/* The division lines, drawn over whatever is shaded, so a reader can see which
+   areas a division's figure was shared over. Off the map once cleared. */
+let divisionLayer = null;
+function drawDivisionOutlines(places) {
+  if (divisionLayer) { map.removeLayer(divisionLayer); divisionLayer = null; }
+  if (!places || places.kind !== 'divisions' || typeof L === 'undefined') return;
+  const fc = { type: 'FeatureCollection', features: [...places.byId.values()].map((d) => ({
+    type: 'Feature', properties: { id: d.id, name: d.name }, geometry: d.geometry })) };
+  divisionLayer = L.geoJSON(fc, { interactive: false,
+    style: { color: '#1b1b1b', weight: 1.6, opacity: 0.85, fill: false } }).addTo(map);
 }
 
 async function loadMuniFile(file, which, slot = 'main') {
@@ -390,15 +440,19 @@ async function loadMuniFile(file, which, slot = 'main') {
     if (which === 'results') await loadMuniResults(file, slot);
     else await loadMuniPlaces(Array.isArray(file) ? file[0] : file, slot);
     const files = S.files();
+    const divisions = CITY.muni === 'divisions';
     if (!files.places) {
-      setStatus(S.status, 'busy', [
-        `${fmtInt(files.races.length)} races read. Now load the voting places file, which carries the `
-        + 'coordinates these results have to be joined to.']);
+      setStatus(S.status, 'busy', [divisions
+        ? `${fmtInt(files.races.length)} races read. Now load the voting divisions, which these `
+          + 'results are attached to.'
+        : `${fmtInt(files.races.length)} races read. Now load the voting places file, which carries the `
+          + 'coordinates these results have to be joined to.']);
       return;
     }
     if (!files.races) {
       setStatus(S.status, 'busy', [
-        `${fmtInt(files.places.count)} voting places read. Now load the results archive.`]);
+        `${fmtInt(files.places.count)} voting ${files.places.kind === 'divisions' ? 'divisions' : 'places'} `
+        + 'read. Now load the results.']);
       return;
     }
     if (slot === 'base') applyMuniBase();
@@ -441,6 +495,7 @@ if ($('file-muni-results')) {
     applyMuniBase();
   });
   $('clear-muni').addEventListener('click', () => {
+    drawDivisionOutlines(null);
     state.muni = null;
     state.muniBase = null;
     state.muniFiles = { places: null, races: null, overview: null, year: null };
