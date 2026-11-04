@@ -38,6 +38,15 @@ NUMBER = re.compile(r'^[\dOoSsIl|$vVBg]{1,5}$')
 
 
 def tsv(img):
+    at = img + '.tsv'
+    if os.path.exists(at):
+        return json.load(open(at))
+    words = _tsv(img)
+    json.dump(words, open(at, 'w'))
+    return words
+
+
+def _tsv(img):
     out = subprocess.run(['tesseract', img, '-', '--psm', '6', 'tsv'], capture_output=True, text=True).stdout
     lines = out.splitlines()
     head = lines[0].split('\t')
@@ -68,6 +77,8 @@ def lines_of(words):
 
 
 CACHE = {}
+CACHE_AT = None
+NEW = [0]
 
 
 def read_cell(path, box, threshold=150, scale=3):
@@ -84,6 +95,9 @@ def read_cell(path, box, threshold=150, scale=3):
     os.unlink(fh.name)
     d = re.sub(r'\D', '', txt)
     CACHE[k] = int(d) if d else None
+    NEW[0] += 1
+    if CACHE_AT and NEW[0] % 200 == 0:     # keep the readings if the run is cut short
+        json.dump(CACHE, open(CACHE_AT, 'w'))
     return CACHE[k]
 
 
@@ -107,7 +121,8 @@ def main():
     os.makedirs(work, exist_ok=True)
     if not any(re.match(r'p-\d+\.png$', f) for f in os.listdir(work)):
         subprocess.run(['pdftoppm', '-r', '300', '-png', a.pdf, os.path.join(work, 'p')], check=True)
-    cache_at = os.path.join(work, 'cells.json')
+    global CACHE_AT
+    cache_at = CACHE_AT = os.path.join(work, 'cells.json')
     if os.path.exists(cache_at):
         CACHE.update(json.load(open(cache_at)))
     pages = sorted(f for f in os.listdir(work) if re.match(r'p-\d+\.png$', f))
@@ -131,8 +146,9 @@ def main():
             Image.open(path).convert('L').point(lambda v: 0 if v < 150 else 255).save(bw)
         pending = None
         for l in lines_of(tsv(bw)):
-            # the running header at the top of every page carries a date; skip it
-            if l[0]['top'] < 400:
+            # the running header at the top of every page carries a date and the
+            # page number; skip it (a table's first row can sit right under it)
+            if l[0]['top'] < 280:
                 continue
             cells = [w for w in l if w['left'] > 600 and NUMBER.match(w['text'])]
             label = ' '.join(w['text'] for w in l if w['left'] < 600)
@@ -148,20 +164,29 @@ def main():
                 rows.append({'page': path, 'cells': cells, 'label': label, 'y': l[0]['top'],
                              'machine': machine})
                 pending = None
-    # Each table starts at a header row ("Voting Machine | names..."); a table
-    # that runs over a page break repeats its header, so a header only starts a
-    # new table when the machine numbers have come back round to the start.
-    blocks, cur = [], []
+    # Each table starts at a header row ("Votes by Voting Machine | names..."),
+    # and its first row is machine 1.
+    blocks, cur, header = [], [], False
     for r in rows:
         if r.get('header'):
-            if cur and len(cur) >= MACHINES - 2:
-                blocks.append(cur); cur = []
+            header = True
             continue
+        # a new table: a header followed by machine 1 (or 2, if 1 was missed),
+        # or a table already complete
+        if cur and ((header and r['machine'] in (1, 2)) or len(cur) >= MACHINES):
+            blocks.append(cur); cur = []
+        header = False
         cur.append(r)
     if cur:
         blocks.append(cur)
     print(f'{len(rows)} lines, {len(blocks)} tables found ({[len(b) for b in blocks]} rows); '
           f'{len(tables)} expected')
+    if os.environ.get('DEBUG'):
+        for i, b in enumerate(blocks):
+            for r in b:
+                print(i, os.path.basename(r['page']), r['y'], r['machine'], len(r['cells']), r['label'][:40])
+        if os.environ['DEBUG'] == 'stop':
+            raise SystemExit(0)
     if len(blocks) != len(tables):
         raise SystemExit('The tables found do not match the races and candidates expected.')
 
