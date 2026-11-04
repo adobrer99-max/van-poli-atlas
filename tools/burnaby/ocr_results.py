@@ -129,25 +129,53 @@ def main():
         bw = path.replace('.png', '-bw.png')
         if not os.path.exists(bw):
             Image.open(path).convert('L').point(lambda v: 0 if v < 150 else 255).save(bw)
+        pending = None
         for l in lines_of(tsv(bw)):
-            cells = [w for w in l if w['left'] > 600 and NUMBER.match(w['text'])]
-            label = ' '.join(w['text'] for w in l if w['left'] < 600)
             # the running header at the top of every page carries a date; skip it
             if l[0]['top'] < 400:
                 continue
-            if len(cells) >= 3 and not re.search(r'Page|Votes|Total', label, re.I):
-                rows.append({'page': path, 'cells': cells, 'label': label, 'y': l[0]['top']})
-    need = sum(MACHINES for _ in tables)
-    print(f'{len(rows)} machine rows found; {len(tables)} tables of {MACHINES} need {need}')
+            cells = [w for w in l if w['left'] > 600 and NUMBER.match(w['text'])]
+            label = ' '.join(w['text'] for w in l if w['left'] < 600)
+            lm = re.match(r'^\s*(\d{1,2})\s*[-–—]', label) or re.match(r'^\s*(\d{1,2})\s+\D', label)
+            if re.search(r'Voting\W+Machine|Votes\s+by', label + ' '.join(w['text'] for w in l)):
+                rows.append({'header': True}); pending = None
+                continue
+            if lm and len(cells) < 2:
+                pending = int(lm.group(1))
+                continue
+            if len(cells) >= 2 and not re.search(r'Page|Votes|Total', label, re.I):
+                machine = int(lm.group(1)) if lm else pending
+                rows.append({'page': path, 'cells': cells, 'label': label, 'y': l[0]['top'],
+                             'machine': machine})
+                pending = None
+    # Each table starts at a header row ("Voting Machine | names..."); a table
+    # that runs over a page break repeats its header, so a header only starts a
+    # new table when the machine numbers have come back round to the start.
+    blocks, cur = [], []
+    for r in rows:
+        if r.get('header'):
+            if cur and len(cur) >= MACHINES - 2:
+                blocks.append(cur); cur = []
+            continue
+        cur.append(r)
+    if cur:
+        blocks.append(cur)
+    print(f'{len(rows)} lines, {len(blocks)} tables found ({[len(b) for b in blocks]} rows); '
+          f'{len(tables)} expected')
+    if len(blocks) != len(tables):
+        raise SystemExit('The tables found do not match the races and candidates expected.')
 
-    # 2. deal the rows out to the tables
     result = collections.defaultdict(dict)       # (race, candidate) -> machine -> value
     boxes = collections.defaultdict(dict)
     labels = {}
-    at = 0
-    for race, cands in tables:
-        block = rows[at:at + MACHINES]
-        at += MACHINES
+    for (race, cands), block in zip(tables, blocks):
+        # number the rows: the printed machine number where it was read and
+        # in sequence, otherwise the next in line
+        prev = 0
+        for r in block:
+            m = r['machine']
+            r['machine'] = m if (m and prev < m <= prev + 3) else prev + 1
+            prev = r['machine']
         bad = [i + 1 for i, r in enumerate(block) if len(r['cells']) != len(cands)]
         # a row short of a cell: the missing one is found by the table's column positions
         xs = collections.defaultdict(list)
@@ -156,10 +184,15 @@ def main():
                 for j, w in enumerate(r['cells']):
                     xs[j].append(w['left'] + w['width'] / 2)
         centres = [sum(v) / len(v) for _, v in sorted(xs.items())]
-        if len(block) != MACHINES or len(centres) != len(cands):
+        if len(centres) != len(cands):
             raise SystemExit(f'{race} {cands[0]}...: {len(block)} rows, columns unclear; '
                              f'rows with the wrong number of cells: {bad[:10]}')
-        for m, r in enumerate(block, 1):
+        seen = {r['machine'] for r in block}
+        missing = [m for m in range(1, MACHINES + 1) if m not in seen]
+        if missing or len(block) != MACHINES:
+            print(f'  {race} from {cands[0]}: {len(block)} rows; machines not found: {missing}')
+        for r in block:
+            m = r['machine']
             labels.setdefault(m, r['label'])
             byj = {}
             for w in r['cells']:
