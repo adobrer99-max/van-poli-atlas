@@ -17,14 +17,96 @@ const fmtSwing = (v) => (v == null || !isFinite(v)) ? '--'
   : `${v >= 0 ? '+' : '−'}${Math.abs(v * 100).toFixed(1)} pts`;
 const fmtNum = (n, dp = 3) => (n == null || !isFinite(n)) ? '--' : n.toFixed(dp);
 
-/* The six ridings that make up the City of Vancouver in the 2023
-   representation order; UBC and UEL sit in Quadra but outside the city. */
-const VANCOUVER_FEDS = new Set(['59035', '59036', '59037', '59038', '59039', '59040']);
-const FED_NAMES = {
-  '59035': 'Vancouver Centre', '59036': 'Vancouver East',
-  '59037': 'Vancouver Fraserview—South Burnaby', '59038': 'Vancouver Granville',
-  '59039': 'Vancouver Kingsway', '59040': 'Vancouver Quadra',
+/* --- Which city ------------------------------------------------------------
+   One file carries more than one city. Each has its own federal polling
+   divisions built in, its own municipal election, and its own words where the
+   words differ; everything else -- the provincial layer, the census, every
+   analysis -- is the same code reading whatever is loaded.
+
+   The city is chosen once, at start-up, from the address (#city=richmond) and
+   the picker in the header reloads the page to change it. Loaded files belong
+   to one city's map, so switching keeps nothing rather than mixing two. */
+const CITIES = {
+  vancouver: {
+    id: 'vancouver',
+    name: 'Vancouver',
+    cityName: 'City of Vancouver',
+    /* The six ridings that make up the City of Vancouver in the 2023
+       representation order; UBC and UEL sit in Quadra but outside the city. */
+    feds: ['59035', '59036', '59037', '59038', '59039', '59040'],
+    fedNames: {
+      '59035': 'Vancouver Centre', '59036': 'Vancouver East',
+      '59037': 'Vancouver Fraserview—South Burnaby', '59038': 'Vancouver Granville',
+      '59039': 'Vancouver Kingsway', '59040': 'Vancouver Quadra',
+      /* Neighbours that appear under "everything in the file". */
+      '59027': 'Richmond Centre—Marpole', '59028': 'Richmond East—Steveston',
+    },
+    areas: [['van', 'City of Vancouver (6 ridings)'], ['van-ubc', 'City of Vancouver + UBC / UEL'],
+            ['all', 'Everything in the file (Metro Vancouver)']],
+    /* The one outside locality the "+" option adds back. */
+    keepLocality: 'Metro Vancouver A',
+    /* How the municipal election is cast: anywhere, or at an assigned place. */
+    muni: 'anywhere',
+    muniDistrict: 'COV',
+    fileStem: 'vancouver',
+  },
+  richmond: {
+    id: 'richmond',
+    name: 'Richmond',
+    cityName: 'City of Richmond',
+    feds: ['59027', '59028'],
+    fedNames: { '59027': 'Richmond Centre—Marpole', '59028': 'Richmond East—Steveston' },
+    /* Richmond Centre--Marpole crosses the Fraser into Vancouver; its Marpole
+       divisions are tagged and kept out of city figures. */
+    areas: [['van', 'City of Richmond (2 ridings)'], ['all', 'Everything in the file (with Marpole)']],
+    keepLocality: null,
+    muni: 'divisions',
+    muniDistrict: 'COR',
+    fileStem: 'richmond',
+  },
 };
+const CITY = (() => {
+  const m = /(?:^|[#&?])city=([a-z]+)/i.exec(location.hash || '') || /[?&]city=([a-z]+)/i.exec(location.search || '');
+  return CITIES[(m && m[1].toLowerCase()) || ''] || CITIES.vancouver;
+})();
+const VANCOUVER_FEDS = new Set(CITY.feds);
+const FED_NAMES = CITY.fedNames;
+
+/* Words that differ by city. An element marked data-city="richmond" shows only
+   for Richmond; data-city-text="name" or "cityName" is filled in. Run before
+   anything else reads the markup, so no tab ever shows the other city's text. */
+function applyCityToMarkup() {
+  for (const n of root.querySelectorAll('[data-city]')) {
+    n.hidden = !n.dataset.city.split(/\s+/).includes(CITY.id);
+  }
+  for (const n of root.querySelectorAll('[data-city-text]')) {
+    n.textContent = CITY[n.dataset.cityText] || '';
+  }
+  const area = root.querySelector('#area-filter');
+  if (area) {
+    area.innerHTML = '';
+    for (const [value, label] of CITY.areas) {
+      const o = document.createElement('option');
+      o.value = value; o.textContent = label;
+      area.appendChild(o);
+    }
+  }
+  const pick = root.querySelector('#city-picker');
+  if (pick) {
+    pick.value = CITY.id;
+    pick.addEventListener('change', () => {
+      location.hash = `city=${pick.value}`;
+      location.reload();
+    });
+  }
+  if (CITY.muni === 'divisions') {
+    for (const o of root.querySelectorAll('option[value="muni-ballots"]')) {
+      o.textContent = 'Municipal ballots cast (election day, by division)';
+    }
+  }
+  document.title = `${CITY.name} Election Atlas`;
+}
+applyCityToMarkup();
 const POLL_TYPE = { N: 'ordinary', M: 'mobile', S: 'single building' };
 
 const state = {
@@ -204,13 +286,13 @@ const isPointLike = (f) => f.pollType === 'M' || f.pollType === 'S';
    Burnaby by electors. The locality on the poll says which, so the option
    named "+ UBC / UEL" adds UBC and nothing else -- Burnaby appears only under
    "everything in the file", like the other Metro ridings in the payload. */
-const UBC_LOCALITY = 'Metro Vancouver A';
+const UBC_LOCALITY = CITY.keepLocality;
 
 /* The study area: what the Area control admits, mobile polls included. This is
    a statement about geography, so nothing that only changes the drawing is
    allowed to narrow it. */
 function federalStudyArea() {
-  const area = $('area-filter').value;
+  const area = $('area-filter').value || 'van';
   return state.fed.all.filter((f) => {
     if (area !== 'all' && !VANCOUVER_FEDS.has(f.fedNum)) return false;
     if (area === 'van' && f.outsideCity) return false;
@@ -443,6 +525,8 @@ const PROVENANCE = {
     + '“How to read this” before quoting it.'],
   smoothed: ['Smoothed, not assigned', 'Municipal ballots are spread by distance because you '
     + 'may vote at any place in the city.'],
+  divisions: ['Counted by division', 'Election-day ballots are reported for each voting division '
+    + 'and placed on it; advance and mail ballots have no division and are counted city-wide only.'],
 };
 
 /* What the turnout figures anywhere in this atlas actually divide by what.
@@ -640,19 +724,24 @@ function muniLegend(mode, layerKey, on) {
               : `${party} lost share`],
             ['note', `${m.race}. City-wide, ${party} went from ${fmtPct(c ? c.then : null)} to `
               + `${fmtPct(c ? c.now : null)} (${fmtSwing(city)}). Full colour at `
-              + `${rel ? '5' : '20'} points. Each year is smoothed from its own voting places, `
-              + 'which moved between elections.']];
+              + `${rel ? '5' : '20'} points. `
+              + (CITY.muni === 'divisions'
+                ? 'Both years are election-day ballots on the same voting divisions.'
+                : 'Each year is smoothed from its own voting places, which moved between elections.')]];
   }
   if (mode === 'muni-party') {
     const party = $('muni-party') ? $('muni-party').value : '';
     if (!party) return [];
     return [[partyColour(party), `${party} share, ${muniYear()} municipal, ${where}`.replace(/  +/g, ' ')],
-            ['note', 'Smoothed by distance from each voting place, not assigned: you may vote '
-             + 'anywhere in Vancouver, so a ballot says less about where its voter lives.']];
+            ['note', CITY.muni === 'divisions'
+              ? 'Election-day ballots, placed on the voting division they were cast in. Advance '
+                + 'and mail ballots have no division and are not on the map.'
+              : 'Smoothed by distance from each voting place, not assigned: you may vote '
+                + 'anywhere in Vancouver, so a ballot says less about where its voter lives.']];
   }
   const dom = state.shadeDomain[layerKey];
   return [['var(--viz-series-3)',
-           `${muniYear()} municipal ballots ${where}, smoothed`.trim()
+           `${muniYear()} municipal ballots ${where}, ${CITY.muni === 'divisions' ? 'election day, by division' : 'smoothed'}`.trim()
            + (dom ? ` — ${fmtInt(dom.lo)} to ${fmtInt(dom.hi)}` : '')],
           ['note', 'Ballots, not turnout. This atlas reports no municipal turnout by area; '
            + '“How to read this” says why.']];
@@ -708,7 +797,9 @@ const ROUTE_PROVENANCE = { counted: 'counted', interpolated: 'modelled', smoothe
 function routePhrase(route, who) {
   if (route === 'counted') return `${who} were counted on these areas`;
   if (route === 'smoothed') {
-    return `${who} were spread by distance from each voting place, not counted inside these areas`;
+    return CITY.muni === 'divisions'
+      ? `${who} were placed from each voting division onto the areas inside it, election day only`
+      : `${who} were spread by distance from each voting place, not counted inside these areas`;
   }
   return `${who} were moved onto these areas from the geography they were reported on`;
 }
@@ -765,7 +856,7 @@ function muniLine(layerKey, f) {
   const share = party ? Analysis.shareOf(u, party) : null;
   const sp = swingParty();
   const s = state.muniBase && sp ? muniSwing(layerKey, f, sp) : null;
-  return `${fmtInt(u.ballots)} municipal ballots (smoothed)`
+  return `${fmtInt(u.ballots)} municipal ballots (${CITY.muni === 'divisions' ? 'election day, from its division' : 'smoothed'})`
     + (share == null ? '' : ` · ${party} ${fmtPct(share)}`)
     + (s ? ` · ${sp} ${fmtPct(s.then)} (${state.muniBase.year}) \u2192 ${fmtPct(s.now)} `
       + `(${state.muni.year}), ${fmtSwing(s.swing)}`

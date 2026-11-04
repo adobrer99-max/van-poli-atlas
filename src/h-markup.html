@@ -1,9 +1,18 @@
 <div id="atlas">
 <header class="atlas-header">
-  <h1>Vancouver Election Atlas</h1>
+  <div class="atlas-title-row">
+    <h1><span data-city-text="name">Vancouver</span> Election Atlas</h1>
+    <label class="form-label city-pick" for="city-picker">City
+      <select class="form-select" id="city-picker">
+        <option value="vancouver">Vancouver</option>
+        <option value="richmond">Richmond</option>
+      </select>
+    </label>
+  </div>
   <p class="text-small text-muted">
-    Federal, provincial and municipal results on one map of the City of Vancouver &mdash;
+    Federal, provincial and municipal results on one map of the <span data-city-text="cityName">City of Vancouver</span> &mdash;
     poll by poll, voting area by voting area &mdash; with the 2021 census beside them.
+    Changing city reloads the page with that city&rsquo;s data.
   </p>
 </header>
 
@@ -286,8 +295,10 @@
   <p class="text-small text-muted">
     Street basemap &copy; OpenStreetMap contributors, &copy; CARTO — loaded from the web; everything else in this file works offline.
     Boundary coordinates are rounded to five decimals.
-    Federal source: Elections Canada, Polling Division Boundaries 2025 (Metro Vancouver KMZ).
-    UBC and UEL sit in Electoral Area A, outside the City of Vancouver.
+    Federal source: Elections Canada, Polling Division Boundaries 2025.
+    <span data-city="vancouver">UBC and UEL sit in Electoral Area A, outside the City of Vancouver.</span>
+    <span data-city="richmond" hidden>Richmond Centre&ndash;Marpole crosses the Fraser; its Marpole divisions are in Vancouver and are left out of city figures.
+    Voting divisions traced from the City of Richmond&rsquo;s bylaw maps onto its street centrelines, good to about a block.</span>
   </p>
 </section>
 
@@ -472,14 +483,24 @@
   </div>
 
   <div class="card">
-    <h2>6. Vancouver&rsquo;s municipal election</h2>
-    <p class="text-small text-muted">
+    <h2>6. <span data-city-text="name">Vancouver</span>&rsquo;s municipal election</h2>
+    <p class="text-small text-muted" data-city="richmond" hidden>
+      Two files: the results, converted from the city&rsquo;s results-by-voting-place PDF by
+      <code>tools/richmond/results.py</code>, and the voting divisions as GeoJSON. 2026 and 2022 both read.
+    </p>
+    <p class="text-small text-muted" data-city="richmond" hidden>
+      On general voting day each Richmond elector votes at the place for their own division, so a
+      division&rsquo;s ballots are placed on the areas inside it &mdash; no smoothing. Advance and
+      mail ballots (about a third in 2026) have no division and count only in city-wide figures.
+      Council and school trustee results are grouped by elector organization; mayor by candidate.
+    </p>
+    <p class="text-small text-muted" data-city="vancouver">
       Two files from the City of Vancouver open data portal: the results archive
       and the voting places for the same year, joined on the numeric voting place
       id. 2026 and 2022 both read. Load either first &mdash; the results appear
       once both are in.
     </p>
-    <p class="text-small text-muted">
+    <p class="text-small text-muted" data-city="vancouver">
       This election is not like the other two. You may vote at any voting place in
       Vancouver, and most people do: in 2026, 83 of the 85 election-day places were
       vote-anywhere centres and 59 more were advance places drawing from across the
@@ -491,13 +512,13 @@
       city-wide rate is on the Results tab. &ldquo;How to read this&rdquo; has the numbers.
     </p>
     <div class="viz-controls">
-      <label class="form-label grow" for="file-muni-results">Results archive (2026MunicipalElectionResults.zip)
+      <label class="form-label grow" for="file-muni-results">Results archive (<span data-city="vancouver">2026MunicipalElectionResults.zip</span><span data-city="richmond" hidden>richmond-2026-results.zip</span>)
         <input class="form-control" type="file" id="file-muni-results" accept=".zip,.csv,.xlsx">
       </label>
       <button type="button" class="btn" id="clear-muni" hidden>Remove</button>
     </div>
     <div class="viz-controls">
-      <label class="form-label grow" for="file-muni-places">Voting places (voting-places-2026.csv)
+      <label class="form-label grow" for="file-muni-places"><span data-city="vancouver">Voting places (voting-places-2026.csv)</span><span data-city="richmond" hidden>Voting divisions (richmond-voting-divisions.geojson)</span>
         <input class="form-control" type="file" id="file-muni-places" accept=".csv,.tsv,.txt,.xlsx,.zip,.geojson,.json">
       </label>
     </div>
@@ -505,10 +526,10 @@
       <label class="form-label grow" for="muni-race">Race
         <select class="form-select" id="muni-race"></select>
       </label>
-      <label class="form-label grow" for="muni-band-final">Final-day spread (m)
+      <label class="form-label grow" for="muni-band-final" data-city="vancouver">Final-day spread (m)
         <input class="form-control" type="number" id="muni-band-final" value="600" min="100" max="5000" step="50">
       </label>
-      <label class="form-label grow" for="muni-band-advance">Advance spread (m)
+      <label class="form-label grow" for="muni-band-advance" data-city="vancouver">Advance spread (m)
         <input class="form-control" type="number" id="muni-band-advance" value="2000" min="100" max="10000" step="100">
       </label>
     </div>
@@ -521,13 +542,13 @@
       ballot both times under the same name are offered.
     </p>
     <div class="viz-controls">
-      <label class="form-label grow" for="file-muni-base-results">Earlier results archive (2022MunicipalElectionResults.zip)
+      <label class="form-label grow" for="file-muni-base-results">Earlier results archive (<span data-city="vancouver">2022MunicipalElectionResults.zip</span><span data-city="richmond" hidden>richmond-2022-results.zip</span>)
         <input class="form-control" type="file" id="file-muni-base-results" accept=".zip,.csv,.xlsx">
       </label>
       <button type="button" class="btn" id="clear-muni-base" hidden>Remove</button>
     </div>
     <div class="viz-controls">
-      <label class="form-label grow" for="file-muni-base-places">Earlier voting places (voting-places-2022.csv)
+      <label class="form-label grow" for="file-muni-base-places"><span data-city="vancouver">Earlier voting places (voting-places-2022.csv)</span><span data-city="richmond" hidden>Voting divisions again (the same file)</span>
         <input class="form-control" type="file" id="file-muni-base-places" accept=".csv,.tsv,.txt,.xlsx,.zip,.geojson,.json">
       </label>
     </div>
@@ -1344,6 +1365,7 @@
       assignment, which would replace the catchment model entirely.
     </p>
 
+    <div data-city="vancouver">
     <h3>The municipal election, and why it has no turnout map</h3>
     <p>
       Vancouver's municipal election is measured differently from the other two in this
@@ -1437,6 +1459,61 @@
       under the same name, are offered; the questions are never compared, because they ask
       about different things each time.
     </p>
+
+    </div>
+
+    <div data-city="richmond" hidden>
+    <h3>Richmond&rsquo;s municipal election</h3>
+    <p>
+      Richmond votes by division. On general voting day each elector is assigned the voting place
+      for the division they live in &mdash; 38 divisions, RC01 to RS11 &mdash; much as federal and
+      provincial voters are. So, unlike Vancouver&rsquo;s vote-anywhere election, a division&rsquo;s
+      ballots can be placed on the division itself. Each area on the map takes a share of the
+      divisions it lies in, in proportion to how much of it lies inside each and to its own
+      electorate where it has one, and every division&rsquo;s ballots are conserved exactly.
+    </p>
+    <p>
+      Advance and mail ballots have no division. In 2026 they were 33% of the ballots, cast at
+      twelve advance places &mdash; most of them at City Hall &mdash; and by mail. They are counted
+      in every city-wide figure and kept off the map rather than put somewhere plausible, so an
+      area&rsquo;s share is a share among election-day voters. Where early voters differ from
+      election-day voters, the map and the city-wide figure will differ for that reason alone.
+    </p>
+    <p>
+      The city publishes its division boundaries only as pictures: the schedules to Civic Election
+      Administration and Procedure Bylaw No. 7244 (as amended in 2018, when the current 38 divisions
+      were set) and the maps on its elections site. The lines used here were traced from the bylaw
+      schedules, registered against the city&rsquo;s own street centrelines, and then snapped to
+      the street blocks they run along, clipped to land. They are good to about a block. Where a
+      line runs down the middle of a street, which is almost everywhere, the trace follows the
+      street exactly; where the scans disagree slightly at their edges, a block can fall on the
+      wrong side.
+    </p>
+    <p>
+      The results come from the city&rsquo;s results-by-voting-place PDF, converted by
+      <code>tools/richmond/results.py</code>, which checks every candidate&rsquo;s places against
+      their total before writing anything. Mayor is read by candidate. Council and school trustee
+      are read by elector organization, because with eight and seven seats the slate&rsquo;s total
+      is the figure that means anything; an independent is their own group. Slates come from the
+      city&rsquo;s declaration of candidates (2026) and VoteMate&rsquo;s candidate list (2022).
+    </p>
+    <p>
+      There is no turnout by division. The city publishes ballots cast by division but not the
+      electors in each, and the third of the ballots cast early belong to divisions nobody
+      recorded. Party share needs neither, which is why it is what the map offers.
+    </p>
+
+    <h3>The swing between two municipal elections</h3>
+    <p>
+      With 2022 loaded as well, the map shows a group&rsquo;s swing: its share in 2026 minus its
+      share in 2022, area by area, on the same divisions. Only groups on the ballot both times are
+      offered. Two appear in 2022 under their full names and in 2026 under their ballot names
+      &mdash; the Richmond Independent Team of Electors (RITE Richmond) and the Richmond
+      Citizens&rsquo; Association (RCA); each is one organization and is read as one. Nothing else
+      is equated: a slate that dissolved and a new one with some of the same people are different
+      groups here. No mayoral candidate ran both times, so the mayoral race has no swing.
+    </p>
+    </div>
 
     <h3>Two denominators that are not an electorate</h3>
     <p>

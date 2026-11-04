@@ -8,11 +8,11 @@
    merged-cell gaps, the thousands separators, and two places sharing a
    facility name. */
 const { load } = require('./harness');
-const { Municipal: M, Places: P, Ingest } = load(
+const { Municipal: M, Places: P, Ingest, Geo } = load(
   ['a-geo.js', 'b-text.js', 'c-binary.js', 'd-ingest.js', 'e-analysis.js',
    'f-results.js', 'f2-turnout.js', 'f3-census.js', 'f4-places.js', 'f5-summary.js',
    'f6-points.js', 'f7-municipal.js'],
-  ['Municipal', 'Places', 'Ingest']);
+  ['Municipal', 'Places', 'Ingest', 'Geo']);
 
 let fails = 0;
 const ok = (n, c, e = '') => { if (c) console.log(`  PASS  ${n}`); else { console.log(`  FAIL  ${n} ${e}`); fails++; } };
@@ -363,6 +363,63 @@ const q22 = await Ingest.loadTable('Q1.csv', Buffer.from([
 ].join('\n')));
 eq('a Registered Voters column is not an answer anyone voted for',
    M.detectRace(q22).candidates.map((c) => c.party), ['Yes', 'No']);
+
+
+console.log('\n== Richmond: voting divisions in place of voting places ==');
+/* Two square divisions side by side, 0.01 degrees each, and a results sheet
+   in the shape tools/richmond/results.py writes: division codes, advance
+   places and a mail row in the id column. */
+const sq = (x0, y0, x1, y1) => ({ type: 'Polygon', coordinates: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]] });
+const divs = M.readDivisions({ type: 'FeatureCollection', features: [
+  { type: 'Feature', properties: { id: 'RC01', name: 'Spul\u2019u\u2019kwuks Elementary School' }, geometry: sq(-123.18, 49.16, -123.17, 49.17) },
+  { type: 'Feature', properties: { id: 'rc 02' }, geometry: sq(-123.17, 49.16, -123.16, 49.17) },
+] });
+eq('each division is read by its code', [...divs.byId.keys()], ['RC01', 'RC02']);
+eq('and is marked as divisions', divs.kind, 'divisions');
+ok('with a label point inside it', Geo.inGeometry(divs.byId.get('RC01').lon, divs.byId.get('RC01').lat,
+   divs.byId.get('RC01').geometry));
+let threw = null;
+try { M.readDivisions({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: { foo: 1 }, geometry: sq(0, 0, 1, 1) }] }); }
+catch (e) { threw = e.message; }
+ok('a GeoJSON with no division id says what it has', /needs an id/.test(threw || ''), threw);
+
+const rmdSheet = await Ingest.loadTable('2026RichmondResults_Councillor.csv', Buffer.from([
+  '2026 COUNCILLOR Results by Location (Vote for 8)',
+  'Voting Place ID,Times Cast,"LAW, Gary (Advance Richmond)","DAY, Carol (RITE Richmond)","CRUZ, Mario (Mario Cruz)"',
+  'RC01 - Spul\u2019u\u2019kwuks Elementary School,100,300,200,50',
+  'RC02 - Quilchena Elementary School,80,100,250,20',
+  'ADV 3 - Richmond City Hall - October 7 2026,60,150,120,10',
+  'MBV - Mail & Mobile Voting,10,20,30,5',
+].join('\n')));
+const rb = M.toPlacesTable(rmdSheet, divs, { district: 'COR' });
+eq('division rows join to their division', rb.report.matched, 2);
+eq('advance and mail rows are kept, without a place', rb.report.unplaced.map((u) => u.id), ['ADV 3', 'MBV']);
+eq('none of them is mistaken for a summary row', rb.report.summaries.length, 0);
+const rRead = P.readPlaces(rb.table, P.detectPlaceLayout(rb.table.header));
+eq('the advance row reads as advance voting', rRead.unlocated.map((u) => u.opportunity),
+   ['Advance voting', 'Mail and mobile voting']);
+eq('an independent is their own group', rRead.parties.map(([n]) => n).sort(),
+   ['Advance Richmond', 'Mario Cruz', 'RITE Richmond']);
+
+/* Three areas: one inside each division and one straddling the line. */
+const areas = [
+  { geometry: sq(-123.179, 49.161, -123.175, 49.165) },
+  { geometry: sq(-123.169, 49.161, -123.161, 49.169) },
+  { geometry: sq(-123.172, 49.161, -123.168, 49.165) },
+];
+const at = new Map([...divs.byId.values()].map((d) => [`${d.lon},${d.lat}`, d.geometry]));
+const placed = P.smoothToAreas(areas, rRead, {
+  divisionOf: (pl) => at.get(`${pl.lon},${pl.lat}`), weightOf: () => 1,
+  pollOf: (f) => '', districtOf: () => 'COR',
+});
+const ballotsOn = (i) => placed.values.get(i) ? placed.values.get(i).fromPlaces : 0;
+const placedTotal = rRead.places.reduce((a, pl) => a + pl.total + pl.rejected, 0);
+near('every division\u2019s count is conserved', ballotsOn(0) + ballotsOn(1) + ballotsOn(2), placedTotal, 1e-6);
+near('an area inside RC01 takes only RC01\u2019s', ballotsOn(0) / (ballotsOn(0) + ballotsOn(2) * 0.5), 1, 0.35);
+const rc02 = rRead.places.find((pl) => /RC02/.test(pl.name));
+ok('the area inside RC02 takes none of RC01', ballotsOn(1) <= rc02.total + rc02.rejected + 1e-6);
+ok('the straddling area takes a share of both', placed.report.onePlace === 2, `onePlace ${placed.report.onePlace}`);
+eq('and the report says it was by division', placed.report.basis, 'division');
 
 console.log(fails ? `\n${fails} FAILED` : '\nAll municipal checks passed.');
 process.exit(fails ? 1 : 0);

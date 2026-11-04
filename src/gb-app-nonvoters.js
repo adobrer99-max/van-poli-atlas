@@ -834,7 +834,7 @@ if ($('nv-unit')) {
     const rows = state.nonvoters.rows || [];
     if (!rows.length) return;
     const unit = state.nonvoters.unit;
-    downloadCsv(`vancouver-nonvoters-${unit}.csv`,
+    downloadCsv(`${CITY.fileStem}-nonvoters-${unit}.csv`,
       Turnout.toCsv(rows, ['fed', 'prov'], nonvoterCsvExtra(rows)));
   });
   $('nv-basket-add-top').addEventListener('click', () => {

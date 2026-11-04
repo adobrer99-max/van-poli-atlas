@@ -278,7 +278,7 @@ $('export-results').addEventListener('click', () => {
   const side = resultsSide();
   const summary = side ? summaryFor(side) : null;
   if (!summary) { $('results-note').textContent = 'Nothing to export yet.'; return; }
-  const name = `vancouver-${side === 'fed' ? 'federal-2025' : 'provincial-2024'}-summary.csv`;
+  const name = `${CITY.fileStem}-${side === 'fed' ? 'federal-2025' : 'provincial-2024'}-summary.csv`;
   const rows = Summary.toCsv(summary, SIDE_LABEL[side]);
   downloadCsv(name, rows);
   $('results-note').textContent = `Saved ${name} (${fmtInt(rows.length - 1)} rows).`;

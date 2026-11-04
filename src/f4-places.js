@@ -73,7 +73,9 @@ const Places = (() => {
      legend. "OneCity" is not an acronym and is spelled as its own word. */
   const ACRONYMS = new Set(['bc', 'ndp', 'cpc', 'ppc', 'lpc', 'cpbc', 'usa', 'uk',
     'abc', 'npa', 'team', 'cope', 'vote', 'ovc']);
-  const SPELLINGS = new Map([['onecity', 'OneCity']]);
+  /* Richmond's slates spell themselves in capitals too: RITE Richmond (the
+     Richmond Independent Team of Electors) and ONE Richmond. */
+  const SPELLINGS = new Map([['onecity', 'OneCity'], ['rite', 'RITE'], ['one', 'ONE']]);
 
   function partyLabel(stem) {
     return stem.split(/[_\s]+/).filter(Boolean).map((word, i) => {
@@ -383,12 +385,72 @@ const Places = (() => {
   /* features + places -> one unit per feature, same shape spreadToAreas
      returns, so the map, the Results tab and the exports do not know which of
      the two produced what they are drawing. */
+  /* --- Assigned places, for an election where you vote in your division ----
+
+     Richmond's general voting day is divisional: each elector has one place,
+     for the division they live in, and the divisions tile the city. So a
+     place's ballots belong to the areas inside its division and nowhere else.
+     An area is sampled on a small grid, each sample is tested against the
+     divisions, and the area takes a share of a division's ballots in
+     proportion to how much of it lies inside, times its own weight (its
+     electorate where it has one). The same column scaling as the kernel then
+     conserves every division's ballots exactly.
+
+     divisionOf(p) returns place p's polygon; the result has the shape
+     kernelWeights returns, so everything after it is shared. */
+  function divisionWeights(features, places, options = {}) {
+    const divisionOf = options.divisionOf;
+    const weightOf = options.weightOf || (() => 1);
+    const polys = places.map((p, i) => {
+      const g = divisionOf(p, i);
+      return g ? { g, b: Geo.bboxOf(g) } : null;
+    });
+    const w = features.map(() => new Float64Array(places.length));
+    const N = 6;
+    for (let i = 0; i < features.length; i++) {
+      const base = weightOf(i);
+      if (!(base > 0)) continue;
+      const geom = features[i].geometry;
+      const [x0, y0, x1, y1] = Geo.bboxOf(geom);
+      let inside = 0;
+      const hits = new Float64Array(places.length);
+      for (let a = 0; a < N; a++) {
+        for (let b = 0; b < N; b++) {
+          const x = x0 + (x1 - x0) * (a + 0.5) / N, y = y0 + (y1 - y0) * (b + 0.5) / N;
+          if (!Geo.inGeometry(x, y, geom)) continue;
+          inside++;
+          for (let p = 0; p < polys.length; p++) {
+            const q = polys[p];
+            if (!q || x < q.b[0] || x > q.b[2] || y < q.b[1] || y > q.b[3]) continue;
+            if (Geo.inGeometry(x, y, q.g)) { hits[p]++; break; }
+          }
+        }
+      }
+      /* A sliver too thin for the grid falls back to its own inner point. */
+      if (!inside) {
+        const pt = Geo.representativePoint(geom);
+        if (pt) {
+          inside = 1;
+          for (let p = 0; p < polys.length; p++) {
+            const q = polys[p];
+            if (q && Geo.inGeometry(pt[0], pt[1], q.g)) { hits[p]++; break; }
+          }
+        }
+      }
+      if (!inside) continue;
+      for (let p = 0; p < places.length; p++) if (hits[p]) w[i][p] = base * hits[p] / inside;
+    }
+    return { w, bandwidth: null };
+  }
+
   function smoothToAreas(features, read, options = {}) {
     const pollOf = options.pollOf || ((f) => norm((f.properties || {}).VA_CODE));
     const districtOf = options.districtOf
       || ((f) => upper((f.properties || {}).ED_ABBREVIATION));
     const places = read.places;
-    const { w, bandwidth } = kernelWeights(features, places, options);
+    const { w, bandwidth } = options.divisionOf
+      ? divisionWeights(features, places, options)
+      : kernelWeights(features, places, options);
     const fit = fitKernel(w, places, options);
 
     const values = new Map();
@@ -433,9 +495,11 @@ const Places = (() => {
           median: eff.length ? eff[Math.floor(eff.length / 2)] : 0,
           max: eff[eff.length - 1] || 0,
         },
+        /* Areas resting on one place alone: inside a single division. */
+        onePlace: eff.filter((v) => v < 1.0001).length,
         capsBinding: fit.capsBinding,
         stillOverCap: fit.stillOverCap,
-        basis: 'kernel',
+        basis: options.divisionOf ? 'division' : 'kernel',
         districtsMissing: [],
         districtsWithoutPlace: [],
         districtsWithoutPlaceBallots: [],
@@ -626,6 +690,6 @@ const Places = (() => {
   return {
     detectPlaceLayout, detectColumn, partyColumns, partyLabel, readPlaces,
     assignAreas, spreadToAreas, sourceUnits, metresBetween, isFinalVoting,
-    smoothToAreas, kernelWeights, fitKernel, BANDWIDTH,
+    smoothToAreas, kernelWeights, divisionWeights, fitKernel, BANDWIDTH,
   };
 })();

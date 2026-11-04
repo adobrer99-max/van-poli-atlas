@@ -127,7 +127,7 @@ if (argv.includes('--help') || argv.length < 3) {
    None of this touches the payload directory. A mistyped command has written
    nothing, so it must not mark an existing payload failed on its way out --
    which is why this runs here rather than inside the run. */
-const TAKES_VALUE = new Set(['out', 'precision', 'census', 'points-ref', 'prov-geo',
+const TAKES_VALUE = new Set(['out', 'precision', 'city', 'census', 'points-ref', 'prov-geo',
   'fed-results', 'prov-results', 'prov-electors', 'muni-results', 'muni-places',
   'muni-base-results', 'muni-base-places']);
 const TAKES_NOTHING = new Set(['help', 'no-clip', 'bbox-only']);
@@ -214,8 +214,11 @@ function put(key, name, text) {
    British Columbia -- 5,778 voting areas and about 49 MB of GeoJSON -- and
    baking that in to look at one city would be absurd, so boundaries are
    clipped here exactly as they would be on the way in. */
-const studyFeatures = JSON.parse(
-  fs.readFileSync(path.join(__dirname, '..', 'boundaries', 'fed_polls.geojson'), 'utf8')).features;
+/* --city richmond prepares Richmond's payload, clipped to Richmond's own
+   federal divisions; build it in with --payload-richmond. */
+const city = arg('city', 'vancouver');
+const studyFeatures = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'boundaries',
+  ...(city === 'vancouver' ? [] : [city]), 'fed_polls.geojson'), 'utf8')).features;
 const studyIndex = Geo.buildIndex(studyFeatures);
 
 const studyBox = (() => {
@@ -306,6 +309,12 @@ async function tables(key, inputs) {
         }
       } else if (/\.(csv|tsv|txt)$/i.test(file)) {
         take(path.basename(file), TextFormats.decodeBytes(fs.readFileSync(file)));
+      } else if (/places$/.test(key) && /\.(geo)?json$/i.test(file)) {
+        /* Voting divisions (Richmond) arrive as GeoJSON, rounded like every
+           other boundary here. */
+        const fc = JSON.parse(TextFormats.decodeBytes(fs.readFileSync(file)));
+        for (const f of fc.features || []) if (f.geometry) f.geometry = roundGeometry(f.geometry);
+        take(path.basename(file), JSON.stringify(fc));
       }
     }
   }
@@ -511,7 +520,7 @@ function manifest(state, extra = {}) {
   const total = written.reduce((a, w) => a + w.bytes, 0);
   manifest('complete');
   console.log(`\n${outDir}: ${written.length} files, ${(total / 1024).toFixed(0)} KB total`);
-  console.log(`Now build:  python3 build.py --payload ${outDir}`);
+  console.log(`Now build:  python3 build.py --payload${city === 'vancouver' ? '' : `-${city}`} ${outDir}`);
 })().catch((err) => {
   manifest('failed', { error: String(err.message || err) });
   console.error(String(err.message || err));

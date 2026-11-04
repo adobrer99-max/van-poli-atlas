@@ -20,9 +20,9 @@ function daLabel(f) {
    other way instead. */
 const SOCIO_UNITS = {
   da: { name: 'dissemination areas', one: 'dissemination area', label: (f) => daLabel(f),
-        idColumn: 'da_id', file: 'vancouver-da-joined.csv', keyProp: () => state.da.keyProp },
+        idColumn: 'da_id', file: `${CITY.fileStem}-da-joined.csv`, keyProp: () => state.da.keyProp },
   prov: { name: 'provincial voting areas', one: 'voting area', label: (f) => provLabel(f),
-          idColumn: 'va_id', file: 'vancouver-voting-area-joined.csv',
+          idColumn: 'va_id', file: `${CITY.fileStem}-voting-area-joined.csv`,
           keyProp: () => state.prov.keyDef?.poll },
 };
 

@@ -52,6 +52,13 @@ app     = ["g1-app-core.js", "g2-app-data.js", "g3-app-corr.js",
 geo = read("boundaries/fed_polls.geojson").strip()
 assert json.loads(geo)["type"] == "FeatureCollection"
 assert "</script" not in geo.lower()
+# Every other city the picker offers carries its own, built by tools/city_polls.py.
+CITIES = ("richmond",)
+city_geo = {}
+for c in CITIES:
+    g = read(f"boundaries/{c}/fed_polls.geojson").strip()
+    assert json.loads(g)["type"] == "FeatureCollection" and "</script" not in g.lower()
+    city_geo[c] = g
 
 # Datasets baked into the build, if any have been prepared. Optional on
 # purpose: none of this data is in the repository -- it belongs to Elections
@@ -99,7 +106,7 @@ def _git(*args):
     except Exception:
         return ""
 
-want_stamp = "--stamp" in sys.argv or "--payload" in sys.argv
+want_stamp = "--stamp" in sys.argv or any(a.startswith("--payload") for a in sys.argv)
 stamp = {
     "built": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
     "commit": _git("rev-parse", "--short", "HEAD"),
@@ -118,9 +125,9 @@ carto_key = arg("--carto-key", "")
 carto_block = (f'\n<script id="carto-key-payload" type="text/plain">{esc(carto_key, "--carto-key")}</script>'
                if carto_key else "")
 
-payload_dir = arg("--payload")
-payload_blocks, payload_report = "", []
-if payload_dir:
+def bake(payload_dir, city):
+    """One city's prepared datasets, as inline script blocks."""
+    payload_blocks, payload_report = "", []
     if not os.path.isdir(payload_dir):
         raise SystemExit(f"--payload {payload_dir} is not a directory. Run "
                          "tools/make-payload.js first; its --out is what this wants.")
@@ -167,7 +174,7 @@ if payload_dir:
         names = sorted(f for f in os.listdir(folder) if not f.startswith("."))
         for name in names:
             body = esc(read(os.path.join(folder, name)).strip(), f"{key}/{name}")
-            payload_blocks += (f'\n<script type="application/json" data-payload="{key}" '
+            payload_blocks += (f'\n<script type="application/json" data-payload="{key}" data-city="{city}" '
                                f'data-filename="{name}">{body}</script>')
         if names:
             # A key the last completed run did not write came from an earlier
@@ -184,6 +191,17 @@ if payload_dir:
             f"{payload_dir} holds nothing to bake in. It should contain a subdirectory "
             f"per dataset, named one of: {', '.join(PAYLOAD_KEYS)}.")
 
+
+    return payload_blocks, [r if city == "vancouver" else f"{city}: {r}" for r in payload_report]
+
+
+payload_blocks, payload_report = "", []
+for city, flag in (("vancouver", "--payload"),) + tuple((c, f"--payload-{c}") for c in CITIES):
+    if arg(flag):
+        b, r = bake(arg(flag), city)
+        payload_blocks += b
+        payload_report += r
+
 lib = "\n".join(read(os.path.join(SRC, m)) for m in modules)
 # The app body is three files that share one IIFE, so they concatenate into one.
 app_src = "\n".join(read(os.path.join(SRC, m)) for m in app)
@@ -193,7 +211,7 @@ html = f"""<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vancouver Election Atlas</title>
+<title>Election Atlas</title>
 <style>
 {leaflet_css}
 {design_css}
@@ -203,7 +221,7 @@ html = f"""<!doctype html>
 <body>
 {markup}
 
-<script id="federal-polls" type="application/json">{geo}</script>{stamp_block}{carto_block}{payload_blocks}
+<script id="federal-polls" type="application/json">{geo}</script>{"".join(f'\n<script id="federal-polls-{c}" type="application/json">{g}</script>' for c, g in city_geo.items())}{stamp_block}{carto_block}{payload_blocks}
 
 <script>{leaflet_js}</script>
 <script>{d3_js}</script>

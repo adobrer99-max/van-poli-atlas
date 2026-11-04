@@ -39,7 +39,7 @@ function datasetInventory() {
     'Elections BC');
   add(`Municipal results${muniYear() ? ` (${muniYear()})` : ''}`, Boolean(state.muni),
     state.muni ? `${state.muni.race}, ${fmtInt(n(state.muni.ballots))} ballots` : 'not loaded',
-    'City of Vancouver');
+    CITY.cityName);
   add('Census geography (2021)', state.da.all.length > 0,
     state.da.all.length
       ? `${fmtInt(state.da.active.length)} dissemination areas`
@@ -66,7 +66,7 @@ function datasetInventory() {
     add('Civic addresses, to place a roll', Boolean(pointReference),
       pointReference ? `${fmtInt(pointReference.keys)} addresses on `
         + `${fmtInt(pointReference.streetCount)} streets` : 'not loaded',
-      'City of Vancouver');
+      CITY.cityName);
   }
   if (state.points) {
     add('A file of places', true,
@@ -135,7 +135,8 @@ function refreshReadiness() {
 /* Whether this build carries its data with it, which is what separates the
    copy handed to a reader from the one used to prepare it. */
 function bakedIn() {
-  return document.querySelector('script[data-payload]') != null;
+  return [...document.querySelectorAll('script[data-payload]')]
+    .some((n) => (n.dataset.city || 'vancouver') === CITY.id);
 }
 
 /* --- The briefing ----------------------------------------------------------
@@ -207,7 +208,16 @@ function headlineFindings() {
       'modelled');
   }
 
-  if (state.muni) {
+  if (state.muni && CITY.muni === 'divisions') {
+    /* Every ballot, advance and mail included: the headline is the city's
+       count, and the map's share is the election-day part of it. */
+    const r = state.muni.built.report;
+    const all = r.ballotsMatched + r.ballotsUnplaced;
+    push(`Municipal ${state.muni.race.toLowerCase()}${muniYear() ? ` (${muniYear()})` : ''}`, fmtInt(all),
+      `ballots cast citywide; the ${fmtInt(r.ballotsMatched)} cast on election day are mapped by division, `
+      + 'and turnout by area is not',
+      'divisions');
+  } else if (state.muni) {
     push(`Municipal ${state.muni.race.toLowerCase()}${muniYear() ? ` (${muniYear()})` : ''}`, fmtInt(state.muni.ballots),
       'ballots cast citywide; party share is mapped, turnout by area is not',
       'smoothed');
@@ -246,11 +256,18 @@ const CAVEATS = [
    + 'which of them, and the ranking built on it orders areas for a mail drop rather than '
    + 'estimating votes. Both halves of the subtraction are named wherever the figure appears, '
    + 'since they are rarely the same election.'],
-  ['There is no municipal turnout by area, anywhere in this atlas.',
-   'You may vote at any place in Vancouver and most people do, so ballots are smoothed by '
-   + 'distance rather than assigned. Measured against the federal turnout surface any municipal '
-   + 'turnout map agrees at about r 0.2 however it is built. Party share survives that; turnout '
-   + 'does not, so it is not offered.'],
+  CITY.muni === 'divisions'
+    ? ['Richmond\u2019s municipal map covers election-day ballots only.',
+       'On election day each elector votes in their own division, so those ballots are placed '
+       + 'on the division. Advance and mail ballots (about a third in 2026) were cast at City Hall '
+       + 'and a few schools with no division attached, so they count in city-wide figures and '
+       + 'nowhere on the map. The division lines are traced from the city\u2019s bylaw maps onto '
+       + 'its own street centrelines and are good to about a block.']
+    : ['There is no municipal turnout by area, anywhere in this atlas.',
+       'You may vote at any place in Vancouver and most people do, so ballots are smoothed by '
+       + 'distance rather than assigned. Measured against the federal turnout surface any municipal '
+       + 'turnout map agrees at about r 0.2 however it is built. Party share survives that; turnout '
+       + 'does not, so it is not offered.'],
 ];
 
 function refreshOverview() {
@@ -263,8 +280,11 @@ function refreshOverview() {
   if (state.prov.active.length) bits.push(`${fmtInt(state.prov.active.length)} provincial voting areas`);
   if (state.da.active.length) bits.push(`${fmtInt(state.da.active.length)} dissemination areas`);
   scope.textContent = `${$('area-filter').selectedOptions[0].textContent.trim()} — ${bits.join(', ')}. `
-    + 'UBC and the University Endowment Lands sit in Electoral Area A, outside the city, and are '
-    + 'left out unless Area is widened on the Map tab.';
+    + (CITY.id === 'richmond'
+      ? 'Richmond Centre\u2014Marpole crosses the Fraser; its Marpole divisions are in Vancouver and are '
+        + 'left out unless Area is widened on the Map tab.'
+      : 'UBC and the University Endowment Lands sit in Electoral Area A, outside the city, and are '
+        + 'left out unless Area is widened on the Map tab.');
 
   host.textContent = '';
   const findings = headlineFindings();
@@ -316,8 +336,17 @@ const SOURCES = [
    'Open Government Licence – Canada', 'https://open.canada.ca/en/open-government-licence-canada'],
   ['Elections BC', '2024 voting areas and results by voting place',
    'Elections BC Open Data Licence', 'https://www.elections.bc.ca/docs/EBC-Open-Data-Licence.pdf'],
-  ['City of Vancouver', 'municipal election results and voting places',
-   'Open Government Licence – Vancouver', 'https://opendata.vancouver.ca/pages/licence/'],
+  ...(CITY.id === 'richmond' ? [
+    ['City of Richmond', 'results by voting place (2026, 2022), the voting-division maps of '
+     + 'Bylaw 7244, street centrelines and the city boundary',
+     'published by the City of Richmond; used with attribution',
+     'https://www.richmond.ca/city-hall/elections.htm'],
+    ['VoteMate', 'elector organizations of the 2022 candidates',
+     'cited as the source', 'https://en.votemate.org/local2022/candidates/?riding=27'],
+  ] : [
+    ['City of Vancouver', 'municipal election results and voting places',
+     'Open Government Licence – Vancouver', 'https://opendata.vancouver.ca/pages/licence/'],
+  ]),
   ['Statistics Canada', '2021 Census Profile, dissemination geography and the Geographic Attribute File',
    'Statistics Canada Open Licence', 'https://www.statcan.gc.ca/en/reference/licence'],
   ['OpenStreetMap contributors, CARTO', 'street basemap tiles, fetched at runtime and optional',

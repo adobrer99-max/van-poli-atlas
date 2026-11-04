@@ -144,6 +144,40 @@ const Municipal = (() => {
     return { byId, order: layout.order, unlocated, count: byId.size, sharedNames, inferredAdvance };
   }
 
+  /* --- Voting divisions, for a city where you vote in your own -------------
+
+     Richmond publishes no voting-places file and needs none: on general voting
+     day each elector votes at the place for their division, so the division is
+     what the results attach to. A GeoJSON of the divisions -- each feature an
+     `id` such as RC01 and, optionally, a `name` -- stands in for the places
+     file, with the same shape readVotingPlaces returns plus each division's
+     polygon. The point is only a label position; nothing is measured from it. */
+  function readDivisions(collection) {
+    const feats = (collection && collection.features) || [];
+    if (!feats.length) throw new Error('This GeoJSON has no features to read as voting divisions.');
+    const idKey = ['id', 'ID', 'code', 'CODE', 'division', 'DIVISION', 'VD_CODE']
+      .find((k) => feats[0].properties && feats[0].properties[k] != null);
+    if (!idKey) {
+      throw new Error('Each voting division needs an id, such as RC01. This file\u2019s first feature has: '
+        + Object.keys(feats[0].properties || {}).slice(0, 8).join(', ') + '.');
+    }
+    const byId = new Map();
+    for (const f of feats) {
+      if (!f.geometry) continue;
+      const id = placeId(String(f.properties[idKey]).replace(/\s+/g, '').toUpperCase());
+      Geo.normalizeWinding(f.geometry);
+      const pt = Geo.representativePoint(f.geometry);
+      if (!pt) continue;
+      byId.set(id, {
+        id, name: norm(f.properties.name || f.properties.NAME) || `Voting division ${id}`,
+        address: '', area: '', advanceOnly: false, supercentre: false, outsideCity: false,
+        lon: pt[0], lat: pt[1], geometry: f.geometry,
+      });
+    }
+    return { byId, order: 'lonlat', unlocated: 0, count: byId.size, sharedNames: 0,
+             inferredAdvance: 0, kind: 'divisions' };
+  }
+
   /* --- A race sheet -------------------------------------------------------- */
 
   /* "51 STEWART, Kennedy (Forward with Kennedy Stewart)" -> the bracket, or
@@ -234,7 +268,10 @@ const Municipal = (() => {
     for (const r of race.body) {
       const raw = norm(r[race.idCol]);
       if (!raw) continue;
-      const m = /^(\d+)\s*-\s*(.*)$/.exec(raw);
+      /* Vancouver numbers its places ("7 - Morris J. Wosk..."); Richmond codes
+         them by division ("RC01 - Spul'u'kwuks Elementary School", "ADV 3 -
+         Richmond City Hall", "MBV - Mail & Mobile Voting"). */
+      const m = /^(\d+|[A-Z]{2,3}\s?\d{1,2}|MBV)\s*-\s*(.*)$/.exec(raw);
       /* The last row of every race sheet is a Total, and adding it to the
          places would double the election. Anything whose id is not a number is
          a summary line, and it is counted and named rather than dropped
@@ -248,7 +285,7 @@ const Municipal = (() => {
         summaries.push({ label: raw, ballots: race.castCol >= 0 ? num(r[race.castCol]) : 0 });
         continue;
       }
-      const id = placeId(m ? m[1] : raw);
+      const id = placeId((m ? m[1] : raw).replace(/^([A-Z]{2})\s(\d)/, '$1$2'));
       const name = m ? norm(m[2]) : raw;
       const cast = race.castCol >= 0 ? num(r[race.castCol]) : 0;
       const byParty = new Map();
@@ -275,7 +312,8 @@ const Municipal = (() => {
       }
       rows.push([
         options.district || 'CoV',
-        place ? (place.advanceOnly ? 'Advance voting' : 'Final voting') : (name || 'Not stated'),
+        place ? (place.advanceOnly ? 'Advance voting' : 'Final voting')
+          : /^ADV/.test(id) ? 'Advance voting' : id === 'MBV' ? 'Mail and mobile voting' : (name || 'Not stated'),
         place ? place.name : name,
         place ? place.address : '',
         place ? String(place.lon) : '',
@@ -442,7 +480,7 @@ const Municipal = (() => {
     return all > 0 ? mine / all : null;
   }
 
-  return { readVotingPlaces, detectRace, candidateParty, toPlacesTable, isRaceSheet,
+  return { readVotingPlaces, readDivisions, detectRace, candidateParty, toPlacesTable, isRaceSheet,
            matchRace, swingParties, cityShare,
            raceLabel, raceRank, yearOf, readOverview, isOverviewSheet, catalogueLink, placeId };
 })();

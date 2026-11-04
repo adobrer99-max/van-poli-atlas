@@ -8,6 +8,12 @@
 #atlas h3 { font-size: var(--font-size-h3); margin: 1.1rem 0 .35rem; }
 #atlas p { margin: .4rem 0; }
 .atlas-header { margin-bottom: .9rem; }
+/* The city picker sits beside the title and drops under it on a phone. */
+.atlas-title-row { display: flex; align-items: flex-end; justify-content: space-between;
+  gap: .5rem 1rem; flex-wrap: wrap; }
+.atlas-title-row h1 { margin: 0; }
+#atlas .city-pick { display: flex; align-items: center; gap: .4rem; margin: 0; }
+#atlas .city-pick select { width: auto; }
 #atlas .nav { margin-bottom: 1rem; }
 #atlas section { animation: fade .18s ease-out; }
 @keyframes fade { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
