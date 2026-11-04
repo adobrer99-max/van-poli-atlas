@@ -270,8 +270,9 @@ const Municipal = (() => {
       if (!raw) continue;
       /* Vancouver numbers its places ("7 - Morris J. Wosk..."); Richmond codes
          them by division ("RC01 - Spul'u'kwuks Elementary School", "ADV 3 -
-         Richmond City Hall", "MBV - Mail & Mobile Voting"). */
-      const m = /^(\d+|[A-Z]{2,3}\s?\d{1,2}|MBV)\s*-\s*(.*)$/.exec(raw);
+         Richmond City Hall", "MBV - Mail & Mobile Voting"); Surrey by poll,
+         with a letter for a second gym ("GV03A - LA Matheson Secondary"). */
+      const m = /^(\d+|[A-Z]{2,3}\s?\d{1,2}[A-Z]?|MBV)\s*-\s*(.*)$/.exec(raw);
       /* The last row of every race sheet is a Total, and adding it to the
          places would double the election. Anything whose id is not a number is
          a summary line, and it is counted and named rather than dropped

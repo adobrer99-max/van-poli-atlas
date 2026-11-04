@@ -92,6 +92,9 @@ def main():
                     help="the municipality the outside divisions are in, e.g. Vancouver")
     ap.add_argument("--outside-label", default="",
                     help='e.g. "Marpole"; the readout prints "<label> — outside <city>"')
+    ap.add_argument("--outside-by-fed", default="",
+                    help='per-riding names for the outside divisions, e.g. '
+                         '"59032=White Rock,59011=Delta"; the rest use --outside-label')
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
 
@@ -100,6 +103,7 @@ def main():
     with open(a.boundary, encoding="utf-8") as fh:
         city = [f["geometry"] for f in json.load(fh)["features"]]
 
+    by_fed = dict(kv.split("=", 1) for kv in a.outside_by_fed.split(",") if "=" in kv)
     out, outside = [], 0
     for f in polls:
         p = f["properties"]
@@ -110,10 +114,11 @@ def main():
         pt = inner_point(f["geometry"])
         if pt and not any(in_geom(pt[0], pt[1], g) for g in city):
             outside += 1
-            label = a.outside_label or a.outside_locality or "Outside"
-            props["jurisdiction"] = f"{label} — outside {a.city}"
-            if a.outside_locality:
-                props["locality"] = a.outside_locality
+            named = by_fed.get(str(p["FED_NUM"]))
+            label = named or a.outside_label or a.outside_locality or "Outside"
+            props["jurisdiction"] = f"{label} \u2014 outside {a.city}"
+            if named or a.outside_locality:
+                props["locality"] = named or a.outside_locality
         out.append({"type": "Feature", "properties": props, "geometry": f["geometry"]})
 
     out.sort(key=lambda f: (f["properties"]["fed"], int(f["properties"]["poll"].split("-")[0]),

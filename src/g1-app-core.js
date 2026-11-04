@@ -64,6 +64,42 @@ const CITIES = {
     muniDistrict: 'COR',
     fileStem: 'richmond',
   },
+  surrey: {
+    id: 'surrey',
+    name: 'Surrey',
+    cityName: 'City of Surrey',
+    /* Five ridings inside the city, and the Surrey ends of three that cross
+       its edge: White Rock, Langley and Delta are tagged and left out of city
+       figures. */
+    feds: ['59006', '59011', '59013', '59017', '59032', '59033', '59034'],
+    fedNames: {
+      '59006': 'Cloverdale—Langley City', '59011': 'Delta', '59013': 'Fleetwood—Port Kells',
+      '59017': 'Langley Township—Fraser Heights', '59032': 'South Surrey—White Rock',
+      '59033': 'Surrey Centre', '59034': 'Surrey Newton',
+    },
+    areas: [['van', 'City of Surrey'], ['all', 'Everything in the file (with White Rock, Langley, Delta)']],
+    keepLocality: null,
+    muni: 'anywhere',
+    muniDistrict: 'COS',
+    fileStem: 'surrey',
+  },
+  burnaby: {
+    id: 'burnaby',
+    name: 'Burnaby',
+    cityName: 'City of Burnaby',
+    /* Burnaby Central is all Burnaby; three more ridings cross its edge, into
+       North Vancouver, Vancouver, and New Westminster and Coquitlam. */
+    feds: ['59002', '59003', '59020', '59037'],
+    fedNames: {
+      '59002': 'Burnaby Central', '59003': 'Burnaby North—Seymour',
+      '59020': 'New Westminster—Burnaby—Maillardville', '59037': 'Vancouver Fraserview—South Burnaby',
+    },
+    areas: [['van', 'City of Burnaby'], ['all', 'Everything in the file (with North Vancouver, Vancouver, New Westminster)']],
+    keepLocality: null,
+    muni: 'anywhere',
+    muniDistrict: 'COB',
+    fileStem: 'burnaby',
+  },
 };
 const CITY = (() => {
   const m = /(?:^|[#&?])city=([a-z]+)/i.exec(location.hash || '') || /[?&]city=([a-z]+)/i.exec(location.search || '');
@@ -93,6 +129,12 @@ function applyCityToMarkup() {
   }
   const pick = root.querySelector('#city-picker');
   if (pick) {
+    pick.innerHTML = '';
+    for (const c of Object.values(CITIES)) {
+      const o = document.createElement('option');
+      o.value = c.id; o.textContent = c.name;
+      pick.appendChild(o);
+    }
     pick.value = CITY.id;
     pick.addEventListener('change', () => {
       location.hash = `city=${pick.value}`;
@@ -737,7 +779,7 @@ function muniLegend(mode, layerKey, on) {
               ? 'Election-day ballots, placed on the voting division they were cast in. Advance '
                 + 'and mail ballots have no division and are not on the map.'
               : 'Smoothed by distance from each voting place, not assigned: you may vote '
-                + 'anywhere in Vancouver, so a ballot says less about where its voter lives.']];
+                + `anywhere in ${CITY.name}, so a ballot says less about where its voter lives.`]];
   }
   const dom = state.shadeDomain[layerKey];
   return [['var(--viz-series-3)',
