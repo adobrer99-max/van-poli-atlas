@@ -202,6 +202,11 @@ for city, flag in (("vancouver", "--payload"),) + tuple((c, f"--payload-{c}") fo
         payload_blocks += b
         payload_report += r
 
+# Built outside the page template: a backslash inside an f-string expression
+# is a syntax error before Python 3.12, and CI runs an older one.
+city_polls_block = "".join('\n<script id="federal-polls-%s" type="application/json">%s</script>' % (c, g)
+                           for c, g in city_geo.items())
+
 lib = "\n".join(read(os.path.join(SRC, m)) for m in modules)
 # The app body is three files that share one IIFE, so they concatenate into one.
 app_src = "\n".join(read(os.path.join(SRC, m)) for m in app)
@@ -221,7 +226,7 @@ html = f"""<!doctype html>
 <body>
 {markup}
 
-<script id="federal-polls" type="application/json">{geo}</script>{"".join(f'\n<script id="federal-polls-{c}" type="application/json">{g}</script>' for c, g in city_geo.items())}{stamp_block}{carto_block}{payload_blocks}
+<script id="federal-polls" type="application/json">{geo}</script>{city_polls_block}{stamp_block}{carto_block}{payload_blocks}
 
 <script>{leaflet_js}</script>
 <script>{d3_js}</script>
