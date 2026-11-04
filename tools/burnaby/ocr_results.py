@@ -197,10 +197,14 @@ def main():
         # number the rows: the printed machine number where it was read and
         # in sequence, otherwise the next in line
         prev = 0
-        for r in block:
-            m = r['machine']
-            r['machine'] = m if (m and prev < m <= prev + 3) else prev + 1
-            prev = r['machine']
+        if len(block) == MACHINES:      # complete: the rows are machines 1 to 57 in order
+            for i, r in enumerate(block, 1):
+                r['machine'] = i
+        else:
+            for r in block:
+                m = r['machine']
+                r['machine'] = m if (m and prev < m <= prev + 3) else prev + 1
+                prev = r['machine']
         bad = [i + 1 for i, r in enumerate(block) if len(r['cells']) != len(cands)]
         # a row short of a cell: the missing one is found by the table's column positions
         xs = collections.defaultdict(list)
@@ -277,6 +281,9 @@ def main():
            'races': {}, 'problems': problems}
     for (race, cand), cells in result.items():
         out['races'].setdefault(race, {})[cand] = {str(m): v for m, v in sorted(cells.items())}
+    if os.environ.get('DEBUG'):
+        out['boxes'] = {f'{r}|{c}': {str(m): [os.path.basename(pg), list(b)] for m, (pg, b) in v.items()}
+                        for (r, c), v in boxes.items()}
     json.dump(out, open(a.out, 'w'), indent=1)
     print(f'{a.out}: {len(result)} candidates x {MACHINES} machines; '
           f'{len(problems)} candidates still off their official total')
