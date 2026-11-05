@@ -38,9 +38,41 @@ function refreshCrosswalkStatus() {
 
 /* Samples every loaded layer once into state.sample, then derives the
    federal-provincial crosswalk (and any other on demand, see crossPair). */
+/* The lattice grows with the area of the study: 200,000 points cover Burnaby
+   at 25 m, but all of Metro Vancouver, mountains and all, is nearly ten
+   million, which takes minutes on an ordinary computer and can run a phone's
+   browser out of memory. So unless the reader has chosen a spacing, a study
+   that large is sampled at the finest offered spacing that keeps it under
+   about two and a half million points, and the status line says so. */
+const LATTICE_BUDGET = 2.5e6;
+let latticeChosen = false;
+$('lattice').addEventListener('change', () => { latticeChosen = true; });
+
+function latticePoints(features, spacingM) {
+  const e = extentOf(features);
+  if (!e) return 0;
+  const h = (e[3] - e[1]) * 110574;
+  const w = (e[2] - e[0]) * 111320 * Math.cos(((e[1] + e[3]) / 2) * Math.PI / 180);
+  return (w * h) / (spacingM * spacingM);
+}
+
 function buildCrosswalk() {
-  const spacingM = parseInt($('lattice').value, 10);
   const fedFeatures = state.fed.active;
+  state.latticeNote = null;
+  if (!latticeChosen) {
+    const offered = [...$('lattice').options].map((o) => parseInt(o.value, 10)).sort((a, b) => a - b);
+    const asked = parseInt($('lattice').value, 10);
+    if (latticePoints(fedFeatures, asked) > LATTICE_BUDGET) {
+      const fit = offered.find((m) => m > asked && latticePoints(fedFeatures, m) <= LATTICE_BUDGET)
+        || offered[offered.length - 1];
+      $('lattice').value = String(fit);
+      state.latticeNote = `This study area is large, so it was sampled at ${fit} m instead of ${asked} m `
+        + `(about ${fmtInt(latticePoints(fedFeatures, fit))} points instead of `
+        + `${fmtInt(latticePoints(fedFeatures, asked))}). Choose a finer spacing above to override; `
+        + 'it will take several times longer.';
+    }
+  }
+  const spacingM = parseInt($('lattice').value, 10);
   if (!fedFeatures.length || (!state.prov.active.length && !state.da.active.length)) {
     setStatus('status-crosswalk', 'error', ['Nothing to cross: the federal layer is empty here, or no other layer is loaded.']);
     return;
@@ -114,6 +146,7 @@ function renderCrosswalkStatus() {
       `Sampled ${fmtInt(sample.points)} lattice points at ${sample.spacingM} m over `
         + `${(sample.ids || []).map((id) => LAYER_NAMES[id] || id).join(', ')} in ${seconds}s.`,
     ];
+    if (state.latticeNote) lines.push(el('p', 'text-small text-muted', state.latticeNote));
     if (fp) {
       const cov = fp.coverage.fed;
       const fullyInside = cov.filter((c) => c > 0.999).length;
