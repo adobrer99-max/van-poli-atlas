@@ -1,0 +1,16 @@
+{
+  "city": "City of Maple Ridge",
+  "year": 2026,
+  "stem": "MapleRidge",
+  "races": {"Mayor": "Mayor", "Councillor": "Councillor", "School Trustee": "School Trustee"},
+  "seats": {"Mayor": 1, "Councillor": 6, "School Trustee": 5},
+  "stop": ["Assent Vote"],
+  "ballots": "Ballots Cast",
+  "columns": ["adv:Albion", "adv:St. Luke's", "adv:Seniors Centre", "adv:Fraserview", "mail", "special",
+              "Whonnock", "Garibaldi", "Albion", "Yennadon", "Thomas Haney", "Seniors Centre", "Laity View",
+              "Hammond", "total"],
+  "names": {"D'EITH, Bob": "Bob D'Eith", "STEPHENSON, Cindy-Lea": "Cindy-Lea Stephenson"},
+  "slates": {"Dan Ruimy": "A Better Maple Ridge", "Korleen Carreras": "A Better Maple Ridge",
+             "Bob D'Eith": "A Better Maple Ridge", "Bhupinder Johar": "A Better Maple Ridge",
+             "Leanne Koehn": "A Better Maple Ridge"}
+}

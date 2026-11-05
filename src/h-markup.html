@@ -299,6 +299,10 @@
     Boundary coordinates are rounded to five decimals.
     Federal source: Elections Canada, Polling Division Boundaries 2025.
     <span data-city="vancouver">UBC and UEL sit in Electoral Area A, outside the City of Vancouver.</span>
+    <span data-city="mapleridge" hidden>Pitt Meadows—Maple Ridge is the city&rsquo;s only riding and runs into Pitt Meadows and Mission; those divisions are left out of city figures.</span>
+    <span data-city="pittmeadows" hidden>Pitt Meadows—Maple Ridge runs into Maple Ridge and Mission; those divisions are left out of city figures.</span>
+    <span data-city="portmoody" hidden>Port Moody—Coquitlam runs into Coquitlam, Anmore and Belcarra; those divisions are left out of city figures.</span>
+    <span data-city="langley" hidden>Both ridings cross the Township&rsquo;s edge, into Abbotsford and Surrey; those divisions are left out of city figures.</span>
     <span data-city="coquitlam" hidden>All three ridings that reach into Coquitlam cross its edge; their Port Coquitlam, Port Moody, New Westminster and Burnaby divisions are left out of city figures.</span>
     <span data-city="surrey" hidden>Three ridings cross Surrey&rsquo;s edge; their White Rock, Langley and Delta divisions are left out of city figures.</span>
     <span data-city="burnaby" hidden>Three ridings cross Burnaby&rsquo;s edge; their North Vancouver, Vancouver and New Westminster divisions are left out of city figures.</span>
@@ -508,6 +512,34 @@
       each machine&rsquo;s ballots are <em>smoothed</em> over the areas around it by distance,
       and there is no municipal turnout by area.
     </p>
+    <p class="text-small text-muted" data-city="mapleridge" hidden>
+      Two files, made by <code>tools/wide_results.py with tools/maple-ridge/layout-2026.json</code> from the City of Maple Ridge&rsquo;s results by
+      voting place: the results for every race, and the voting places, located from their
+      addresses with the Province&rsquo;s address geocoder. Each place&rsquo;s ballots are
+      <em>smoothed</em> over the areas around it by distance, and there is no municipal turnout
+      by area.
+    </p>
+    <p class="text-small text-muted" data-city="pittmeadows" hidden>
+      Two files, made by <code>tools/wide_results.py with tools/pitt-meadows/layout-2026.json</code> from the City of Pitt Meadows&rsquo;s results by
+      voting place: the results for every race, and the voting places, located from their
+      addresses with the Province&rsquo;s address geocoder. Each place&rsquo;s ballots are
+      <em>smoothed</em> over the areas around it by distance, and there is no municipal turnout
+      by area.
+    </p>
+    <p class="text-small text-muted" data-city="portmoody" hidden>
+      Two files, made by <code>tools/wide_results.py with tools/port-moody/layout-2026.json</code> from the City of Port Moody&rsquo;s results by
+      voting place: the results for every race, and the voting places, located from their
+      addresses with the Province&rsquo;s address geocoder. Each place&rsquo;s ballots are
+      <em>smoothed</em> over the areas around it by distance, and there is no municipal turnout
+      by area.
+    </p>
+    <p class="text-small text-muted" data-city="langley" hidden>
+      Two files, made by <code>tools/langley-township/results.py</code> from the Township of Langley&rsquo;s results by
+      voting place: the results for every race, and the voting places, located from their
+      addresses with the Province&rsquo;s address geocoder. Each place&rsquo;s ballots are
+      <em>smoothed</em> over the areas around it by distance, and there is no municipal turnout
+      by area.
+    </p>
     <p class="text-small text-muted" data-city="coquitlam" hidden>
       Two files, made by <code>tools/coquitlam/results.py</code> from the City of Coquitlam&rsquo;s
       results per tabulator: the results for every race, and the voting places, located from
@@ -547,13 +579,13 @@
       city-wide rate is on the Results tab. &ldquo;How to read this&rdquo; has the numbers.
     </p>
     <div class="viz-controls">
-      <label class="form-label grow" for="file-muni-results">Results archive (<span data-city="vancouver">2026MunicipalElectionResults.zip</span><span data-city="richmond" hidden>richmond-2026-results.zip</span><span data-city="surrey" hidden>surrey-2026-results.zip</span><span data-city="burnaby" hidden>burnaby-2026-results.zip</span><span data-city="coquitlam" hidden>coquitlam-2026-results.zip</span>)
+      <label class="form-label grow" for="file-muni-results">Results archive (<span data-city="vancouver">2026MunicipalElectionResults.zip</span><span data-city="richmond" hidden>richmond-2026-results.zip</span><span data-city="surrey" hidden>surrey-2026-results.zip</span><span data-city="burnaby" hidden>burnaby-2026-results.zip</span><span data-city="coquitlam" hidden>coquitlam-2026-results.zip</span><span data-city="mapleridge" hidden>maple-ridge-2026-results.zip</span>)
         <input class="form-control" type="file" id="file-muni-results" accept=".zip,.csv,.xlsx">
       </label>
       <button type="button" class="btn" id="clear-muni" hidden>Remove</button>
     </div>
     <div class="viz-controls">
-      <label class="form-label grow" for="file-muni-places"><span data-city="vancouver">Voting places (voting-places-2026.csv)</span><span data-city="richmond" hidden>Voting divisions (richmond-voting-divisions.geojson)</span><span data-city="surrey" hidden>Voting places (surrey-voting-places-2026.csv)</span><span data-city="burnaby" hidden>Voting places (burnaby-voting-places-2026.csv)</span><span data-city="coquitlam" hidden>Voting places (coquitlam-voting-places-2026.csv)</span>
+      <label class="form-label grow" for="file-muni-places"><span data-city="vancouver">Voting places (voting-places-2026.csv)</span><span data-city="richmond" hidden>Voting divisions (richmond-voting-divisions.geojson)</span><span data-city="surrey" hidden>Voting places (surrey-voting-places-2026.csv)</span><span data-city="burnaby" hidden>Voting places (burnaby-voting-places-2026.csv)</span><span data-city="coquitlam" hidden>Voting places (coquitlam-voting-places-2026.csv)</span><span data-city="langley" hidden>Voting places (langley-township-voting-places-2026.csv)</span><span data-city="portmoody" hidden>Voting places (port-moody-voting-places-2026.csv)</span><span data-city="pittmeadows" hidden>Voting places (pitt-meadows-voting-places-2026.csv)</span><span data-city="mapleridge" hidden>Voting places (maple-ridge-voting-places-2026.csv)</span>
         <input class="form-control" type="file" id="file-muni-places" accept=".csv,.tsv,.txt,.xlsx,.zip,.geojson,.json">
       </label>
     </div>
@@ -1543,6 +1575,82 @@
       place, its voting-place locations and its voting areas, as for Vancouver. Burnaby-New Westminster takes in part of New Westminster; it is kept whole, because its results are only published for the whole district.
       Turnout per district is ballots over the registered voters in Elections BC&rsquo;s
       Statement of Votes.
+    </p>
+    </div>
+
+    <div data-city="mapleridge" hidden>
+    <h3>Maple Ridge&rsquo;s municipal election</h3>
+    <p>
+      The city lists its places without assigning electors to any of them, so the atlas treats the election as vote-anywhere. Each place&rsquo;s ballots are spread over the areas around it by distance, as for
+      Vancouver, and there is no municipal turnout by area. In 2026 there were 12 places: eight on election day and four advance places.
+    </p>
+    <p>
+      The City of Maple Ridge&rsquo;s results by voting place are read by <code>tools/wide_results.py with tools/maple-ridge/layout-2026.json</code>,
+      which checks every candidate against the published totals before writing anything; each
+      place is located from its address, with its source, in the tool&rsquo;s places file.
+      Council is read by elector organization where a candidate ran with one (A Better Maple Ridge, from VoteMate&rsquo;s 2026 candidate list), and by name otherwise; mayor by candidate.
+    </p>
+    <h3>Maple Ridge&rsquo;s provincial results</h3>
+    <p>
+      The 2024 provincial layer is the electoral districts that reach into Maple Ridge, kept whole,
+      built by <code>tools/prov_results.py</code> as for the other cities.
+    </p>
+    </div>
+
+    <div data-city="pittmeadows" hidden>
+    <h3>Pitt Meadows&rsquo;s municipal election</h3>
+    <p>
+      The city lists its places without assigning electors to any of them, so the atlas treats the election as vote-anywhere. Each place&rsquo;s ballots are spread over the areas around it by distance, as for
+      Vancouver, and there is no municipal turnout by area. In 2026 there were three election-day places; the advance polls are reported together, without a place, and so are kept off the map.
+    </p>
+    <p>
+      The City of Pitt Meadows&rsquo;s results by voting place are read by <code>tools/wide_results.py with tools/pitt-meadows/layout-2026.json</code>,
+      which checks every candidate against the published totals before writing anything; each
+      place is located from its address, with its source, in the tool&rsquo;s places file.
+      The results name no elector organization, so every race is read by candidate.
+    </p>
+    <h3>Pitt Meadows&rsquo;s provincial results</h3>
+    <p>
+      The 2024 provincial layer is the electoral districts that reach into Pitt Meadows, kept whole,
+      built by <code>tools/prov_results.py</code> as for the other cities.
+    </p>
+    </div>
+
+    <div data-city="portmoody" hidden>
+    <h3>Port Moody&rsquo;s municipal election</h3>
+    <p>
+      The city lists its places without assigning electors to any of them, so the atlas treats the election as vote-anywhere. Each place&rsquo;s ballots are spread over the areas around it by distance, as for
+      Vancouver, and there is no municipal turnout by area. In 2026 there were four election-day places; advance voting is reported together, without a place, and so is kept off the map.
+    </p>
+    <p>
+      The City of Port Moody&rsquo;s results by voting place are read by <code>tools/wide_results.py with tools/port-moody/layout-2026.json</code>,
+      which checks every candidate against the published totals before writing anything; each
+      place is located from its address, with its source, in the tool&rsquo;s places file.
+      Port Moody Voice is read as one group, from the slate the results print beside each name; everyone else is read by name.
+    </p>
+    <h3>Port Moody&rsquo;s provincial results</h3>
+    <p>
+      The 2024 provincial layer is the electoral districts that reach into Port Moody, kept whole,
+      built by <code>tools/prov_results.py</code> as for the other cities.
+    </p>
+    </div>
+
+    <div data-city="langley" hidden>
+    <h3>Langley Township&rsquo;s municipal election</h3>
+    <p>
+      Eligible voters could vote at any location, the Township says. Each place&rsquo;s ballots are spread over the areas around it by distance, as for
+      Vancouver, and there is no municipal turnout by area. In 2026 there were 15 election-day places and six advance places.
+    </p>
+    <p>
+      The Township of Langley&rsquo;s results by voting place are read by <code>tools/langley-township/results.py</code>,
+      which checks every candidate against the published totals before writing anything; each
+      place is located from its address, with its source, in the tool&rsquo;s places file.
+      Council and school trustee are read by elector organization (Langley Strong, Progress for Langley), as the Township&rsquo;s results page names them; independents by name; mayor by candidate.
+    </p>
+    <h3>Langley Township&rsquo;s provincial results</h3>
+    <p>
+      The 2024 provincial layer is the electoral districts that reach into Langley Township, kept whole,
+      built by <code>tools/prov_results.py</code> as for the other cities.
     </p>
     </div>
 

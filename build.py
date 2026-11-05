@@ -53,7 +53,7 @@ geo = read("boundaries/fed_polls.geojson").strip()
 assert json.loads(geo)["type"] == "FeatureCollection"
 assert "</script" not in geo.lower()
 # Every other city the picker offers carries its own, built by tools/city_polls.py.
-CITIES = ("richmond", "surrey", "burnaby", "coquitlam", "metro")
+CITIES = ("richmond", "surrey", "burnaby", "coquitlam", "mapleridge", "pittmeadows", "portmoody", "langley", "metro")
 city_geo = {}
 for c in CITIES:
     g = read(f"boundaries/{c}/fed_polls.geojson").strip()

@@ -1,0 +1,9 @@
+{
+  "city": "City of Port Moody",
+  "year": 2026,
+  "stem": "PortMoody",
+  "races": {"Mayor": "Mayor", "Councillor": "Councillor", "School Trustee": "School Trustee"},
+  "seats": {"Mayor": 1, "Councillor": 6, "School Trustee": 2},
+  "ballots": "Total Ballots Cast",
+  "columns": ["advance", "Recreation Complex", "Kyle Centre", "Heritage Mountain", "Glenayre", "mail", "total"]
+}
