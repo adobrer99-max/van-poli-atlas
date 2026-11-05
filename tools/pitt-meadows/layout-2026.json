@@ -1,0 +1,10 @@
+{
+  "city": "City of Pitt Meadows",
+  "year": 2026,
+  "stem": "PittMeadows",
+  "races": {"Mayor": "Mayor", "Councillor": "Councillor", "School Trustee": "School Trustee"},
+  "seats": {"Mayor": 1, "Councillor": 6, "School Trustee": 2},
+  "stop": ["Total Ballots Cast"],
+  "columns": ["total", "Family Rec Centre", "Heritage Hall", "South Bonson", "advance", "mail"],
+  "names": {"MACDONALD, Nicole": "Nicole MacDonald", "MACGREGOR, Owen": "Owen MacGregor"}
+}

@@ -284,6 +284,11 @@ function refreshOverview() {
       richmond: 'Richmond Centre\u2014Marpole crosses the Fraser; its Marpole divisions are in Vancouver and are ',
       surrey: 'Three ridings cross the city\u2019s edge; their White Rock, Langley and Delta divisions are ',
       burnaby: 'Three ridings cross the city\u2019s edge; their North Vancouver, Vancouver and New Westminster divisions are ',
+      coquitlam: 'All three ridings cross the city\u2019s edge; their Port Coquitlam, Port Moody, New Westminster and Burnaby divisions are ',
+      mapleridge: "Pitt Meadows\u2014Maple Ridge is the city's only riding and runs into Pitt Meadows and Mission; those divisions are ",
+      pittmeadows: "Pitt Meadows\u2014Maple Ridge runs into Maple Ridge and Mission; those divisions are ",
+      portmoody: "Port Moody\u2014Coquitlam runs into Coquitlam, Anmore and Belcarra; those divisions are ",
+      langley: "Both ridings cross the Township's edge, into Abbotsford and Surrey; those divisions are ",
       metro: 'Three ridings run past Metro Vancouver\u2019s edge; their Abbotsford, Mission and Sea to Sky divisions are ',
     }[CITY.id] || 'UBC and the University Endowment Lands sit in Electoral Area A, outside the city, and are ')
     + 'left out unless Area is widened on the Map tab.';
@@ -355,6 +360,22 @@ const SOURCES = [
      + 'and the geocoder and schools layer used to place them',
      'published by the City of Surrey; used with attribution',
      'https://www.surrey.ca/2026-municipal-election/election-results'],
+  ] : CITY.id === 'coquitlam' ? [
+    ['City of Coquitlam', 'results per tabulator (2026)', 'published by the City of Coquitlam; used with attribution',
+     'https://www.coquitlam.ca/1188/Previous-Election-Information'],
+    ['VoteMate', 'the 2026 candidates, all independent', 'cited as the source', 'https://votemate.org/c/13614/?riding=799'],
+  ] : CITY.id === 'mapleridge' ? [
+    ["City of Maple Ridge", "official results by voting place (2026) and voting places", 'published by the City of Maple Ridge; used with attribution',
+     "https://www.mapleridge.ca/media/file/webcopy-fullelectionsresultsataglance-v5-comms-261022"],
+  ] : CITY.id === 'pittmeadows' ? [
+    ["City of Pitt Meadows", "official results by voting place (2026)", 'published by the City of Pitt Meadows; used with attribution',
+     "https://www.pittmeadows.ca/node/73"],
+  ] : CITY.id === 'portmoody' ? [
+    ["City of Port Moody", "official results by voting place (2026)", 'published by the City of Port Moody; used with attribution',
+     "https://www.portmoody.ca/eDocs/PortMoody?docnumber=681693"],
+  ] : CITY.id === 'langley' ? [
+    ["Township of Langley", "results by precinct (2026, open data) and voting locations", 'published by the Township of Langley; used with attribution',
+     "https://www.tol.ca/en/the-township/2026-results.aspx"],
   ] : CITY.id === 'metro' ? [
     ['Province of British Columbia', 'municipal and regional district boundaries (BC Data Catalogue)',
      'Open Government Licence – British Columbia', 'https://www2.gov.bc.ca/gov/content/data/open-data/open-government-licence-bc'],

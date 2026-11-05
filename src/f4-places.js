@@ -83,9 +83,13 @@ const Places = (() => {
       /* A name already in mixed case is spelled as its owner spells it:
          McCallum, not Mccallum. */
       if (/^[A-Z][a-z]+[A-Z][a-z]/.test(word)) return word;
+      /* So is any word written in mixed case at all, which is how a person
+         spells their own name: D'Eith, Cindy-Lea, St. Germain. Only a word
+         in capitals, or in lower case, is re-cased. */
+      if (/[a-z]/.test(word) && /[A-Z]/.test(word) && word !== word.charAt(0) + word.slice(1).toLowerCase()) return word;
       if (SPELLINGS.has(low)) return SPELLINGS.get(low);
       if (ACRONYMS.has(low)) return low.toUpperCase();
-      if (i > 0 && (low === 'of' || low === 'the' || low === 'and')) return low;
+      if (i > 0 && (low === 'of' || low === 'the' || low === 'and' || low === 'for')) return low;
       return low.charAt(0).toUpperCase() + low.slice(1);
     }).join(' ');
   }

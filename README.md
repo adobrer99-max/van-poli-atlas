@@ -899,6 +899,38 @@ Rock. So a city's baked-in voting areas are not clipped again when the page
 loads them. Ballot totals agree with the Statement of Votes for all 19
 districts (76,546 in Richmond, 194,309 in Surrey, 90,832 in Burnaby).
 
+## Coquitlam, Maple Ridge, Pitt Meadows, Port Moody and Langley Township
+
+Five more cities with their 2026 civic results, each a map of its own in the
+picker. Their federal divisions are cut out of the Metro layer by
+`tools/city_from_metro.py` (every riding that reaches into the city, with the
+divisions outside it tagged), and their provincial layer is built by
+`tools/prov_results.py` as for the other cities. All five vote anywhere, or
+list their places without assigning electors to any, so every place's ballots
+are smoothed over the areas around it.
+
+| City | Results | Reader | Read as |
+|---|---|---|---|
+| Coquitlam | results per tabulator, PDF | `tools/coquitlam/results.py` | by candidate (all independents) |
+| Maple Ridge | official results by voting place, PDF | `tools/wide_results.py` + `tools/maple-ridge/layout-2026.json` | A Better Maple Ridge as a slate, others by name |
+| Pitt Meadows | official results, PDF | `tools/wide_results.py` + `tools/pitt-meadows/layout-2026.json` | by candidate |
+| Port Moody | official results by voting place, PDF | `tools/wide_results.py` + `tools/port-moody/layout-2026.json` | Port Moody Voice as a slate, others by name |
+| Langley Township | results by precinct, ArcGIS open data | `tools/langley-township/results.py` | Langley Strong and Progress for Langley as slates |
+
+`tools/wide_results.py` reads any results table with a row per candidate and a
+column per place; what differs from city to city is in the city's layout file.
+Every reader checks every candidate against the published totals before it
+writes anything. Each city's places file gives every voting place's address and
+where it came from, and the address is located with the Province's geocoder
+(`geocoder.api.gov.bc.ca`). Pitt Meadows and Port Moody report their advance
+votes together, without a place, so those stay off the map; so do mail and
+special ballots everywhere.
+
+Not yet here: New Westminster (2026 results are city-wide only), Delta (by
+place, but electors are assigned to a place, so it needs the areas each place
+serves), Port Coquitlam (a scanned PDF), and the North Shore and White Rock,
+whose files could not be reached from the build machine.
+
 ## Metro Vancouver
 
 The whole Metro Vancouver Regional District on one map: the federal and
