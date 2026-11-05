@@ -421,6 +421,26 @@ ok('the area inside RC02 takes none of RC01', ballotsOn(1) <= rc02.total + rc02.
 ok('the straddling area takes a share of both', placed.report.onePlace === 2, `onePlace ${placed.report.onePlace}`);
 eq('and the report says it was by division', placed.report.basis, 'division');
 
+console.log('\n== Surrey: poll codes with a letter for a second gym ==');
+const sryPlaces = M.readVotingPlaces(await Ingest.loadTable('surrey-voting-places-2026.csv', Buffer.from([
+  'Voting Place ID,Facility Name,Facility Address,Advance Only,geo_point_2d',
+  'GV03A,LA Matheson Secondary (Small Gym),9484 122 Street,No,"49.175298, -122.884412"',
+  'GV03B,LA Matheson Secondary (Big Gym),9484 122 Street,No,"49.175298, -122.884412"',
+  'ADV80,Kwantlen Park Secondary (advance),10441 132 Street,Yes,"49.1922, -122.8568"',
+].join('\n'))));
+const srySheet = await Ingest.loadTable('2026SurreyResults_Mayor.csv', Buffer.from([
+  '2026 MAYOR Results by Location (Vote for 1)',
+  'Voting Place ID,Times Cast,"ANNIS, Linda (Linda Annis \u2013 Surrey First)","LOCKE, Brenda (Brenda Locke \u2013 Surrey Connect)"',
+  'GV03A - LA Matheson Secondary (Small Gym),110,40,70',
+  'GV03B - LA Matheson Secondary (Big Gym),100,50,50',
+  'ADV80 - Kwantlen Park Secondary,90,45,45',
+  'MBV - Mail Ballot,10,5,5',
+].join('\n')));
+const sb = M.toPlacesTable(srySheet, sryPlaces, { district: 'COS' });
+eq('a lettered poll joins to its own row', sb.report.matched, 3);
+eq('two gyms in one building are not read as an advance place', sryPlaces.inferredAdvance, 0);
+eq('mail has no place', sb.report.unplaced.map((u) => u.id), ['MBV']);
+
 console.log(fails ? `\n${fails} FAILED` : '\nAll municipal checks passed.');
 process.exit(fails ? 1 : 0);
 })();

@@ -264,7 +264,7 @@ const CAVEATS = [
        + 'nowhere on the map. The division lines are traced from the city\u2019s bylaw maps onto '
        + 'its own street centrelines and are good to about a block.']
     : ['There is no municipal turnout by area, anywhere in this atlas.',
-       'You may vote at any place in Vancouver and most people do, so ballots are smoothed by '
+       `You may vote at any place in ${CITY.name} and most people do, so ballots are smoothed by `
        + 'distance rather than assigned. Measured against the federal turnout surface any municipal '
        + 'turnout map agrees at about r 0.2 however it is built. Party share survives that; turnout '
        + 'does not, so it is not offered.'],
@@ -280,11 +280,12 @@ function refreshOverview() {
   if (state.prov.active.length) bits.push(`${fmtInt(state.prov.active.length)} provincial voting areas`);
   if (state.da.active.length) bits.push(`${fmtInt(state.da.active.length)} dissemination areas`);
   scope.textContent = `${$('area-filter').selectedOptions[0].textContent.trim()} — ${bits.join(', ')}. `
-    + (CITY.id === 'richmond'
-      ? 'Richmond Centre\u2014Marpole crosses the Fraser; its Marpole divisions are in Vancouver and are '
-        + 'left out unless Area is widened on the Map tab.'
-      : 'UBC and the University Endowment Lands sit in Electoral Area A, outside the city, and are '
-        + 'left out unless Area is widened on the Map tab.');
+    + ({
+      richmond: 'Richmond Centre\u2014Marpole crosses the Fraser; its Marpole divisions are in Vancouver and are ',
+      surrey: 'Three ridings cross the city\u2019s edge; their White Rock, Langley and Delta divisions are ',
+      burnaby: 'Three ridings cross the city\u2019s edge; their North Vancouver, Vancouver and New Westminster divisions are ',
+    }[CITY.id] || 'UBC and the University Endowment Lands sit in Electoral Area A, outside the city, and are ')
+    + 'left out unless Area is widened on the Map tab.';
 
   host.textContent = '';
   const findings = headlineFindings();
@@ -343,6 +344,16 @@ const SOURCES = [
      'https://www.richmond.ca/city-hall/elections.htm'],
     ['VoteMate', 'elector organizations of the 2022 candidates',
      'cited as the source', 'https://en.votemate.org/local2022/candidates/?riding=27'],
+  ] : CITY.id === 'burnaby' ? [
+    ['City of Burnaby', 'votes by voting machine (Attachment 1 to the October 27, 2026 council '
+     + 'report), city-wide totals from its results site, and voting locations',
+     'published by the City of Burnaby; used with attribution',
+     'https://burnaby.ca/our-city/mayor-and-council/elections/results'],
+  ] : CITY.id === 'surrey' ? [
+    ['City of Surrey', 'results by poll and ballots cast by poll (2026), voting locations, '
+     + 'and the geocoder and schools layer used to place them',
+     'published by the City of Surrey; used with attribution',
+     'https://www.surrey.ca/2026-municipal-election/election-results'],
   ] : [
     ['City of Vancouver', 'municipal election results and voting places',
      'Open Government Licence – Vancouver', 'https://opendata.vancouver.ca/pages/licence/'],

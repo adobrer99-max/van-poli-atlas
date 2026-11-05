@@ -6,6 +6,8 @@
       <select class="form-select" id="city-picker">
         <option value="vancouver">Vancouver</option>
         <option value="richmond">Richmond</option>
+        <option value="surrey">Surrey</option>
+        <option value="burnaby">Burnaby</option>
       </select>
     </label>
   </div>
@@ -297,6 +299,8 @@
     Boundary coordinates are rounded to five decimals.
     Federal source: Elections Canada, Polling Division Boundaries 2025.
     <span data-city="vancouver">UBC and UEL sit in Electoral Area A, outside the City of Vancouver.</span>
+    <span data-city="surrey" hidden>Three ridings cross Surrey&rsquo;s edge; their White Rock, Langley and Delta divisions are left out of city figures.</span>
+    <span data-city="burnaby" hidden>Three ridings cross Burnaby&rsquo;s edge; their North Vancouver, Vancouver and New Westminster divisions are left out of city figures.</span>
     <span data-city="richmond" hidden>Richmond Centre&ndash;Marpole crosses the Fraser; its Marpole divisions are in Vancouver and are left out of city figures.
     Voting divisions traced from the City of Richmond&rsquo;s bylaw maps onto its street centrelines, good to about a block.</span>
   </p>
@@ -494,6 +498,22 @@
       mail ballots (about a third in 2026) have no division and count only in city-wide figures.
       Council and school trustee results are grouped by elector organization; mayor by candidate.
     </p>
+    <p class="text-small text-muted" data-city="burnaby" hidden>
+      Two files, made by <code>tools/burnaby/</code> from what the City of Burnaby publishes:
+      the votes on each of the 57 voting machines, read from the council report&rsquo;s
+      attachment and checked against the city&rsquo;s totals, and the voting places from the
+      city&rsquo;s own voting-locations map. Any Burnaby elector may vote at any location, so
+      each machine&rsquo;s ballots are <em>smoothed</em> over the areas around it by distance,
+      and there is no municipal turnout by area.
+    </p>
+    <p class="text-small text-muted" data-city="surrey" hidden>
+      Two files, made by <code>tools/surrey/results.py</code> from what the City of Surrey
+      publishes: the results by poll for every race, and the voting places, geocoded from the
+      city&rsquo;s own address list. Any Surrey elector may vote at any location, so, as in
+      Vancouver, each poll&rsquo;s ballots are <em>smoothed</em> over the areas around it by
+      distance, and there is no municipal turnout by area. Council and school trustee results
+      are grouped by elector organization; mayor by candidate.
+    </p>
     <p class="text-small text-muted" data-city="vancouver">
       Two files from the City of Vancouver open data portal: the results archive
       and the voting places for the same year, joined on the numeric voting place
@@ -512,13 +532,13 @@
       city-wide rate is on the Results tab. &ldquo;How to read this&rdquo; has the numbers.
     </p>
     <div class="viz-controls">
-      <label class="form-label grow" for="file-muni-results">Results archive (<span data-city="vancouver">2026MunicipalElectionResults.zip</span><span data-city="richmond" hidden>richmond-2026-results.zip</span>)
+      <label class="form-label grow" for="file-muni-results">Results archive (<span data-city="vancouver">2026MunicipalElectionResults.zip</span><span data-city="richmond" hidden>richmond-2026-results.zip</span><span data-city="surrey" hidden>surrey-2026-results.zip</span><span data-city="burnaby" hidden>burnaby-2026-results.zip</span>)
         <input class="form-control" type="file" id="file-muni-results" accept=".zip,.csv,.xlsx">
       </label>
       <button type="button" class="btn" id="clear-muni" hidden>Remove</button>
     </div>
     <div class="viz-controls">
-      <label class="form-label grow" for="file-muni-places"><span data-city="vancouver">Voting places (voting-places-2026.csv)</span><span data-city="richmond" hidden>Voting divisions (richmond-voting-divisions.geojson)</span>
+      <label class="form-label grow" for="file-muni-places"><span data-city="vancouver">Voting places (voting-places-2026.csv)</span><span data-city="richmond" hidden>Voting divisions (richmond-voting-divisions.geojson)</span><span data-city="surrey" hidden>Voting places (surrey-voting-places-2026.csv)</span><span data-city="burnaby" hidden>Voting places (burnaby-voting-places-2026.csv)</span>
         <input class="form-control" type="file" id="file-muni-places" accept=".csv,.tsv,.txt,.xlsx,.zip,.geojson,.json">
       </label>
     </div>
@@ -526,10 +546,10 @@
       <label class="form-label grow" for="muni-race">Race
         <select class="form-select" id="muni-race"></select>
       </label>
-      <label class="form-label grow" for="muni-band-final" data-city="vancouver">Final-day spread (m)
+      <label class="form-label grow" for="muni-band-final" data-city="vancouver surrey burnaby">Final-day spread (m)
         <input class="form-control" type="number" id="muni-band-final" value="600" min="100" max="5000" step="50">
       </label>
-      <label class="form-label grow" for="muni-band-advance" data-city="vancouver">Advance spread (m)
+      <label class="form-label grow" for="muni-band-advance" data-city="vancouver surrey burnaby">Advance spread (m)
         <input class="form-control" type="number" id="muni-band-advance" value="2000" min="100" max="10000" step="100">
       </label>
     </div>
@@ -542,13 +562,13 @@
       ballot both times under the same name are offered.
     </p>
     <div class="viz-controls">
-      <label class="form-label grow" for="file-muni-base-results">Earlier results archive (<span data-city="vancouver">2022MunicipalElectionResults.zip</span><span data-city="richmond" hidden>richmond-2022-results.zip</span>)
+      <label class="form-label grow" for="file-muni-base-results">Earlier results archive (<span data-city="vancouver">2022MunicipalElectionResults.zip</span><span data-city="richmond" hidden>richmond-2022-results.zip</span><span data-city="surrey" hidden>surrey-2022-results.zip</span>)
         <input class="form-control" type="file" id="file-muni-base-results" accept=".zip,.csv,.xlsx">
       </label>
       <button type="button" class="btn" id="clear-muni-base" hidden>Remove</button>
     </div>
     <div class="viz-controls">
-      <label class="form-label grow" for="file-muni-base-places"><span data-city="vancouver">Earlier voting places (voting-places-2022.csv)</span><span data-city="richmond" hidden>Voting divisions again (the same file)</span>
+      <label class="form-label grow" for="file-muni-base-places"><span data-city="vancouver">Earlier voting places (voting-places-2022.csv)</span><span data-city="richmond" hidden>Voting divisions again (the same file)</span><span data-city="surrey" hidden>Earlier voting places (surrey-voting-places-2022.csv)</span>
         <input class="form-control" type="file" id="file-muni-base-places" accept=".csv,.tsv,.txt,.xlsx,.zip,.geojson,.json">
       </label>
     </div>
@@ -1460,6 +1480,48 @@
       about different things each time.
     </p>
 
+    </div>
+
+    <div data-city="burnaby" hidden>
+    <h3>Burnaby&rsquo;s municipal election</h3>
+    <p>
+      Burnaby votes anywhere: in 2026 any elector could vote at any of 33 locations on general
+      voting day or six advance locations, with no assigned place. So, as for Vancouver and
+      Surrey, each voting machine&rsquo;s ballots are spread over every area by distance and
+      there is no municipal turnout by area.
+    </p>
+    <p>
+      The city publishes votes by voting machine &mdash; 57 of them, two at the busiest
+      locations &mdash; only in the attachment to its October 27 council report, a PDF whose
+      text cannot be extracted. <code>tools/burnaby/ocr_results.py</code> reads the pages as
+      images, reads every number cell a second time on its own, and requires every
+      candidate&rsquo;s machines to add up to the total the city publishes on its results site;
+      a column that does not is re-read until it does, or the tool stops. Voting places come
+      from the city&rsquo;s voting-locations map. Slates are the city&rsquo;s candidate profiles,
+      and agree with the candidate counts the results site gives for each elector organization.
+    </p>
+    </div>
+
+    <div data-city="surrey" hidden>
+    <h3>Surrey&rsquo;s municipal election</h3>
+    <p>
+      Surrey votes anywhere: in 2026 any elector could vote at any of 52 locations on general
+      voting day or at ten advance locations. So the atlas treats it exactly as it treats
+      Vancouver &mdash; each poll&rsquo;s ballots are spread over every area by distance,
+      about 600&nbsp;m for an election-day poll and 2&nbsp;km for an advance one, and there is
+      no municipal turnout by area, for the reasons set out for Vancouver: a map of where
+      ballots were cast in a vote-anywhere election is largely a map of the voting places.
+      Party share survives that and is what the layer shows.
+    </p>
+    <p>
+      The city publishes results by poll on its results site and the ballots cast at each poll in
+      a PDF; <code>tools/surrey/results.py</code> turns them into the race sheets this atlas
+      reads, checking every candidate&rsquo;s polls against the published total. A building
+      with two polls (two gyms) is one point carrying two rows. Voting places are geocoded from
+      the addresses on the city&rsquo;s &ldquo;Where to vote&rdquo; page with the city&rsquo;s
+      own public geocoder. Mayor is read by candidate; council and school trustee by elector
+      organization, as the results site names them.
+    </p>
     </div>
 
     <div data-city="richmond" hidden>

@@ -72,14 +72,17 @@ const Places = (() => {
      party the atlas title-cases into "Abc Vancouver" reads as a typo on a map
      legend. "OneCity" is not an acronym and is spelled as its own word. */
   const ACRONYMS = new Set(['bc', 'ndp', 'cpc', 'ppc', 'lpc', 'cpbc', 'usa', 'uk',
-    'abc', 'npa', 'team', 'cope', 'vote', 'ovc']);
+    'abc', 'npa', 'team', 'cope', 'vote', 'ovc', 'ia', 'ii', 'iii']);
   /* Richmond's slates spell themselves in capitals too: RITE Richmond (the
      Richmond Independent Team of Electors) and ONE Richmond. */
-  const SPELLINGS = new Map([['onecity', 'OneCity'], ['rite', 'RITE'], ['one', 'ONE']]);
+  const SPELLINGS = new Map([['onecity', 'OneCity'], ['rite', 'RITE'], ['one', 'ONE'], ['abcrobinhood', 'ABCRobinhood']]);
 
   function partyLabel(stem) {
     return stem.split(/[_\s]+/).filter(Boolean).map((word, i) => {
       const low = word.toLowerCase();
+      /* A name already in mixed case is spelled as its owner spells it:
+         McCallum, not Mccallum. */
+      if (/^[A-Z][a-z]+[A-Z][a-z]/.test(word)) return word;
       if (SPELLINGS.has(low)) return SPELLINGS.get(low);
       if (ACRONYMS.has(low)) return low.toUpperCase();
       if (i > 0 && (low === 'of' || low === 'the' || low === 'and')) return low;
