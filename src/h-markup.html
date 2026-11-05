@@ -286,6 +286,49 @@
       aria-label="Map of 2025 federal polling divisions with 2024 provincial voting areas overlaid on streets. Drag to pan, scroll to zoom, click to read the polling division and voting area at a point. Use the two find menus for keyboard access."></div>
     <div class="map-legend" id="map-legend" hidden></div>
   </div>
+  <div class="graphic-bar">
+    <button class="btn btn-outline-primary btn-sm" type="button" id="graphic-open">Make a Balagan graphic of this view…</button>
+  </div>
+  <dialog class="graphic-dialog" id="graphic-dialog" aria-labelledby="graphic-heading">
+    <div class="graphic-head">
+      <h2 id="graphic-heading">Balagan graphic</h2>
+      <button class="btn btn-sm btn-outline-secondary" type="button" id="g-close" aria-label="Close">Close</button>
+    </div>
+    <div class="graphic-body">
+      <form class="graphic-form" onsubmit="return false">
+        <label class="form-label">Kicker <input class="form-control" id="g-kicker" placeholder="METRO VANCOUVER"></label>
+        <label class="form-label">Title &mdash; the finding, not the topic
+          <input class="form-control" id="g-title" placeholder="Burnaby&rsquo;s east end swung hardest to Hurley"></label>
+        <label class="form-label">Subtitle &mdash; what is measured
+          <input class="form-control" id="g-subtitle"></label>
+        <label class="form-label">Source <input class="form-control" id="g-source"></label>
+        <div class="graphic-row">
+          <label class="form-label">Size
+            <select class="form-select" id="g-size">
+              <option value="substack">Substack (1456 &times; 1024)</option>
+              <option value="ig45">Instagram 4:5 (1080 &times; 1350)</option>
+              <option value="igsq">Instagram square (1080 &times; 1080)</option>
+            </select></label>
+          <label class="form-label">Theme
+            <select class="form-select" id="g-theme">
+              <option value="parchment">Parchment</option>
+              <option value="paper">Paper</option>
+              <option value="ink">Ink (dark)</option>
+            </select></label>
+        </div>
+        <label class="form-check"><input class="form-check-input" type="checkbox" id="g-stretch" checked>
+          <span class="form-check-label">Stretch the shading to this map&rsquo;s range</span></label>
+        <label class="form-check"><input class="form-check-input" type="checkbox" id="g-outlines">
+          <span class="form-check-label">Draw the voting-area outlines</span></label>
+        <label class="form-check"><input class="form-check-input" type="checkbox" id="g-handle" checked>
+          <span class="form-check-label">Show the Substack address</span></label>
+        <p class="text-small text-muted">The map is what is in view now, with the colours and legend on screen.
+          Pan or zoom the map, then reopen this to change it.</p>
+        <button class="btn btn-primary" type="button" id="g-download">Download PNG</button>
+      </form>
+      <div class="graphic-preview" id="g-preview" aria-label="Preview"></div>
+    </div>
+  </dialog>
   <div id="basemap-note" class="text-small text-warning" hidden>
     Street tiles are not loading — offline? The boundaries and every analysis work without them; choose “None” under Basemap to hide the empty layer.
   </div>
