@@ -899,6 +899,47 @@ Rock. So a city's baked-in voting areas are not clipped again when the page
 loads them. Ballot totals agree with the Statement of Votes for all 19
 districts (76,546 in Richmond, 194,309 in Surrey, 90,832 in Burnaby).
 
+## Metro Vancouver
+
+The whole Metro Vancouver Regional District on one map: the federal and
+provincial layers for all 21 municipalities, Electoral Area A and the First
+Nations lands in it. There is no municipal layer, because there is no
+Metro-wide municipal election; each city's civic results stay under that city.
+
+**Federal.** `boundaries/metro/fed_polls.geojson` holds the 4,625 divisions of
+the 24 ridings that reach into Metro, built by `tools/city_polls.py` with the
+regional district as the boundary and the Province's municipal boundaries as
+`--localities`. 322 divisions of the three ridings that run past Metro
+(Abbotsford--South Langley, Pitt Meadows--Maple Ridge, and West
+Vancouver--Sunshine Coast--Sea to Sky Country) are tagged as outside. Every
+other division carries `muni`, the municipality holding its centre, and the
+Area control on the Map tab offers each one.
+
+```sh
+mapshaper bc_pd.geojson -filter '[59001,59002,...,59043].indexOf(FED_NUM)>-1' \
+    -simplify 12% keep-shapes -o format=geojson precision=0.00001 metro_pd.geojson
+python3 tools/city_polls.py --polls metro_pd.geojson --boundary metro_rd.geojson \
+    --city "Metro Vancouver" --outside-label Outside \
+    --outside-by-fed "59001=Abbotsford,59043=Sunshine Coast and Sea to Sky,59024=Mission" \
+    --localities metro_municipalities.geojson \
+    --unnamed "Electoral Area A and First Nations" --out boundaries/metro/fed_polls.geojson
+```
+
+The regional district and municipalities are `ABMS_REGIONAL_DISTRICTS_SP` and
+`ABMS_MUNICIPALITIES_SP` from the BC Data Catalogue (WFS at
+`openmaps.gov.bc.ca/geo/pub/wfs`), under the Open Government Licence --
+British Columbia.
+
+**Provincial.** The 47 electoral districts with a voting area in Metro, whole,
+from `tools/prov_results.py --region --city "Metro Vancouver"`. Their ballots
+agree with the Statement of Votes: 1,015,501. The voting areas are simplified
+to 20% with mapshaper to keep the file small.
+
+Bake it with `--city metro --no-clip` and build with `--payload-metro`. On a
+phone with a quarter of a laptop's speed it loads in about 16 seconds, against
+about 5 for Vancouver alone; most of that is reading the 24 ridings' results and
+placing 2,847 voting areas on their voting places.
+
 ## Rebuilding
 
 ```sh
