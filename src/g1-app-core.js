@@ -10,7 +10,11 @@ const el = (tag, className, text) => {
   if (text != null) n.textContent = text;
   return n;
 };
-const fmtInt = (n) => Math.round(n).toLocaleString();
+/* One formatter, made once: Number.prototype.toLocaleString builds a new one
+   on every call, which on the Metro map's 4,000-row tables was most of a
+   second of the page's start-up. Same output. */
+const INT_FORMAT = new Intl.NumberFormat();
+const fmtInt = (n) => INT_FORMAT.format(Math.round(n));
 const fmtPct = (n, dp = 1) => (n == null || !isFinite(n)) ? '--' : (n * 100).toFixed(dp) + '%';
 /* A change in share, signed, in percentage points: +4.2 pts, −3.1 pts. */
 const fmtSwing = (v) => (v == null || !isFinite(v)) ? '--'
@@ -129,6 +133,23 @@ const CITY = (() => {
 })();
 const VANCOUVER_FEDS = new Set(CITY.feds);
 const FED_NAMES = CITY.fedNames;
+
+/* Work for a tab nobody is looking at waits until it is opened. The big
+   tables (a row per polling division: 4,000 on the Metro map) are rebuilt by
+   every loader, and building them inside a hidden panel was a second and more
+   of start-up spent on tabs most visits never open. Each key keeps only its
+   latest job, so a tab opened after five reloads renders once. */
+const pendingRender = new Map();
+function whenShown(panelId, key, job) {
+  const panel = $(panelId);
+  if (!panel || !panel.hidden) { pendingRender.delete(key); job(); return; }
+  pendingRender.set(key, { panelId, job });
+}
+new MutationObserver(() => {
+  for (const [key, { panelId, job }] of [...pendingRender]) {
+    if (!$(panelId).hidden) { pendingRender.delete(key); job(); }
+  }
+}).observe(root, { subtree: true, attributes: true, attributeFilter: ['hidden'] });
 
 /* Words that differ by city. An element marked data-city="richmond" shows only
    for Richmond; data-city-text="name" or "cityName" is filled in. Run before

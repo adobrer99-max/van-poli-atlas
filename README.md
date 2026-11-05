@@ -936,9 +936,10 @@ agree with the Statement of Votes: 1,015,501. The voting areas are simplified
 to 20% with mapshaper to keep the file small.
 
 Bake it with `--city metro --no-clip` and build with `--payload-metro`. On a
-phone with a quarter of a laptop's speed it loads in about 16 seconds, against
-about 5 for Vancouver alone; most of that is reading the 24 ridings' results and
-placing 2,847 voting areas on their voting places.
+laptop slowed to a quarter of its speed, standing in for a phone, a build with
+all five maps and `--compress` opens Metro in about 8 seconds and Vancouver in
+about 3; most of what is left is reading the 24 ridings' results, placing 2,847
+voting areas on their voting places and drawing them.
 
 ## Rebuilding
 
@@ -949,6 +950,12 @@ python3 build.py                     # writes vancouver-boundary-atlas.html
 `boundaries/fed_polls.geojson` is the federal layer the build inlines. The
 built file is committed, and CI fails when it is out of date, so rebuild before
 committing a change under `src/` or `boundaries/`.
+
+`--compress` packs baked-in data gzipped and base64'd, and the page unpacks
+only the city on show (with the browser's `DecompressionStream`). A build
+carrying all five maps drops from 16 MB to 6 MB, and the page starts that much
+sooner, because a browser reads every byte of the file before anything runs.
+Leave it off to keep a payload build readable in a text editor.
 
 That check is also why **the committed build carries no release stamp**. A
 stamp carries the clock, so a file with one is never byte-identical to the next
