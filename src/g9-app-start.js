@@ -121,7 +121,7 @@ adoptPayloads().then((payload) => {
         + 'below simply replaces it. Nothing here was uploaded and nothing is fetched: the '
         + 'data is inside this file.'),
       el('p', 'text-small text-muted',
-        `Contains information from Elections Canada, Elections BC, the ${CITY.cityName} and `
+        `Contains information from Elections Canada, Elections BC, ${CITY.id === 'metro' ? 'the Province of British Columbia' : `the ${CITY.cityName}`} and `
         + 'Statistics Canada, used under their respective open licences. None of those agencies '
         + 'has endorsed this work or is responsible for it.'),
     ]);

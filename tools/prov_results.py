@@ -1,6 +1,6 @@
 """Cut Elections BC's 2024 results down to one city, in the shape the atlas reads.
 
-    python3 tools/prov_results.py --city "City of Richmond" \
+    python3 tools/prov_results.py --city "City of Richmond" [--region] \
         --results provincial_voting_results_by_voting_place.csv \
         --places voting_places.json --vas-per-muni vaspermuni_20240919.csv \
         --sov statement-of-votes.txt --out-dir payload-src/
@@ -53,10 +53,13 @@ def main():
     for f in ('city', 'results', 'places', 'vas-per-muni', 'sov', 'out-dir'):
         ap.add_argument('--' + f, required=True)
     ap.add_argument('--year', default='2024')
+    ap.add_argument('--region', action='store_true',
+                    help='--city names a regional district ("Metro Vancouver"), not a municipality')
     a = ap.parse_args()
 
     vas = list(csv.DictReader(open(a.vas_per_muni, encoding='utf-8-sig')))
-    eds = sorted({r['Electoral District Code'] for r in vas if r['Legal Name'] == a.city})
+    col = 'Regional District' if a.region else 'Legal Name'
+    eds = sorted({r['Electoral District Code'] for r in vas if r[col] == a.city})
     if not eds:
         raise SystemExit(f'No voting area is in "{a.city}" (the table names cities as "City of Richmond").')
     names = {r['Electoral District Code']: r['Electoral District Name'] for r in vas}

@@ -100,6 +100,28 @@ const CITIES = {
     muniDistrict: 'COB',
     fileStem: 'burnaby',
   },
+  metro: {
+    id: 'metro',
+    name: 'Metro Vancouver',
+    cityName: 'Metro Vancouver Regional District',
+    /* Every riding that reaches into the Metro Vancouver Regional District.
+       Abbotsford--South Langley, Pitt Meadows--Maple Ridge and West
+       Vancouver--Sunshine Coast--Sea to Sky Country run beyond it; their
+       divisions outside it are tagged and left out of Metro figures. Every
+       division inside carries its municipality, so the Area control can show
+       one city at a time. There is no municipal layer: each city runs its own
+       election, so civic results are under that city in the picker. */
+    feds: ["59001", "59002", "59003", "59006", "59008", "59011", "59013", "59017", "59020", "59022", "59024", "59025", "59027", "59028", "59032", "59033", "59034", "59035", "59036", "59037", "59038", "59039", "59040", "59043"],
+    fedNames: {"59001": "Abbotsford—South Langley", "59002": "Burnaby Central", "59003": "Burnaby North—Seymour", "59006": "Cloverdale—Langley City", "59008": "Coquitlam—Port Coquitlam", "59011": "Delta", "59013": "Fleetwood—Port Kells", "59017": "Langley Township—Fraser Heights", "59020": "New Westminster—Burnaby—Maillardville", "59022": "North Vancouver—Capilano", "59024": "Pitt Meadows—Maple Ridge", "59025": "Port Moody—Coquitlam", "59027": "Richmond Centre—Marpole", "59028": "Richmond East—Steveston", "59032": "South Surrey—White Rock", "59033": "Surrey Centre", "59034": "Surrey Newton", "59035": "Vancouver Centre", "59036": "Vancouver East", "59037": "Vancouver Fraserview—South Burnaby", "59038": "Vancouver Granville", "59039": "Vancouver Kingsway", "59040": "Vancouver Quadra", "59043": "West Vancouver—Sunshine Coast—Sea to Sky Country"},
+    areas: [['van', 'All of Metro Vancouver'],
+            ...["Anmore", "Belcarra", "Bowen Island", "Burnaby", "Coquitlam", "Delta", "Langley City", "Langley Township", "Lions Bay", "Maple Ridge", "New Westminster", "City of North Vancouver", "District of North Vancouver", "Pitt Meadows", "Port Coquitlam", "Port Moody", "Richmond", "Surrey", "Vancouver", "West Vancouver", "White Rock"].map((m) => ['muni:' + m, m]),
+            ['muni:Electoral Area A and First Nations', 'Electoral Area A (UBC, UEL) and First Nations lands'],
+            ['all', 'Everything in the file (with Abbotsford, Mission and the Sea to Sky)']],
+    keepLocality: null,
+    muni: null,
+    muniDistrict: null,
+    fileStem: 'metro-vancouver',
+  },
 };
 const CITY = (() => {
   const m = /(?:^|[#&?])city=([a-z]+)/i.exec(location.hash || '') || /[?&]city=([a-z]+)/i.exec(location.search || '');
@@ -311,6 +333,8 @@ function prepareFederal(features) {
       outsideCity: Boolean(p.jurisdiction),
       jurisdiction: p.jurisdiction || null,
       locality: p.locality || null,
+      /* Metro Vancouver only: the municipality the division lies in. */
+      muni: p.muni || null,
       /* The advance poll this division reported to, published by Elections
          Canada. It is what lets an advance poll's ballots land on the ten or
          so divisions that fed it instead of the whole riding. */
@@ -338,6 +362,7 @@ function federalStudyArea() {
   return state.fed.all.filter((f) => {
     if (area !== 'all' && !VANCOUVER_FEDS.has(f.fedNum)) return false;
     if (area === 'van' && f.outsideCity) return false;
+    if (area.startsWith('muni:') && (f.outsideCity || f.muni !== area.slice(5))) return false;
     if (area === 'van-ubc' && f.outsideCity && f.locality !== UBC_LOCALITY) return false;
     return true;
   });

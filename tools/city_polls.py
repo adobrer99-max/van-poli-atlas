@@ -23,6 +23,10 @@ outside the city boundary is tagged with `jurisdiction` and `locality`, which
 is all the app reads to keep it out of city figures. For Richmond that is
 Marpole, which shares Richmond Centre--Marpole but is in Vancouver.
 
+--localities names the parts of the area (Metro Vancouver's municipalities):
+each division inside the boundary gets `muni`, the locality holding its
+representative point, so the Area control can show one city at a time.
+
 Standard library only, so it runs anywhere the build does."""
 import argparse, json, os
 
@@ -95,6 +99,14 @@ def main():
     ap.add_argument("--outside-by-fed", default="",
                     help='per-riding names for the outside divisions, e.g. '
                          '"59032=White Rock,59011=Delta"; the rest use --outside-label')
+    ap.add_argument("--localities", default="",
+                    help="GeoJSON of named areas inside the boundary (for Metro Vancouver, its "
+                         "municipalities); each division inside the boundary gets `muni`, the name "
+                         "of the one holding its representative point")
+    ap.add_argument("--locality-field", default="name")
+    ap.add_argument("--unnamed", default="",
+                    help='`muni` for a division inside the boundary but in no locality, e.g. '
+                         '"Electoral Area A and reserves"')
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
 
@@ -103,6 +115,10 @@ def main():
     with open(a.boundary, encoding="utf-8") as fh:
         city = [f["geometry"] for f in json.load(fh)["features"]]
 
+    parts = []
+    if a.localities:
+        with open(a.localities, encoding="utf-8") as fh:
+            parts = [(f["properties"][a.locality_field], f["geometry"]) for f in json.load(fh)["features"]]
     by_fed = dict(kv.split("=", 1) for kv in a.outside_by_fed.split(",") if "=" in kv)
     out, outside = [], 0
     for f in polls:
@@ -119,6 +135,10 @@ def main():
             props["jurisdiction"] = f"{label} \u2014 outside {a.city}"
             if named or a.outside_locality:
                 props["locality"] = named or a.outside_locality
+        elif pt and parts:
+            hit = next((n for n, g in parts if in_geom(pt[0], pt[1], g)), None)
+            if hit or a.unnamed:
+                props["muni"] = hit or a.unnamed
         out.append({"type": "Feature", "properties": props, "geometry": f["geometry"]})
 
     out.sort(key=lambda f: (f["properties"]["fed"], int(f["properties"]["poll"].split("-")[0]),
