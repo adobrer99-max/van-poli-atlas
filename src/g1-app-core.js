@@ -1218,19 +1218,30 @@ function drawPlaces() {
   const ballots = places.map((p) => p.total + p.rejected);
   const biggest = Math.max(1, ...ballots);
   places.forEach((p, i) => {
-    /* Area, not radius, follows the ballot count, so a hall with four times
-       the ballots looks twice as wide rather than four times. */
-    const r = 4 + 9 * Math.sqrt(ballots[i] / biggest);
     const marker = L.circleMarker([p.lat, p.lon], {
       pane: 'places', renderer: L.svg({ pane: 'places' }),
       className: 'place' + (p.final ? ' place-final' : ' place-other'),
-      radius: r, weight: 1.5, fill: true, fillOpacity: 0.55,
+      radius: placeRadius(ballots[i] / biggest), weight: 1, fill: true, fillOpacity: 0.45,
     });
+    marker.share = ballots[i] / biggest;
     marker.bindTooltip(`${p.name || 'Voting place'} — ${p.opportunity}, `
       + `${fmtInt(ballots[i])} ballots`, { direction: 'top' });
     marker.addTo(placesLayer);
   });
 }
+
+/* Area, not radius, follows the ballot count, so a hall with four times the
+   ballots looks twice as wide rather than four times. And the circles shrink
+   as the map zooms out: at a city's zoom they read as places, but across all
+   of Metro Vancouver, seven hundred of them at full size buried the map. */
+function placeRadius(share) {
+  const zoom = map.getZoom ? map.getZoom() : 13;
+  const scale = Math.min(1, Math.max(0.3, Math.pow(2, (zoom - 14) / 2)));
+  return Math.max(1.5, (2 + 7 * Math.sqrt(share)) * scale);
+}
+map.on('zoomend', () => {
+  placesLayer.eachLayer((m) => { if (m.share != null) m.setRadius(placeRadius(m.share)); });
+});
 
 /* --- Effective n -------------------------------------------------------------
 
