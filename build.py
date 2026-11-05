@@ -19,7 +19,7 @@ payload build written over it leaves the tree dirty against a tracked file and
 the next `git pull` aborts -- and a pull and a build pasted into a terminal
 together will then build the source the pull failed to update, reporting
 nothing wrong. `--out share/anything.html` is untracked and ignored."""
-import json, os, io, sys, subprocess, datetime
+import base64, gzip, json, os, io, sys, subprocess, datetime
 
 SRC = "src"
 def read(p):
@@ -125,6 +125,11 @@ carto_key = arg("--carto-key", "")
 carto_block = (f'\n<script id="carto-key-payload" type="text/plain">{esc(carto_key, "--carto-key")}</script>'
                if carto_key else "")
 
+# --compress packs baked-in data gzipped (see bake). Off by default, so a
+# payload build stays readable with a text editor unless asked otherwise.
+COMPRESS = "--compress" in sys.argv
+
+
 def bake(payload_dir, city):
     """One city's prepared datasets, as inline script blocks."""
     payload_blocks, payload_report = "", []
@@ -173,7 +178,18 @@ def bake(payload_dir, city):
             continue
         names = sorted(f for f in os.listdir(folder) if not f.startswith("."))
         for name in names:
-            body = esc(read(os.path.join(folder, name)).strip(), f"{key}/{name}")
+            text = read(os.path.join(folder, name)).strip()
+            if COMPRESS:
+                # Gzipped and base64'd: about a sixth of the size, which is
+                # what the browser has to read through before the page starts,
+                # for every city in the file and not only the one on show. The
+                # page unpacks only the chosen city's, with DecompressionStream.
+                body = base64.b64encode(gzip.compress(text.encode("utf-8"), 9, mtime=0)).decode("ascii")
+                payload_blocks += (f'\n<script type="application/octet-stream" data-payload="{key}" '
+                                   f'data-city="{city}" data-encoding="gzip-base64" '
+                                   f'data-filename="{name}">{body}</script>')
+                continue
+            body = esc(text, f"{key}/{name}")
             payload_blocks += (f'\n<script type="application/json" data-payload="{key}" data-city="{city}" '
                                f'data-filename="{name}">{body}</script>')
         if names:

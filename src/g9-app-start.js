@@ -29,10 +29,19 @@ state.fed.all = prepareFederal(JSON.parse(payload.textContent).features);
    and home addresses; it is read in the tab on the campaign's own device and
    the atlas has no business carrying it anywhere. */
 
-function payloadFile(node) {
+async function payloadFile(node) {
   const name = node.dataset.filename || 'payload';
   /* A genuine File, so every loader downstream behaves exactly as it does for
-     a file a person picked. */
+     a file a person picked. A build made with --compress carries each file
+     gzipped and base64'd, and only the city on show is unpacked. */
+  if (node.dataset.encoding === 'gzip-base64') {
+    const bin = atob(node.textContent.trim());
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const out = await new Response(new Blob([bytes]).stream()
+      .pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+    return new File([out], name);
+  }
   return new File([new TextEncoder().encode(node.textContent)], name);
 }
 
@@ -70,7 +79,7 @@ async function adoptPayloads() {
   for (const [key, run] of steps) {
     if (!by[key]) continue;
     try {
-      await run(by[key].map(payloadFile));
+      await run(await Promise.all(by[key].map(payloadFile)));
       done.push(key);
     } catch (err) {
       /* One unreadable payload must not take the rest of the atlas with it.

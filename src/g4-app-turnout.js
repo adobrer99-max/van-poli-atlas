@@ -91,6 +91,7 @@ function refreshTurnout() {
     setStatus('turnout-status', 'idle',
       ['Load federal or provincial results on the Data tab. Turnout needs an electors count in the file.']);
     t.rows = null; results.hidden = true; basketCard.hidden = true;
+    pendingRender.delete('turnout');
     restyleMapForTurnout();
     refreshNonvoters();
     return;
@@ -168,9 +169,11 @@ function refreshTurnout() {
 
   results.hidden = withAgg.length === 0;
   basketCard.hidden = withAgg.length === 0;
-  renderTurnoutTable(ranked);
-  drawTurnoutCurve(curve, top20);
-  renderBasket();
+  whenShown('panel-turnout', 'turnout', () => {
+    renderTurnoutTable(ranked);
+    drawTurnoutCurve(curve, top20);
+    renderBasket();
+  });
   restyleMapForTurnout();
   /* The Non-voters tab is built from these same rows, so it follows every
      loader that already calls this one rather than needing a hook of its own

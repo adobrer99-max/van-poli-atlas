@@ -221,6 +221,7 @@ function refreshNonvoters() {
   const hide = (...ids) => { for (const id of ids) if ($(id)) $(id).hidden = true; };
   const clear = (message) => {
     nv.rows = null; nv.on = {}; nv.below = {}; nv.pairing = null;
+    pendingRender.delete('nonvoters');
     hide('nv-results', 'nv-priority', 'nv-basket-card', 'nv-badge');
     $('nv-stats').textContent = '';
     setStatus('nv-status', 'idle', [message]);
@@ -360,8 +361,11 @@ function refreshNonvoters() {
   renderNonvoterPriorityNote(rows, ballots);
   $('nv-results').hidden = false;
   $('nv-basket-card').hidden = false;
-  renderNonvoterTable(nv.rows);
-  renderNonvoterBasket();
+  const shownRows = nv.rows;
+  whenShown('panel-nonvoters', 'nonvoters', () => {
+    renderNonvoterTable(shownRows);
+    renderNonvoterBasket();
+  });
   restyleForNonvoters();
 }
 
