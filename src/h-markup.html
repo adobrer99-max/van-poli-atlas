@@ -1494,11 +1494,20 @@
       The city publishes votes by voting machine &mdash; 57 of them, two at the busiest
       locations &mdash; only in the attachment to its October 27 council report, a PDF whose
       text cannot be extracted. <code>tools/burnaby/ocr_results.py</code> reads the pages as
-      images, reads every number cell a second time on its own, and requires every
-      candidate&rsquo;s machines to add up to the total the city publishes on its results site;
-      a column that does not is re-read until it does, or the tool stops. Voting places come
+      images, reading each number by matching its digits against the shapes of the PDF&rsquo;s
+      own digits, and requires every candidate&rsquo;s 57 machines to add up to the total the
+      city publishes on its results site. In 2026 all 64 candidates do; one that did not would
+      stop the tool. Voting places come
       from the city&rsquo;s voting-locations map. Slates are the city&rsquo;s candidate profiles,
       and agree with the candidate counts the results site gives for each elector organization.
+    </p>
+    <h3>Burnaby&rsquo;s provincial results</h3>
+    <p>
+      The 2024 provincial layer is the five electoral districts that reach into Burnaby,
+      built by <code>tools/prov_results.py</code> from Elections BC&rsquo;s results by voting
+      place, its voting-place locations and its voting areas, as for Vancouver. Burnaby-New Westminster takes in part of New Westminster; it is kept whole, because its results are only published for the whole district.
+      Turnout per district is ballots over the registered voters in Elections BC&rsquo;s
+      Statement of Votes.
     </p>
     </div>
 
@@ -1521,6 +1530,14 @@
       the addresses on the city&rsquo;s &ldquo;Where to vote&rdquo; page with the city&rsquo;s
       own public geocoder. Mayor is read by candidate; council and school trustee by elector
       organization, as the results site names them.
+    </p>
+    <h3>Surrey&rsquo;s provincial results</h3>
+    <p>
+      The 2024 provincial layer is the ten electoral districts that reach into Surrey,
+      built by <code>tools/prov_results.py</code> from Elections BC&rsquo;s results by voting
+      place, its voting-place locations and its voting areas, as for Vancouver. Surrey-White Rock takes in White Rock; it is kept whole, because its results are only published for the whole district.
+      Turnout per district is ballots over the registered voters in Elections BC&rsquo;s
+      Statement of Votes.
     </p>
     </div>
 
@@ -1563,6 +1580,15 @@
       There is no turnout by division. The city publishes ballots cast by division but not the
       electors in each, and the third of the ballots cast early belong to divisions nobody
       recorded. Party share needs neither, which is why it is what the map offers.
+    </p>
+
+    <h3>Richmond&rsquo;s provincial results</h3>
+    <p>
+      The 2024 provincial layer is the four electoral districts that reach into Richmond,
+      built by <code>tools/prov_results.py</code> from Elections BC&rsquo;s results by voting
+      place, its voting-place locations and its voting areas, as for Vancouver. Richmond-Queensborough takes in Queensborough, in New Westminster; it is kept whole, because its results are only published for the whole district.
+      Turnout per district is ballots over the registered voters in Elections BC&rsquo;s
+      Statement of Votes.
     </p>
 
     <h3>The swing between two municipal elections</h3>

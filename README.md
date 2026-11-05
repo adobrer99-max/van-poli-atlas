@@ -860,10 +860,44 @@ python3 tools/burnaby/results.py --machines burnaby-2026-machines.json \
 
 Bake each in with `--city surrey` or `--city burnaby` and build with
 `--payload-surrey` and `--payload-burnaby`. Neither city has a 2022 per-poll
-file in this form yet, so neither has a swing map.
+file in this form yet, so neither has a swing map. Their provincial results are
+described under [Provincial results for the other cities](#provincial-results-for-the-other-cities).
 
 Contains information from the City of Surrey and the City of Burnaby, used
 with attribution.
+
+### Provincial results for the other cities
+
+`tools/prov_results.py` cuts Elections BC's province-wide 2024 files down to
+one city: every electoral district with a voting area in it (from the
+"Electoral district voting area to municipal boundary conversion table"),
+its results by voting place with each place's location, and its registered
+voters from the Statement of Votes. Run on Vancouver it reproduces the
+Vancouver file row for row.
+
+```sh
+python3 tools/prov_results.py --city "City of Richmond" \
+    --results provincial_voting_results_by_voting_place.csv \
+    --places voting_places.geojson --vas-per-muni vaspermuni_20240919.csv \
+    --sov statement-of-votes-2024.txt --out-dir richmond-prov/
+python3 tools/clip_geojson.py EBC_VOTING_AREAS_BS11_POLY_SVW.geojson \
+    --ed RCB RCC RCQ RCS --precision 5 --out richmond-prov/prov-geo/boundaries.geojson
+node tools/make-payload.js --city richmond --no-clip --out payload-richmond \
+    --prov-geo richmond-prov/prov-geo/boundaries.geojson \
+    --prov-results richmond-prov/prov-results/*.csv \
+    --prov-electors richmond-prov/prov-electors/*.csv
+```
+
+The voting places come from Elections BC's "Provincial Voting Places" layer
+(`WHSE_HUMAN_CULTURAL_ECONOMIC.EBC_VOTING_PLACES_SP`, from
+`openmaps.gov.bc.ca/geo/pub/wfs` with `srsName=EPSG:4326`), and the Statement
+of Votes is read as text (`pdftotext -layout`). A district that crosses the
+city line is kept whole, because Elections BC publishes its results only for
+the whole district: Richmond-Queensborough takes in Queensborough,
+Burnaby-New Westminster part of New Westminster, Surrey-White Rock White
+Rock. So a city's baked-in voting areas are not clipped again when the page
+loads them. Ballot totals agree with the Statement of Votes for all 19
+districts (76,546 in Richmond, 194,309 in Surrey, 90,832 in Burnaby).
 
 ## Rebuilding
 
