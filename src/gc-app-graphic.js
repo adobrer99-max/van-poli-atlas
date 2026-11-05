@@ -34,6 +34,18 @@ GRAPHIC.themes = {
          accent: GRAPHIC.colours.brass, line: 'rgba(245,240,232,.35)', nodata: '#33445E' },
 };
 
+/* Colour that means a direction (a swing either way, one election ahead of
+   the other), not an amount. */
+const DIVERGING = new Set(['gap', 'turnout-delta', 'muni-swing', 'muni-swing-rel']);
+/* A shading value as the legend prints it: shares and turnouts as percents,
+   counts as whole numbers, a census variable as it comes. */
+function graphicFormat(mode, v) {
+  if (v == null || !isFinite(v)) return '–';
+  if (['muni-ballots', 'points-count', 'points-weight', 'nonvoters-count'].includes(mode)) return fmtInt(v);
+  if (mode === 'variable') return fmtNum(v, 1);
+  return `${Math.round(v * 100)}%`;
+}
+
 const gfx = (() => {
   const NS = 'http://www.w3.org/2000/svg';
   const measureCtx = document.createElement('canvas').getContext('2d');
@@ -82,13 +94,18 @@ const gfx = (() => {
    colour it is painted, and the legend's rows. */
 function graphicLayers() {
   const out = [];
+  const fedParty = $('shade-party-fed').value, provParty = $('shade-party-prov').value;
   const take = (g, pane, show) => {
     if (!$(show).checked) return;
+    const mode = pane === 'fed' ? $('shade-by').value : $('shade-prov-by').value;
     g.selectAll('path').each(function (d) {
       if (!d || !d.geometry) return;
       const cs = getComputedStyle(this);
       if (cs.display === 'none' || cs.visibility === 'hidden') return;
-      out.push({ pane, feature: d, fill: cs.fill, fillOpacity: +cs.fillOpacity || 0,
+      let value = null;
+      try { value = shadeValue(pane, d, mode, fedParty, provParty); } catch (e) { value = null; }
+      out.push({ pane, mode, feature: d, value: value != null && isFinite(value) ? value : null,
+                 fill: cs.fill, fillOpacity: +cs.fillOpacity || 0,
                  stroke: cs.stroke, strokeWidth: parseFloat(cs.strokeWidth) || 1 });
     });
   };
@@ -189,14 +206,36 @@ function graphicSvg(spec) {
     l.shaded = shaded;
     return shaded || l.pane === 'fed' || spec.outlines;
   });
-  const shadedOps = drawn.filter((l) => l.shaded).map((l) => l.fillOpacity);
-  const lo = shadedOps.length ? Math.min(...shadedOps) : 0, hi = shadedOps.length ? Math.max(...shadedOps) : 1;
-  /* The map shades by strength of colour. On screen the scale runs from
-     nothing to everything, so a race won 40 to 60 everywhere comes out nearly
-     flat; stretched, the lightest area in the graphic is the lowest on the map
-     and the darkest the highest, and the legend says that is what it shows. */
-  const stretch = spec.stretch && hi - lo > 0.02;
-  const opacityOf = (o) => (stretch ? 0.12 + 0.83 * (o - lo) / (hi - lo) : o);
+  /* The scale. The shaded layer's own values, in view, decide it: the map
+     paints a value as strength of colour, and the graphic says which values
+     its lightest and darkest stand for. Stretched, the ramp runs from the 5th
+     to the 95th percentile of the areas drawn, so a race won 40 to 60
+     everywhere does not come out flat; otherwise it is the atlas's own scale
+     (0 to 60% for a party's share, the data's range for turnout and counts).
+     Modes whose colour carries a direction -- a swing, a gap -- keep the
+     map's colours and get no ramp. */
+  const scaled = drawn.filter((l) => l.shaded && l.value != null);
+  const mode = scaled.length ? scaled[0].mode : null;
+  const ramp = (() => {
+    if (!mode || DIVERGING.has(mode) || mode === 'catchment' || mode === 'type' || mode === 'flat') return null;
+    const vals = scaled.filter((l) => l.mode === mode).map((l) => l.value).sort((a, b) => a - b);
+    if (vals.length < 2) return null;
+    if (spec.stretch) {
+      const q = (p) => vals[Math.min(vals.length - 1, Math.floor(p * (vals.length - 1)))];
+      const lo = q(0.05), hi = q(0.95);
+      if (!(hi > lo)) return null;
+      return { lo, hi, clipLo: vals[0] < lo, clipHi: vals[vals.length - 1] > hi, stretched: true };
+    }
+    const dom = DATA_MODES.has(mode) ? state.shadeDomain[scaled[0].pane] : null;
+    if (dom) return { lo: dom.lo, hi: dom.hi, clipLo: vals[0] < dom.lo, clipHi: vals[vals.length - 1] > dom.hi };
+    return { lo: 0, hi: 0.6, clipLo: false, clipHi: vals[vals.length - 1] > 0.6 };
+  })();
+  const opacityOf = (l) => {
+    if (!ramp || l.mode !== mode || l.value == null) return l.fillOpacity;
+    const t = Math.max(0, Math.min(1, (l.value - ramp.lo) / (ramp.hi - ramp.lo)));
+    return 0.12 + 0.83 * t;
+  };
+  const fmtValue = (v) => graphicFormat(mode, v);
 
   /* The legend, under the map: a swatch and a line per row, notes in italic;
      when the shading is stretched, a bar from lighter to darker under the
@@ -208,7 +247,7 @@ function graphicSvg(spec) {
   const barH = Math.round(12 * s);
   const firstColoured = legend.findIndex((r) => !r.note && r.colour);
   const legendH = legend.length
-    ? legend.length * rowH + Math.round(14 * s) + (stretch && firstColoured >= 0 ? barH + Math.round(30 * s) : 0) : 0;
+    ? legend.length * rowH + Math.round(14 * s) + (ramp && firstColoured >= 0 ? barH + Math.round(30 * s) : 0) : 0;
   let ly = bottom - legendH + Math.round(14 * s) + lf.size;
   legend.forEach((r, i) => {
     if (r.note) {
@@ -224,7 +263,7 @@ function graphicSvg(spec) {
     const b = gfx.fit(label, lf, width - sw - 12 * s, { maxLines: 1, minSize: Math.round(11 * s) });
     gfx.text(svg, b.lines[0], m + sw + Math.round(12 * s), ly, b.font, T.ink);
     ly += rowH;
-    if (stretch && i === firstColoured) {
+    if (ramp && i === firstColoured) {
       const id = 'g-ramp';
       const grad = gfx.el(gfx.el(svg, 'defs'), 'linearGradient', { id });
       gfx.el(grad, 'stop', { offset: '0', 'stop-color': r.colour, 'stop-opacity': 0.12 });
@@ -232,8 +271,10 @@ function graphicSvg(spec) {
       const barW = Math.min(width * 0.45, 420 * s);
       gfx.el(svg, 'rect', { x: m, y: ly - lf.size + 2 * s, width: barW, height: barH, fill: `url(#${id})` });
       const tf = { family: F.mono, size: Math.round(13 * s), tracking: 0.3 * s };
-      gfx.text(svg, 'LOWEST ON THIS MAP', m, ly + barH + Math.round(4 * s), tf, T.body);
-      gfx.text(svg, 'HIGHEST', m + barW, ly + barH + Math.round(4 * s), tf, T.body, { 'text-anchor': 'end' });
+      const loText = fmtValue(ramp.lo) + (ramp.clipLo ? ' or less' : '');
+      const hiText = fmtValue(ramp.hi) + (ramp.clipHi ? ' or more' : '');
+      gfx.text(svg, loText, m, ly + barH + Math.round(4 * s), tf, T.body);
+      gfx.text(svg, hiText, m + barW, ly + barH + Math.round(4 * s), tf, T.body, { 'text-anchor': 'end' });
       ly += barH + Math.round(30 * s);
     }
   });
@@ -273,7 +314,7 @@ function graphicSvg(spec) {
     for (const l of inView.filter((x) => x.pane === pane)) {
       gfx.el(g, 'path', { d: path(l.feature),
         fill: l.shaded ? l.fill : (pane === 'fed' ? T.nodata : 'none'),
-        'fill-opacity': l.shaded ? opacityOf(l.fillOpacity) : 1,
+        'fill-opacity': l.shaded ? opacityOf(l) : 1,
         stroke: pane === 'prov' && !l.shaded ? T.accent : T.line,
         'stroke-width': (pane === 'prov' && !l.shaded ? 1 : 0.4) * s, 'stroke-linejoin': 'round' });
     }
