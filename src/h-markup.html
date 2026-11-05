@@ -299,6 +299,7 @@
     Boundary coordinates are rounded to five decimals.
     Federal source: Elections Canada, Polling Division Boundaries 2025.
     <span data-city="vancouver">UBC and UEL sit in Electoral Area A, outside the City of Vancouver.</span>
+    <span data-city="coquitlam" hidden>All three ridings that reach into Coquitlam cross its edge; their Port Coquitlam, Port Moody, New Westminster and Burnaby divisions are left out of city figures.</span>
     <span data-city="surrey" hidden>Three ridings cross Surrey&rsquo;s edge; their White Rock, Langley and Delta divisions are left out of city figures.</span>
     <span data-city="burnaby" hidden>Three ridings cross Burnaby&rsquo;s edge; their North Vancouver, Vancouver and New Westminster divisions are left out of city figures.</span>
     <span data-city="metro" hidden>24 ridings reach into Metro Vancouver; the divisions of three that run beyond it, in Abbotsford, Mission and the Sea to Sky, are left out of Metro figures. Municipal boundaries: Province of British Columbia.</span>
@@ -507,6 +508,14 @@
       each machine&rsquo;s ballots are <em>smoothed</em> over the areas around it by distance,
       and there is no municipal turnout by area.
     </p>
+    <p class="text-small text-muted" data-city="coquitlam" hidden>
+      Two files, made by <code>tools/coquitlam/results.py</code> from the City of Coquitlam&rsquo;s
+      results per tabulator: the results for every race, and the voting places, located from
+      their addresses with the Province&rsquo;s address geocoder. Any Coquitlam elector may vote
+      at any location, so each tabulator&rsquo;s ballots are <em>smoothed</em> over the areas
+      around it by distance, and there is no municipal turnout by area. Every 2026 candidate ran
+      as an independent, so every race is read by candidate.
+    </p>
     <p class="text-small text-muted" data-city="surrey" hidden>
       Two files, made by <code>tools/surrey/results.py</code> from what the City of Surrey
       publishes: the results by poll for every race, and the voting places, geocoded from the
@@ -538,13 +547,13 @@
       city-wide rate is on the Results tab. &ldquo;How to read this&rdquo; has the numbers.
     </p>
     <div class="viz-controls">
-      <label class="form-label grow" for="file-muni-results">Results archive (<span data-city="vancouver">2026MunicipalElectionResults.zip</span><span data-city="richmond" hidden>richmond-2026-results.zip</span><span data-city="surrey" hidden>surrey-2026-results.zip</span><span data-city="burnaby" hidden>burnaby-2026-results.zip</span>)
+      <label class="form-label grow" for="file-muni-results">Results archive (<span data-city="vancouver">2026MunicipalElectionResults.zip</span><span data-city="richmond" hidden>richmond-2026-results.zip</span><span data-city="surrey" hidden>surrey-2026-results.zip</span><span data-city="burnaby" hidden>burnaby-2026-results.zip</span><span data-city="coquitlam" hidden>coquitlam-2026-results.zip</span>)
         <input class="form-control" type="file" id="file-muni-results" accept=".zip,.csv,.xlsx">
       </label>
       <button type="button" class="btn" id="clear-muni" hidden>Remove</button>
     </div>
     <div class="viz-controls">
-      <label class="form-label grow" for="file-muni-places"><span data-city="vancouver">Voting places (voting-places-2026.csv)</span><span data-city="richmond" hidden>Voting divisions (richmond-voting-divisions.geojson)</span><span data-city="surrey" hidden>Voting places (surrey-voting-places-2026.csv)</span><span data-city="burnaby" hidden>Voting places (burnaby-voting-places-2026.csv)</span>
+      <label class="form-label grow" for="file-muni-places"><span data-city="vancouver">Voting places (voting-places-2026.csv)</span><span data-city="richmond" hidden>Voting divisions (richmond-voting-divisions.geojson)</span><span data-city="surrey" hidden>Voting places (surrey-voting-places-2026.csv)</span><span data-city="burnaby" hidden>Voting places (burnaby-voting-places-2026.csv)</span><span data-city="coquitlam" hidden>Voting places (coquitlam-voting-places-2026.csv)</span>
         <input class="form-control" type="file" id="file-muni-places" accept=".csv,.tsv,.txt,.xlsx,.zip,.geojson,.json">
       </label>
     </div>
@@ -1534,6 +1543,31 @@
       place, its voting-place locations and its voting areas, as for Vancouver. Burnaby-New Westminster takes in part of New Westminster; it is kept whole, because its results are only published for the whole district.
       Turnout per district is ballots over the registered voters in Elections BC&rsquo;s
       Statement of Votes.
+    </p>
+    </div>
+
+    <div data-city="coquitlam" hidden>
+    <h3>Coquitlam&rsquo;s municipal election</h3>
+    <p>
+      Coquitlam votes anywhere: any elector could vote at any of the city&rsquo;s places, as the
+      Tri-City News reported for 2022 and nothing published for 2026 says otherwise. So, as for
+      Vancouver, each tabulator&rsquo;s ballots are spread over every area by distance, and
+      there is no municipal turnout by area. In 2026 there were 25 election-day places, three
+      with a second tabulator, and three advance places.
+    </p>
+    <p>
+      The city publishes its results per tabulator in a PDF; <code>tools/coquitlam/results.py</code>
+      reads it and checks every candidate&rsquo;s tabulators against the Total row before writing
+      anything. The places are located from their addresses (Elections BC&rsquo;s voting places,
+      the city&rsquo;s own pages and the Province&rsquo;s geocoder, each named in
+      <code>tools/coquitlam/places-2026.csv</code>). The city does not publish ballots per
+      tabulator, so the count used for a place is its mayoral votes. Every 2026 candidate ran as an
+      independent, so council and school trustee are read by candidate, not by slate.
+    </p>
+    <h3>Coquitlam&rsquo;s provincial results</h3>
+    <p>
+      The 2024 provincial layer is the electoral districts that reach into Coquitlam, kept whole,
+      built by <code>tools/prov_results.py</code> as for the other cities.
     </p>
     </div>
 

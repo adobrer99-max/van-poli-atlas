@@ -104,6 +104,24 @@ const CITIES = {
     muniDistrict: 'COB',
     fileStem: 'burnaby',
   },
+  coquitlam: {
+    id: 'coquitlam',
+    name: 'Coquitlam',
+    cityName: 'City of Coquitlam',
+    /* Three ridings reach into Coquitlam and all three cross its edge, into
+       Port Coquitlam, Port Moody, New Westminster and Burnaby; those
+       divisions are tagged and left out of city figures. */
+    feds: ['59008', '59020', '59025'],
+    fedNames: {
+      '59008': 'Coquitlam\u2014Port Coquitlam', '59020': 'New Westminster\u2014Burnaby\u2014Maillardville',
+      '59025': 'Port Moody\u2014Coquitlam',
+    },
+    areas: [['van', 'City of Coquitlam'], ['all', 'Everything in the file (with Port Coquitlam, Port Moody, New Westminster)']],
+    keepLocality: null,
+    muni: 'anywhere',
+    muniDistrict: 'COQ',
+    fileStem: 'coquitlam',
+  },
   metro: {
     id: 'metro',
     name: 'Metro Vancouver',

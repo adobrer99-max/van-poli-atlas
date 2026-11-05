@@ -284,6 +284,7 @@ function refreshOverview() {
       richmond: 'Richmond Centre\u2014Marpole crosses the Fraser; its Marpole divisions are in Vancouver and are ',
       surrey: 'Three ridings cross the city\u2019s edge; their White Rock, Langley and Delta divisions are ',
       burnaby: 'Three ridings cross the city\u2019s edge; their North Vancouver, Vancouver and New Westminster divisions are ',
+      coquitlam: 'All three ridings cross the city\u2019s edge; their Port Coquitlam, Port Moody, New Westminster and Burnaby divisions are ',
       metro: 'Three ridings run past Metro Vancouver\u2019s edge; their Abbotsford, Mission and Sea to Sky divisions are ',
     }[CITY.id] || 'UBC and the University Endowment Lands sit in Electoral Area A, outside the city, and are ')
     + 'left out unless Area is widened on the Map tab.';
@@ -355,6 +356,10 @@ const SOURCES = [
      + 'and the geocoder and schools layer used to place them',
      'published by the City of Surrey; used with attribution',
      'https://www.surrey.ca/2026-municipal-election/election-results'],
+  ] : CITY.id === 'coquitlam' ? [
+    ['City of Coquitlam', 'results per tabulator (2026)', 'published by the City of Coquitlam; used with attribution',
+     'https://www.coquitlam.ca/1188/Previous-Election-Information'],
+    ['VoteMate', 'the 2026 candidates, all independent', 'cited as the source', 'https://votemate.org/c/13614/?riding=799'],
   ] : CITY.id === 'metro' ? [
     ['Province of British Columbia', 'municipal and regional district boundaries (BC Data Catalogue)',
      'Open Government Licence – British Columbia', 'https://www2.gov.bc.ca/gov/content/data/open-data/open-government-licence-bc'],
