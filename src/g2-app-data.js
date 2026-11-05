@@ -36,12 +36,16 @@ function fillSelect(select, options, selected) {
 
 /* --- Provincial boundaries -------------------------------------------------- */
 
-async function loadProvincialBoundaries(file) {
+async function loadProvincialBoundaries(file, options = {}) {
   setStatus('status-prov-geo', 'busy', `Reading ${file.name}…`);
   try {
     /* The File goes in as is: a province-wide download is clipped to the
-       study area as it is read instead of being held whole. */
-    const loaded = await Ingest.loadBoundaries(file.name, file, { bbox: clipBox('clip-prov') });
+       study area as it is read instead of being held whole. A file baked in
+       for a city is already cut to that city's districts, whole, and is not
+       clipped again: a district that crosses the city line (Queensborough,
+       in Richmond-Queensborough) keeps the areas its ballots belong to. */
+    const loaded = await Ingest.loadBoundaries(file.name, file,
+      { bbox: options.whole ? null : clipBox('clip-prov') });
     loaded.features.forEach((f, i) => { f.__idx = i; f.__key = 'p' + i; });
     state.prov.all = loaded.features;
     state.prov.meta = loaded;

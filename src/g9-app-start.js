@@ -50,7 +50,7 @@ async function adoptPayloads() {
      absent from the payload is simply skipped, so a build can carry one
      dataset or all of them. */
   const steps = [
-    ['prov-geo', (f) => loadProvincialBoundaries(f[0])],
+    ['prov-geo', (f) => loadProvincialBoundaries(f[0], { whole: CITY.id !== 'vancouver' })],
     ['da-geo', (f) => loadCensusLayer('da', f[0])],
     ['db-geo', (f) => loadCensusLayer('db', f[0])],
     ['geo-attr', (f) => loadGeoAttributes(f[0])],
