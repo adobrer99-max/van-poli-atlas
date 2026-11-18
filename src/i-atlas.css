@@ -517,3 +517,20 @@
 /* The model-status badge sits above the tiles, not among them: appended into
    the grid it took a cell of its own and was clipped by it. */
 .model-badge { margin: .5rem 0 .25rem; }
+
+/* The Balagan graphic dialog (gc-app-graphic.js). */
+.graphic-bar { display: flex; justify-content: flex-end; margin: 6px 0 2px; }
+.graphic-dialog { width: min(1180px, 96vw); max-height: 94vh; padding: 0; border: 1px solid var(--border, #ccc);
+  border-radius: 8px; background: var(--bg, #fff); color: inherit; }
+.graphic-dialog::backdrop { background: rgba(0,0,0,.45); }
+.graphic-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px;
+  border-bottom: 1px solid var(--border, #ddd); }
+.graphic-head h2 { font-size: 1.1rem; margin: 0; }
+.graphic-body { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 16px; padding: 16px;
+  max-height: calc(94vh - 60px); overflow: auto; }
+.graphic-form { display: flex; flex-direction: column; gap: 10px; }
+.graphic-form .form-label { display: flex; flex-direction: column; gap: 4px; }
+.graphic-row { display: flex; gap: 10px; }
+.graphic-row .form-label { flex: 1; }
+.graphic-preview svg { width: 100%; height: auto; box-shadow: 0 1px 6px rgba(0,0,0,.18); }
+@media (max-width: 760px) { .graphic-body { grid-template-columns: 1fr; } }

@@ -33,6 +33,9 @@ leaflet_css = read(SRC + "/leaflet.css")
 leaflet_js  = read(SRC + "/leaflet.js")
 design_css = read(SRC + "/design.css")
 atlas_css  = read(SRC + "/i-atlas.css")
+# The Balagan media kit's house fonts (Libre Franklin, Source Serif 4, IBM Plex
+# Mono), for the graphics the Map tab exports. Copied from balagan-kit.html.
+balagan_fonts = read(SRC + "/j-balagan-fonts.css")
 d3_js      = read(SRC + "/d3.js")
 tabs_js    = read(SRC + "/tabs.js")
 markup     = read(SRC + "/h-markup.html")
@@ -46,7 +49,7 @@ modules = ["a-geo.js", "b-text.js", "c-binary.js", "d-ingest.js",
 app     = ["g1-app-core.js", "g2-app-data.js", "g3-app-corr.js",
            "g4-app-turnout.js", "g5-app-census.js", "g6-app-results.js",
            "g7-app-points.js", "g8-app-municipal.js", "ga-app-overview.js",
-           "gb-app-nonvoters.js", "g9-app-start.js"]
+           "gb-app-nonvoters.js", "gc-app-graphic.js", "g9-app-start.js"]
 
 # The federal boundaries, exactly as they came out of the original file.
 geo = read("boundaries/fed_polls.geojson").strip()
@@ -237,6 +240,9 @@ html = f"""<!doctype html>
 {leaflet_css}
 {design_css}
 {atlas_css}
+</style>
+<style id="balagan-fonts">
+{balagan_fonts}
 </style>
 </head>
 <body>
