@@ -134,7 +134,7 @@ function refreshTurnout() {
 
   const lines = [];
   lines.push(`${fmtInt(withAgg.length)} ${UNIT_NAMES[t.unit]} ranked`
-    + (state.pairs ? '.' : ' — without a crosswalk only the election native to this geography is included; build it on the Compare tab to combine both.'));
+    + (state.pairs ? '.' : ' — only the election native to this map is included until the two are lined up (Federal vs provincial tab).'));
   const ap = [];
   for (const side of ['fed', 'prov']) {
     const mode = t.apportion[side];

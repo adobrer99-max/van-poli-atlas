@@ -534,3 +534,122 @@
 .graphic-row .form-label { flex: 1; }
 .graphic-preview svg { width: 100%; height: auto; box-shadow: 0 1px 6px rgba(0,0,0,.18); }
 @media (max-width: 760px) { .graphic-body { grid-template-columns: 1fr; } }
+
+/* --- First screen ------------------------------------------------------------
+
+   Who won, before anything else. One tile per election, the winner's name in
+   its party colour over a bar of its share. */
+.glance-lede { font-size: calc(var(--font-size-normal) * 1.08); max-width: 62ch; }
+.glance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: .75rem;
+  margin: .8rem 0 1rem;
+}
+.glance-tile {
+  border: 1px solid var(--border);
+  border-top: 4px solid var(--party, var(--muted));
+  border-radius: var(--radius-md);
+  padding: .75rem .85rem .8rem;
+  background: var(--background);
+}
+.glance-kicker {
+  font-size: var(--font-size-small);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--muted-foreground);
+}
+.glance-winner {
+  font-size: var(--font-size-h3);
+  font-weight: 600;
+  line-height: 1.2;
+  margin: .2rem 0 .45rem;
+}
+.glance-bar {
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--muted);
+  overflow: hidden;
+  margin-bottom: .45rem;
+}
+.glance-bar > span { display: block; height: 100%; background: var(--party, var(--primary)); }
+.glance-line { font-size: var(--font-size-normal); font-variant-numeric: tabular-nums; }
+.glance-line + .glance-line { color: var(--muted-foreground); font-size: var(--font-size-small); }
+.glance-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+
+/* A whole card that folds: the heading is the summary. */
+#atlas .disclosure-card { padding: 0; }
+#atlas .disclosure-card > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 1rem;
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+}
+#atlas .disclosure-card > summary::-webkit-details-marker { display: none; }
+#atlas .disclosure-card > summary::before {
+  content: '';
+  width: .5rem; height: .5rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform .15s ease;
+  flex: none;
+}
+#atlas .disclosure-card[open] > summary::before { transform: rotate(45deg); }
+#atlas .disclosure-card > summary h2 { margin: 0; font-size: var(--font-size-h3); }
+#atlas .disclosure-card > :not(summary) { margin-left: 1rem; margin-right: 1rem; }
+#atlas .disclosure-card > :last-child:not(summary) { margin-bottom: 1rem; }
+
+/* The tab row in two groups: the reader's views, then the tools. */
+#atlas .nav-sep {
+  flex: 0 0 auto;
+  width: 1px;
+  align-self: stretch;
+  margin: .35rem .35rem;
+  background: var(--border);
+}
+#atlas .nav-link.nav-tool { color: var(--muted-foreground); }
+#atlas .nav-link.nav-tool.active { color: inherit; }
+
+/* On a phone the header gets out of the way: a smaller title, the intro line
+   dropped, and the tab row stuck to the top so the sections stay in reach. */
+@media (max-width: 640px) {
+  #atlas { padding: .75rem; }
+  #atlas h1 { font-size: var(--font-size-h3); }
+  #atlas .atlas-header { margin-bottom: .5rem; }
+  #atlas .atlas-intro { display: none; }
+  #atlas .nav[role="tablist"] {
+    position: sticky; top: 0; z-index: 500;
+    background: var(--background);
+    padding: .35rem 0;
+    margin-bottom: .6rem;
+  }
+  .glance-grid { grid-template-columns: 1fr; }
+  .glance-actions .btn { flex: 1 1 100%; }
+}
+
+/* Outlines step back while the federal layer carries the colour. */
+.map-quiet .va:not(.selected):not(.basket) {
+  stroke: color-mix(in srgb, var(--foreground) 50%, transparent);
+  stroke-opacity: .45; stroke-width: .8;
+}
+.map-quiet .da:not(.selected) { stroke-opacity: .2; stroke-width: .8; }
+.map-quiet .swatch-outline { border-color: color-mix(in srgb, var(--foreground) 45%, transparent); border-width: 1px; }
+.map-quiet .swatch-da { opacity: .4; }
+.glance-party { font-size: var(--font-size-normal); font-weight: 500; color: var(--muted-foreground); margin-left: .5rem; }
+
+/* Phone: the map's three questions in two rows, so the map is in view. */
+@media (max-width: 640px) {
+  #panel-map > .viz-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: .35rem .5rem;
+  }
+  #panel-map > .viz-controls > label[for="area-filter"] { grid-column: 1 / -1; }
+  #panel-map > .viz-controls > .form-label { font-size: var(--font-size-small); }
+  #panel-map > .viz-controls > #zoom-reset { display: none; }
+  .glance-tile { padding: .6rem .7rem; }
+  .glance-winner { font-size: var(--font-size-normal); }
+}

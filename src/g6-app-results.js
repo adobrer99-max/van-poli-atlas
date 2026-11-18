@@ -252,6 +252,20 @@ function renderResultsChannels(s) {
   }
 }
 
+/* "59040 · S/R 2" is how Elections Canada keys it; a reader wants the riding
+   and what kind of poll it was. Advance polls are numbered in the 600s and
+   special-voting-rules ballots (mail, and so on) are S/R. */
+function federalUnitName(u) {
+  const raw = String(u.name || u.label || '');
+  const m = /^(\d{5})\s*·\s*(.+)$/.exec(raw);
+  if (!m) return raw;
+  const riding = federalDistrictName(m[1]) || m[1];
+  const poll = m[2].trim();
+  const kind = /^S\/R/i.test(poll) ? `mail and special ballots (${poll})`
+    : /^6\d\d/.test(poll) ? `advance poll ${poll}` : `poll ${poll}`;
+  return `${riding} · ${kind}`;
+}
+
 function renderResultsLargest(side, s) {
   const host = $('results-largest');
   host.textContent = '';
@@ -260,10 +274,10 @@ function renderResultsLargest(side, s) {
   const list = el('ol', 'ranked-list');
   for (const u of s.largest) {
     const li = el('li');
-    li.append(el('span', 'ranked-name', u.name || u.label));
+    li.append(el('span', 'ranked-name', side === 'fed' ? federalUnitName(u) : (u.name || u.label)));
     const detail = s.kind === 'places'
       ? `${u.district} · ${u.opportunity}`
-      : (u.turnout != null ? `turnout ${fmtPct(u.turnout)}` : u.district || '');
+      : (u.turnout != null && u.turnout <= 1 ? `turnout ${fmtPct(u.turnout)}` : '');
     li.append(el('span', 'text-small text-muted', detail),
       el('span', 'ranked-value', `${fmtInt(u.ballots)} ballots`));
     list.append(li);

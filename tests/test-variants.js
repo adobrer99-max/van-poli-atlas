@@ -903,6 +903,7 @@ const FILE = 'file://' + path.resolve('vancouver-boundary-atlas.html');
        with uncommitted changes, which matches no commit. */
     await page.locator('#tab-overview').click();
     await page.waitForTimeout(300);
+    await page.evaluate(() => { document.getElementById('overview-about').open = true; });
     const stamp = await page.locator('#overview-stamp').innerText();
     ok('a build made for handing out stamps itself', /Built \d{4}-\d{2}-\d{2}/.test(stamp), stamp);
     /* And the dirty flag means something.

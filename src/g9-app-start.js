@@ -151,6 +151,18 @@ adoptPayloads().then((payload) => {
    suites keep finding -- because it reads live state each time it is shown. */
 $('tab-data').addEventListener('click', refreshReadiness);
 $('tab-overview').addEventListener('click', refreshOverview);
+/* Turnout and Neighbourhoods need the two elections lined up, and a reader
+   has no reason to know that. On a copy that carries its data the atlas does
+   it itself the first time either tab is opened, with the progress shown on
+   the tab; a copy being prepared by hand still waits for the button. */
+for (const id of ['tab-turnout', 'tab-socio']) {
+  $(id).addEventListener('click', () => {
+    if (!bakedIn() || !canBuildCrosswalk() || !$('crosswalk-progress').hidden) return;
+    setStatus(id === 'tab-turnout' ? 'turnout-status' : 'socio-status', 'busy',
+      ['Lining up the federal and provincial maps — a few seconds…']);
+    setTimeout(buildCrosswalk, 50);
+  });
+}
 $('readiness-build').addEventListener('click', () => {
   $('readiness-build-note').hidden = false;
   buildCrosswalk();

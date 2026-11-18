@@ -319,7 +319,7 @@ function updateMuniControls() {
     const node = $(sel);
     if (!node) continue;
     const b = state.muniBase;
-    for (const value of ['muni-party', 'muni-ballots', 'muni-swing', 'muni-swing-rel']) {
+    for (const value of ['muni-lead', 'muni-party', 'muni-ballots', 'muni-swing', 'muni-swing-rel']) {
       const option = node.querySelector(`option[value="${value}"]`);
       if (!option) continue;
       const swing = value.startsWith('muni-swing');

@@ -187,7 +187,7 @@ function refreshSocio() {
   if (state.da.all.length && !state.da.variables.length) missing.push('a census profile joined to them');
   if (!state.fedResults?.values && !state.provResults?.values) missing.push('federal or provincial results');
   if (state.da.all.length && (!state.sample || !state.sample.ids.includes('da'))) {
-    missing.push('the crosswalk (build it on the Compare tab after loading the census layer)');
+    missing.push('the two elections lined up (open the Federal vs provincial tab)');
   }
   if (missing.length) {
     setStatus('socio-status', 'idle', [`Needed first: ${missing.join('; ')}.`]);

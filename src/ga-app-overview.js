@@ -270,9 +270,111 @@ const CAVEATS = [
        + 'does not, so it is not offered.'],
 ];
 
+/* --- At a glance --------------------------------------------------------------
+
+   The first thing on screen: who won each election here, by how much, and how
+   many turned out. Read from the Results tab's own summaries, so the two can
+   never disagree. */
+function glanceElections() {
+  const out = [];
+  for (const [side, kicker] of [['fed', 'Federal election · 2025'], ['prov', 'Provincial election · 2024']]) {
+    const s = summaryFor(side);
+    if (!s || !s.ballots || !s.winner) continue;
+    const won = s.districtsWon ? s.districtsWon.get(s.winner.name) : null;
+    const n = s.districts.length;
+    const second = s.parties[1];
+    out.push({
+      kicker, winner: s.winner.name, share: s.winner.share, colour: partyColour(s.winner.name),
+      lines: [
+        `${fmtPct(s.winner.share)} of the vote`
+          + (won != null && n > 1 ? ` · first in ${fmtInt(won)} of the ${fmtInt(n)} ridings here` : ''),
+        second ? `Next: ${second.name}, ${fmtPct(second.share)}` : null,
+        s.turnout != null ? `Turnout ${fmtPct(s.turnout)}` : null,
+      ].filter(Boolean),
+    });
+  }
+  const m = state.muni;
+  if (m && m.parties && m.parties.length) {
+    const total = m.parties.reduce((a, [, v]) => a + v, 0);
+    const [first, second] = m.parties.slice().sort((a, b) => b[1] - a[1]);
+    const multi = (m.built?.report?.seats || 1) > 1;
+    const ov = m.overview;
+    /* For a one-seat race the person, not the slate, is the answer. The sheet's
+       heading carries both: "51 FRY, Pete (GREEN)". */
+    const person = (group) => {
+      if (multi) return null;
+      const race = (state.muniFiles.races || []).find((r) => r.name === m.race);
+      const want = String(group).toLowerCase();
+      const cells = [race?.table?.header || [], ...((race?.table?.rows || []).slice(0, 4))].flat();
+      for (const h of cells) {
+        const t = String(h).replace(/\s+/g, ' ').trim();
+        const hit = /^(?:\d+\s+)?([^,(]+),\s*([^(]+?)\s*\(([^)]*)\)$/.exec(t);
+        if (!hit || hit[3].trim().toLowerCase() !== want) continue;
+        const last = hit[1].trim();
+        const surname = last === last.toUpperCase()
+          ? last.toLowerCase().replace(/(^|[\s'-])([a-z])/g, (x, a, b) => a + b.toUpperCase()) : last;
+        return `${hit[2].trim()} ${surname}`;
+      }
+      return null;
+    };
+    const who = person(first[0]);
+    const nextWho = second ? person(second[0]) : null;
+    out.push({
+      kicker: `Civic election · ${muniYear() || ''} · ${m.race}`.replace(/ · {2}/, ' · '),
+      winner: who && who !== first[0] ? `${who}` : first[0],
+      party: who && who !== first[0] ? first[0] : null,
+      share: total ? first[1] / total : null, colour: partyColour(first[0]),
+      lines: [
+        multi ? `Most votes for ${m.race.toLowerCase()}` : `${fmtPct(total ? first[1] / total : null)} of the vote`,
+        second && !multi ? `Next: ${nextWho && nextWho !== second[0] ? `${nextWho} (${second[0]})` : second[0]}, `
+          + fmtPct(second[1] / total) : null,
+        ov && ov.turnout ? `Turnout ${fmtPct(ov.turnout)}` : `${fmtInt(m.ballots)} ballots`,
+      ].filter(Boolean),
+    });
+  }
+  return out;
+}
+
+function renderGlance() {
+  const host = $('glance-elections');
+  if (!host) return;
+  $('glance-title').textContent = CITY.id === 'metro' ? 'Metro Vancouver at a glance' : `${CITY.name} at a glance`;
+  const tiles = glanceElections();
+  $('glance-lede').textContent = tiles.length
+    ? `Who came first in the last ${tiles.length === 3 ? 'three' : tiles.length === 2 ? 'two' : ''} `
+      + `election${tiles.length > 1 ? 's' : ''} here. The map shows where each party did well, `
+      + 'poll by poll.'
+    : 'The results are still loading.';
+  host.textContent = '';
+  for (const t of tiles) {
+    const tile = el('div', 'glance-tile');
+    tile.style.setProperty('--party', t.colour);
+    const bar = el('div', 'glance-bar');
+    const fill = el('span');
+    fill.style.width = `${Math.round((t.share || 0) * 100)}%`;
+    bar.append(fill);
+    const name = el('div', 'glance-winner', t.winner);
+    if (t.party) name.append(el('span', 'glance-party', t.party));
+    tile.append(el('div', 'glance-kicker', t.kicker), name, bar);
+    for (const line of t.lines) tile.append(el('div', 'glance-line', line));
+    host.append(tile);
+  }
+}
+
+for (const b of document.querySelectorAll('#panel-overview [data-go]')) {
+  b.addEventListener('click', () => {
+    const tab = $(b.dataset.go);
+    if (!tab) return;
+    tab.click();
+    tab.scrollIntoView({ block: 'nearest', inline: 'center' });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+}
+
 function refreshOverview() {
   const host = $('overview-findings');
   if (!host) return;
+  try { renderGlance(); } catch (err) { console.warn('glance', err); }
   renderReadiness($('overview-readiness'));
 
   const scope = $('overview-scope');
@@ -298,10 +400,9 @@ function refreshOverview() {
   if (!findings.length) {
     const p = el('p', 'text-small');
     p.textContent = canBuildCrosswalk()
-      ? 'Nothing is computed yet. The crosswalk between the geographies has not been built — '
-        + 'it takes a few seconds and is the button on the Data tab.'
-      : 'Nothing is computed yet. Load results and a second geography on the Data tab, then build '
-        + 'the crosswalk.';
+      ? 'Open the Turnout or Neighbourhoods tab and the two elections are lined up in a few '
+        + 'seconds; the findings appear here once they are.'
+      : 'Nothing is worked out yet. Load results and a second map on the Data tab.';
     host.append(p);
     return;
   }

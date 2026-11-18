@@ -283,6 +283,15 @@ Profile download for the province at the dissemination-area level, and the
 zipped dissemination-area and dissemination-block boundary files; 5915022 is
 the City of Vancouver's census subdivision id.
 
+The other cities use their own: Richmond 5915015, Surrey 5915004, Burnaby
+5915025, Coquitlam 5915034, Maple Ridge 5915075, Pitt Meadows 5915070, Port
+Moody 5915043, Langley Township 5915001. For Metro, repeat `--csd` for every
+5915xxx subdivision (the municipalities, the First Nations reserves and
+Electoral Area A). Each city's cut goes into its own payload with
+`node tools/make-payload.js --city <id> --no-clip --census <cut>/ ...`; the
+`--no-clip` keeps every area of the subdivisions, which the cut has already
+chosen.
+
 ### Baking the data into the build
 
 Preparing this atlas's data means downloads from four agencies, a

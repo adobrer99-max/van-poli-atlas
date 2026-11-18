@@ -2524,6 +2524,9 @@ const clickMap = async (page, fx = 0.45, fy = 0.5) => {
   await page.locator('#tab-overview').click();
   await page.waitForTimeout(500);
   if (process.env.ATLAS_SHOT) await page.screenshot({ path: process.env.ATLAS_SHOT, fullPage: true });
+  /* The inventory, caveats and sources fold away under the at-a-glance tiles;
+     open them so innerText reads what a reader who unfolds them sees. */
+  await page.evaluate(() => document.querySelectorAll('#panel-overview details').forEach((d) => { d.open = true; }));
   const brief = await page.locator('#panel-overview').innerText();
   const figures = await page.locator('#overview-findings .finding-figure').allTextContents();
   ok(`the briefing carries headline findings (${figures.length})`, figures.length >= 3, figures.join(' | '));
