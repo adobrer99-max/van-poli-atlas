@@ -1,7 +1,7 @@
 <div id="atlas">
 <header class="atlas-header">
   <div class="atlas-title-row">
-    <h1><span data-city-text="name">Vancouver</span> Election Atlas</h1>
+    <h1>Metro Vancouver Political Atlas</h1>
     <label class="form-label city-pick" for="city-picker">City
       <select class="form-select" id="city-picker">
         <option value="vancouver">Vancouver</option>
@@ -11,66 +11,74 @@
       </select>
     </label>
   </div>
-  <p class="text-small text-muted">
-    Federal, provincial and municipal results on one map of the <span data-city-text="cityName">City of Vancouver</span> &mdash;
-    poll by poll, voting area by voting area &mdash; with the 2021 census beside them.
-    Changing city reloads the page with that city&rsquo;s data.
+  <p class="text-small text-muted atlas-intro">
+    How <span data-city-text="cityName">City of Vancouver</span> voted in the last federal, provincial and
+    civic elections, neighbourhood by neighbourhood, with the 2021 census alongside.
   </p>
 </header>
 
 <nav class="nav nav-pills" role="tablist" aria-label="Atlas sections">
   <button class="nav-link active" role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true" type="button">Overview</button>
   <button class="nav-link" role="tab" id="tab-map" aria-controls="panel-map" aria-selected="false" type="button">Map</button>
-  <button class="nav-link" role="tab" id="tab-data" aria-controls="panel-data" aria-selected="false" type="button">Data</button>
   <button class="nav-link" role="tab" id="tab-results" aria-controls="panel-results" aria-selected="false" type="button">Results</button>
-  <button class="nav-link" role="tab" id="tab-corr" aria-controls="panel-corr" aria-selected="false" type="button">Compare</button>
   <button class="nav-link" role="tab" id="tab-turnout" aria-controls="panel-turnout" aria-selected="false" type="button">Turnout</button>
-  <button class="nav-link" role="tab" id="tab-socio" aria-controls="panel-socio" aria-selected="false" type="button">Neighbourhood profile</button>
-  <button class="nav-link" role="tab" id="tab-nonvoters" aria-controls="panel-nonvoters" aria-selected="false" type="button">Non-voters</button>
-  <button class="nav-link" role="tab" id="tab-method" aria-controls="panel-method" aria-selected="false" type="button">How to read this</button>
+  <button class="nav-link" role="tab" id="tab-socio" aria-controls="panel-socio" aria-selected="false" type="button">Neighbourhoods</button>
+  <span class="nav-sep" role="presentation" aria-hidden="true"></span>
+  <button class="nav-link nav-tool" role="tab" id="tab-corr" aria-controls="panel-corr" aria-selected="false" type="button">Federal vs provincial</button>
+  <button class="nav-link nav-tool" role="tab" id="tab-nonvoters" aria-controls="panel-nonvoters" aria-selected="false" type="button">Non-voters</button>
+  <button class="nav-link nav-tool" role="tab" id="tab-data" aria-controls="panel-data" aria-selected="false" type="button">Data</button>
+  <button class="nav-link nav-tool" role="tab" id="tab-method" aria-controls="panel-method" aria-selected="false" type="button">How to read this</button>
 </nav>
 
 <!-- ------------------------------------------------------------- OVERVIEW -->
-<!-- The tab the atlas opens on. Not a summary of the other tabs: the three
-     questions a senior reader has on opening a file somebody else prepared --
-     what is in it, what it says, and what governs quoting any of it. -->
+<!-- The tab the atlas opens on, for somebody who has never seen it: who won,
+     where to look next, and -- folded away until asked for -- what the file
+     holds and what governs quoting it. -->
 <section id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
-  <div class="card">
-    <h2>What this file contains</h2>
-    <p class="text-small text-muted" id="overview-scope"></p>
-    <ul class="readiness" id="overview-readiness"></ul>
-    <p class="text-small text-muted">
-      Everything is read from inside this file. Nothing is uploaded, and apart from the optional
-      street basemap nothing is fetched &mdash; the analysis runs in this tab, on this machine.
-      The <b>Data</b> tab says where each dataset came from and lets you replace it.
-    </p>
-    <p class="text-small text-muted stamp" id="overview-stamp" hidden></p>
+  <div class="card glance">
+    <h2 id="glance-title">Results at a glance</h2>
+    <p class="glance-lede" id="glance-lede"></p>
+    <div class="glance-grid" id="glance-elections"></div>
+    <div class="glance-actions">
+      <button type="button" class="btn btn-primary" data-go="tab-map">See who won where on the map</button>
+      <button type="button" class="btn" data-go="tab-turnout">Where turnout was high and low</button>
+      <button type="button" class="btn" data-go="tab-socio">Compare with the census</button>
+    </div>
   </div>
 
   <div class="card">
-    <h2>Headline findings</h2>
+    <h2>What stands out</h2>
     <p class="text-small text-muted">
-      Computed from the data loaded here, by the tabs named beside each one, and recomputed when
-      you change a setting. Each carries how it was arrived at: a counted figure is one an agency
-      reported for these areas, a modelled one was moved onto a geography its source does not use.
+      Worked out from the data in this atlas. The tag on each says how sure the number is:
+      <b>Counted</b> means the agency reported it for these areas; the others were moved from
+      one map onto another and are estimates.
     </p>
     <div id="overview-findings"></div>
   </div>
 
-  <div class="card">
-    <h2>Before you quote a number</h2>
+  <details class="card disclosure-card" id="overview-quote">
+    <summary><h2>Before you quote a number</h2></summary>
     <ul class="caveats" id="overview-caveats"></ul>
     <p class="text-small text-muted">
       Each of these is worked through on the <b>How to read this</b> tab, with the measurements
-      behind it rather than the assertion alone.
+      behind it.
     </p>
-  </div>
+  </details>
 
-  <div class="card">
-    <h2>Sources and licences</h2>
+  <details class="card disclosure-card" id="overview-about">
+    <summary><h2>About the data</h2></summary>
+    <p class="text-small text-muted" id="overview-scope"></p>
+    <ul class="readiness" id="overview-readiness"></ul>
+    <p class="text-small text-muted">
+      Everything is read from inside this page. Nothing is uploaded, and apart from the street
+      basemap nothing is fetched &mdash; the analysis runs on your machine.
+      The <b>Data</b> tab says where each dataset came from and lets you load your own.
+    </p>
+    <h3>Sources and licences</h3>
     <ul class="sources" id="overview-sources"></ul>
     <p class="text-small text-muted" id="overview-sources-note"></p>
-  </div>
+    <p class="text-small text-muted stamp" id="overview-stamp" hidden></p>
+  </details>
 </section>
 
 <!-- ------------------------------------------------------------------ MAP -->
@@ -115,12 +123,12 @@
     </label>
     <label class="form-label grow" for="map-show">Show
       <select class="form-select" id="map-show">
-        <option value="none">Nothing (plain boundaries)</option>
-        <option value="fed">Federal result (2025)</option>
-        <option value="prov">Provincial result (2024)</option>
-        <option value="muni" hidden>Municipal result</option>
+        <option value="none">Nothing (outlines only)</option>
+        <option value="fed">Federal 2025</option>
+        <option value="prov">Provincial 2024</option>
+        <option value="muni" hidden>Civic election</option>
         <option value="census">Census indicator</option>
-        <option value="both">Both elections compared</option>
+        <option value="both">Federal vs provincial</option>
         <!-- "The roll" rather than "the loaded roll": these modes resolve as
              soon as federal results are in, because a results file carries its
              own elector count and that is the roll the subtraction uses until a
@@ -149,6 +157,7 @@
              title="Colours the 2025 federal polling divisions, the base layer of the map.">Colour federal polls by
         <select class="form-select" id="shade-by">
           <option value="none">Nothing (plain boundaries)</option>
+          <option value="fed-lead" selected>Winning party</option>
           <option value="type">Poll type</option>
           <option value="fed-party">Federal party share</option>
           <option value="turnout-fed">Federal turnout</option>
@@ -157,6 +166,7 @@
           <option value="turnout-agg">Aggregate turnout, both elections</option>
           <option value="turnout-delta">Federal minus provincial turnout</option>
           <option value="gap">Federal minus provincial party share</option>
+          <option value="muni-lead" hidden>Civic winner</option>
           <option value="muni-party" hidden>Municipal party share</option>
           <option value="muni-ballots" hidden>Municipal ballots cast (smoothed)</option>
           <option value="muni-swing" hidden>Municipal swing, points</option>
@@ -196,12 +206,14 @@
         <select class="form-select" id="shade-prov-by">
         <option value="none">Nothing (outline only)</option>
         <option value="flat">Flat fill</option>
+        <option value="prov-lead">Winning party</option>
         <option value="prov-party">Provincial party share</option>
         <option value="turnout-prov">Provincial turnout</option>
         <option value="catchment" hidden>Voting-place catchment (modelled)</option>
         <option value="prov-per-elector" hidden>Ballots per federal elector (not turnout)</option>
         <option value="prov-per-resident" hidden>Ballots per resident 15+ (not turnout)</option>
-        <option value="muni-party" hidden>Municipal party share</option>
+        <option value="muni-lead" hidden>Civic winner</option>
+          <option value="muni-party" hidden>Municipal party share</option>
         <option value="muni-ballots" hidden>Municipal ballots cast (smoothed)</option>
         <option value="muni-swing" hidden>Municipal swing, points</option>
         <option value="muni-swing-rel" hidden>Municipal swing against the city-wide swing</option>
@@ -225,7 +237,8 @@
         <option value="turnout-fed">Federal (2025) turnout</option>
         <option value="turnout-prov">Provincial (2024) turnout</option>
         <option value="variable">A census variable</option>
-        <option value="muni-party" hidden>Municipal party share</option>
+        <option value="muni-lead" hidden>Civic winner</option>
+          <option value="muni-party" hidden>Municipal party share</option>
         <option value="muni-ballots" hidden>Municipal ballots cast (smoothed)</option>
         <option value="muni-swing" hidden>Municipal swing, points</option>
         <option value="muni-swing-rel" hidden>Municipal swing against the city-wide swing</option>
@@ -846,11 +859,10 @@
 <!-- -------------------------------------------------------------- RESULTS -->
 <section id="panel-results" role="tabpanel" aria-labelledby="tab-results" hidden>
   <div class="card">
-    <h2>What the results files say</h2>
-    <p class="text-small text-muted">
-      Counts as reported, before anything is joined to a boundary, moved across the
-      crosswalk or spread from a voting place. Every other tab models something; this
-      one is the place to check a headline figure against the file it came from.
+    <h2>Results</h2>
+    <p>
+      The official counts, party by party and riding by riding, exactly as Elections Canada
+      and Elections BC report them. Nothing here is estimated.
     </p>
     <div class="viz-controls" id="results-side-wrap" hidden>
       <label class="form-label grow" for="results-side">Election
@@ -897,14 +909,23 @@
 
 <section id="panel-corr" role="tabpanel" aria-labelledby="tab-corr" hidden>
   <div class="card">
-    <h2>Build the crosswalk</h2>
-    <p class="text-small text-muted">
-      Federal polling divisions and provincial voting areas are drawn by different
-      agencies and share no boundaries, so results cannot be joined on a key.
-      This measures how much of each federal division falls inside each voting area
-      and splits votes in those proportions. Read the <b>How to read this</b> tab before quoting
-      any number from here.
+    <h2>Federal vs provincial</h2>
+    <p>
+      Do the same neighbourhoods back the same side federally and provincially? This lines the two
+      elections up and plots one party&rsquo;s federal share against another&rsquo;s provincial share,
+      area by area.
     </p>
+    <p class="text-small text-muted">
+      The two elections use different maps, so the atlas first measures how much of each federal
+      polling division falls inside each provincial voting area (the &ldquo;crosswalk&rdquo;) and
+      splits the votes in those proportions. That takes a few seconds. The results are estimates;
+      see <b>How to read this</b> before quoting one.
+    </p>
+    <div class="viz-controls">
+      <button type="button" class="btn btn-primary" id="build-crosswalk" disabled>Line up the two elections</button>
+    </div>
+    <details class="disclosure" id="crosswalk-options">
+    <summary>Crosswalk settings</summary>
     <div class="viz-controls">
       <label class="form-label grow" for="lattice">Sampling resolution
         <select class="form-select" id="lattice">
@@ -930,8 +951,8 @@
           <option value="da">Dissemination-area population</option>
         </select>
       </label>
-      <button type="button" class="btn btn-primary" id="build-crosswalk" disabled>Build crosswalk</button>
     </div>
+    </details>
     <div class="progress" id="crosswalk-progress" hidden><div class="progress-bar" id="crosswalk-bar"></div></div>
     <div id="status-crosswalk" class="status"></div>
   </div>
@@ -981,7 +1002,13 @@
 <!-- -------------------------------------------------------------- TURNOUT -->
 <section id="panel-turnout" role="tabpanel" aria-labelledby="tab-turnout" hidden>
   <div class="card">
-    <h2>Turnout by area, across both elections</h2>
+    <h2>Where turnout was high and low</h2>
+    <p>
+      Every area ranked by how many of its voters turned out, federal and provincial
+      combined. Tick areas, or use <i>Add the top</i>, to total them up in the basket below.
+    </p>
+    <details class="disclosure">
+    <summary>How this is worked out</summary>
     <p class="text-small text-muted">
       Turnout is ballots cast (valid plus rejected) over electors, for each area, in
       each election. The aggregate combines the two with the weight below. Advance
@@ -993,6 +1020,7 @@
       and over. Neither is turnout, and the spread between them is shown because it is
       the size of that choice. Read the <b>How to read this</b> tab before quoting a figure.
     </p>
+    </details>
     <div class="viz-controls">
       <label class="form-label grow" for="turnout-unit"
              title="The common geography both elections are moved onto before they are ranked.">Compare by area type
@@ -1063,7 +1091,11 @@
 <!-- ------------------------------------------------------------ SOCIOECONOMIC -->
 <section id="panel-socio" role="tabpanel" aria-labelledby="tab-socio" hidden>
   <div class="card">
-    <h2>Turnout and partisanship against census variables, by dissemination area</h2>
+    <h2>Neighbourhoods: votes against the census</h2>
+    <p>
+      Do areas with more renters, younger people or higher incomes vote differently or turn
+      out less? Pick a measure, then click a row in the table to plot it.
+    </p>
     <p class="text-small text-muted">
       Federal (2025) and provincial (2024) results are moved onto Statistics Canada's 2021
       dissemination areas through the crosswalk, so every area carries turnout and party
@@ -1266,7 +1298,7 @@
         Where a poll mixes a tower block with a park, the even-spreading assumption
         is wrong, and no amount of extra sampling resolution fixes it.</li>
       <li><b>Area is a stand-in for voters, unless you replace it.</b> With the
-        census layers loaded, <i>Weight overlaps by</i> on the Compare tab weights
+        census layers loaded, <i>Weight overlaps by</i> on the Federal vs provincial tab weights
         every lattice point by dissemination-block population instead, and the status
         line there says which basis is in force. Without them it is ground area, which
         assumes voters are spread evenly across a polygon. One wrinkle either way: a
@@ -1937,7 +1969,7 @@
         arrive as gaps, not zeros, and an area with a gap is left out of that variable's
         correlation. The n column says how many areas each figure rests on.</li>
       <li><b>Neighbouring areas resemble each other</b>, so the confidence intervals are
-        narrower than the spatial structure warrants, here as on the Compare tab.</li>
+        narrower than the spatial structure warrants, here as on the Federal vs provincial tab.</li>
       <li><b>Attribution.</b> Adapted from Statistics Canada, Census Profile, 2021 Census of
         Population, and the 2021 Geographic Attribute File. This does not constitute an
         endorsement by Statistics Canada.</li>

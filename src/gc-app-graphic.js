@@ -37,6 +37,8 @@ GRAPHIC.themes = {
 /* Colour that means a direction (a swing either way, one election ahead of
    the other), not an amount. */
 const DIVERGING = new Set(['gap', 'turnout-delta', 'muni-swing', 'muni-swing-rel']);
+/* Coloured by who won: the colours are categories, so no ramp is redrawn. */
+const CATEGORICAL = new Set(['fed-lead', 'prov-lead', 'muni-lead']);
 /* A shading value as the legend prints it: shares and turnouts as percents,
    counts as whole numbers, a census variable as it comes. */
 function graphicFormat(mode, v) {
@@ -127,8 +129,11 @@ function graphicLegend() {
 /* A sensible first draft of the words, from what is on screen. The title is
    left as a prompt: it should state the finding, which only the author knows. */
 function graphicDefaults() {
-  const legend = graphicLegend().filter((r) => !r.note);
-  const shown = legend[0]?.label || '';
+  const all = graphicLegend();
+  const legend = all.filter((r) => !r.note);
+  const lead = CATEGORICAL.has($('shade-by').value) || CATEGORICAL.has($('shade-prov-by').value);
+  const shown = lead ? (all.find((r) => r.note)?.note || '').replace(/\s*Darker means a bigger win\.$/, '').replace(/\.$/, '')
+    : legend[0]?.label || '';
   const sources = [];
   const fedShown = $('show-fed').checked && $('shade-by').value !== 'none';
   const provShown = $('show-prov').checked && state.prov.active.length && $('shade-prov-by').value !== 'none';
@@ -217,7 +222,7 @@ function graphicSvg(spec) {
   const scaled = drawn.filter((l) => l.shaded && l.value != null);
   const mode = scaled.length ? scaled[0].mode : null;
   const ramp = (() => {
-    if (!mode || DIVERGING.has(mode) || mode === 'catchment' || mode === 'type' || mode === 'flat') return null;
+    if (!mode || DIVERGING.has(mode) || CATEGORICAL.has(mode) || mode === 'catchment' || mode === 'type' || mode === 'flat') return null;
     const vals = scaled.filter((l) => l.mode === mode).map((l) => l.value).sort((a, b) => a - b);
     if (vals.length < 2) return null;
     if (spec.stretch) {

@@ -200,7 +200,7 @@ $('lattice').addEventListener('change', () => {
   if (String(state.sample.spacingM) === $('lattice').value) { renderCrosswalkStatus(); return; }
   setStatus('status-crosswalk', 'busy', [
     `The crosswalk on screen was sampled at ${state.sample.spacingM} m. `
-    + 'Press Build crosswalk again to resample at the new resolution.']);
+    + 'Press Line up the two elections again to resample at the new resolution.']);
 });
 
 /* Provincial votes pushed onto federal divisions, for map shading. */
@@ -689,11 +689,11 @@ for (const id of ['shade-prov-by', 'shade-party-prov']) {
    and anyone who wants two layers shaded at once still has the old controls in
    Map options. What they lose is having to start there. */
 const MAP_SHOW = {
-  fed: { layer: 'fed', modes: ['fed-party', 'turnout-fed', 'type'] },
+  fed: { layer: 'fed', modes: ['fed-lead', 'fed-party', 'turnout-fed', 'type'] },
   prov: { layer: 'prov',
-          modes: ['prov-party', 'turnout-prov', 'prov-per-elector', 'prov-per-resident',
+          modes: ['prov-lead', 'prov-party', 'turnout-prov', 'prov-per-elector', 'prov-per-resident',
                   'catchment'] },
-  muni: { layer: 'fed', modes: ['muni-party', 'muni-swing', 'muni-swing-rel', 'muni-ballots'] },
+  muni: { layer: 'fed', modes: ['muni-lead', 'muni-party', 'muni-swing', 'muni-swing-rel', 'muni-ballots'] },
   census: { layer: 'da', modes: ['variable'] },
   /* Deliberately its own heading. A measure that subtracts one election from
      another is not a federal result or a provincial one, and filing it under

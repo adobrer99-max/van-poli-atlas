@@ -255,7 +255,8 @@ function applyCityToMarkup() {
       o.textContent = 'Municipal ballots cast (election day, by division)';
     }
   }
-  document.title = `${CITY.name} Election Atlas`;
+  document.title = CITY.id === 'metro' ? 'Metro Vancouver Political Atlas'
+    : `${CITY.name} · Metro Vancouver Political Atlas`;
 }
 applyCityToMarkup();
 const POLL_TYPE = { N: 'ordinary', M: 'mobile', S: 'single building' };
@@ -737,6 +738,7 @@ function fitAll() {
    2024 results by f.__idx and need no crosswalk at all. */
 function shadeValue(layerKey, f, mode, fedParty, provParty, muniParty) {
   if (mode === 'none' || mode === 'type' || mode === 'flat') return null;
+  if (LEAD_MODES.has(mode)) { const l = leadAt(layerKey, f, mode); return l ? l.share : null; }
   if (POINT_MODES.has(mode)) return pointsValue(layerKey, f, mode);
   if (MUNI_MODES.has(mode)) return muniValue(layerKey, f, mode, muniParty);
   if (NONVOTER_MODES.has(mode)) return nonvotersValue(layerKey, f, mode);
@@ -784,6 +786,26 @@ function shadeValue(layerKey, f, mode, fedParty, provParty, muniParty) {
     default: return null;
   }
 }
+
+/* Who came first in an area, coloured by party and darker the bigger the
+   winner's share. The map a reader expects to open on: one picture of the
+   whole election, with no party to pick first. */
+const LEAD_MODES = new Set(['fed-lead', 'prov-lead', 'muni-lead']);
+function leadOf(u) {
+  if (!u || !(u.total > 0) || !u.parties) return null;
+  let party = null, votes = -1;
+  for (const [p, v] of u.parties) if (v > votes) { votes = v; party = p; }
+  return party == null ? null : { party, share: votes / u.total };
+}
+function leadAt(layerKey, f, mode) {
+  if (mode === 'muni-lead') return leadOf(muniUnit(layerKey, f));
+  if (mode === 'fed-lead' && layerKey === 'fed') return leadOf(fedValues()?.get(f.idx));
+  if (mode === 'prov-lead' && layerKey === 'prov') return leadOf(provValues()?.get(f.__idx));
+  return null;
+}
+/* Parties that come first somewhere on a layer, most areas first, for the
+   legend. Filled by styleLayer. */
+const leadParties = {};
 
 const TYPE_FILL = { N: 'var(--muted)', M: 'var(--viz-series-5)', S: 'var(--viz-series-6)' };
 const TURNOUT_MODES = new Set(['turnout-fed', 'turnout-prov', 'turnout-agg']);
@@ -1062,6 +1084,7 @@ function shadeDomain(layerKey, sel, mode, fedParty, provParty) {
 }
 
 function rampT(mode, v, domain) {
+  if (LEAD_MODES.has(mode)) return Math.max(0, Math.min(1, (v - 0.25) / 0.4));
   if (mode === 'gap') return Math.min(1, Math.abs(v) / 0.3);
   if (mode === 'turnout-delta') return Math.min(1, Math.abs(v) / 0.15);
   if (mode === 'muni-swing') return Math.min(1, Math.abs(v) / 0.2);
@@ -1118,7 +1141,19 @@ function styleLayer(layerKey, sel) {
   const isOverlay = layerKey !== 'fed';
   const base = isOverlay ? parseFloat($('prov-opacity').value) : 1;
   const series = LAYER_SERIES[layerKey] || 'var(--muted)';
+  if (LEAD_MODES.has(mode)) {
+    const count = new Map();
+    sel.each((f) => {
+      const l = leadAt(layerKey, f, mode);
+      if (l) count.set(l.party, (count.get(l.party) || 0) + 1);
+    });
+    leadParties[layerKey] = [...count.entries()].sort((a, b) => b[1] - a[1]);
+  }
   sel.style('fill', (f) => {
+    if (LEAD_MODES.has(mode)) {
+      const l = leadAt(layerKey, f, mode);
+      return l ? partyColour(l.party) : series;
+    }
     if (isOverlay && mode === 'none') return null;
     if (isOverlay && mode === 'flat') return series;
     if (mode === 'type') return TYPE_FILL[f.pollType] || 'var(--muted)';
@@ -1437,6 +1472,15 @@ function pointsLegend(mode, layerKey) {
   return out;
 }
 
+function leadLegend(mode, layerKey) {
+  const what = mode === 'fed-lead' ? 'Federal 2025' : mode === 'prov-lead' ? 'Provincial 2024'
+    : `Municipal ${muniYear() || ''} ${state.muni ? state.muni.race.toLowerCase() : ''}`.replace(/\s+/g, ' ').trim();
+  const where = layerKey === 'fed' ? 'polling division' : 'voting area';
+  const list = (leadParties[layerKey] || []).slice(0, 8);
+  return [['note', `${what}: who came first in each ${where}. Darker means a bigger win.`],
+    ...list.map(([p, n]) => [partyColour(p), `${p} (${fmtInt(n)})`])];
+}
+
 function renderLegend() {
   const legend = $('map-legend');
   const mode = $('shade-by').value;
@@ -1449,11 +1493,13 @@ function renderLegend() {
      carried there by the crosswalk. Without one those modes shade nothing, and
      a legend describing them would be describing an empty map. */
   const CROSS_LEVEL = new Set(['prov-party', 'turnout-prov', 'turnout-agg', 'turnout-delta', 'gap']);
-  const RESULT_MODES = new Set(['fed-party', 'prov-party', 'gap', 'turnout-fed', 'turnout-prov',
+  const RESULT_MODES = new Set(['fed-lead', 'fed-party', 'prov-party', 'gap', 'turnout-fed', 'turnout-prov',
                                 'turnout-agg', 'turnout-delta']);
   const crossReady = Boolean(state.provOnFed && state.provOnFed.size);
   if (CROSS_LEVEL.has(mode) && !crossReady) {
-    items.push(['note', 'This shading needs the crosswalk — build it on the Compare tab.']);
+    items.push(['note', 'This shading needs the two elections lined up first — press the button on the Federal vs provincial tab.']);
+  } else if (LEAD_MODES.has(mode)) {
+    items.push(...leadLegend(mode, 'fed'));
   } else if (mode === 'type') {
     items.push(['var(--muted)', 'Ordinary poll'], ['var(--viz-series-5)', 'Mobile poll'],
                ['var(--viz-series-6)', 'Single building']);
@@ -1492,7 +1538,9 @@ function renderLegend() {
       + 'Turnout tab to include them.']);
   }
   if (state.prov.active.length) {
-    if (provMode === 'prov-party' && provParty) {
+    if (LEAD_MODES.has(provMode)) {
+      items.push(...leadLegend(provMode, 'prov'));
+    } else if (provMode === 'prov-party' && provParty) {
       items.push([partyColour(provParty), `${provParty} share, 2024, on voting areas`]);
     } else if (provMode === 'turnout-prov') {
       items.push(['var(--viz-series-1)', `2024 provincial turnout on voting areas${range(state.shadeDomain.prov)}`]);
@@ -1540,6 +1588,11 @@ function renderLegend() {
     }
     items.push(['outline-da', 'Census (2021) dissemination area']);
   }
+  /* With only the federal layer shaded, the other layers' outlines are
+     context, not content: drawn thin and grey so the colours read. */
+  const quiet = mode !== 'none' && provMode === 'none'
+    && (!$('shade-da-by') || $('shade-da-by').value === 'none');
+  root.querySelector('.map-wrap')?.classList.toggle('map-quiet', quiet);
   legend.hidden = items.length === 0;
   for (const [colour, text] of items) {
     const row = el('div', 'legend-item');
