@@ -311,18 +311,24 @@ function glanceElections() {
         const hit = /^(?:\d+\s+)?([^,(]+),\s*([^(]+?)\s*\(([^)]*)\)$/.exec(t);
         if (!hit || hit[3].trim().toLowerCase() !== want) continue;
         const last = hit[1].trim();
-        const surname = last === last.toUpperCase()
-          ? last.toLowerCase().replace(/(^|[\s'-])([a-z])/g, (x, a, b) => a + b.toUpperCase()) : last;
+        const surname = /[A-Z]{3}/.test(last)
+          ? last.toLowerCase().replace(/(^|[\s'-])([a-z])/g, (x, a, b) => a + b.toUpperCase())
+            .replace(/\bMc([a-z])/g, (x, a) => `Mc${a.toUpperCase()}`) : last;
         return `${hit[2].trim()} ${surname}`;
       }
       return null;
     };
-    const who = person(first[0]);
-    const nextWho = second ? person(second[0]) : null;
+    const same = (a, b) => a && b && String(a).toLowerCase() === String(b).toLowerCase();
+    const named = (group) => { const p = person(group); return same(p, group) ? null : p; };
+    const who = named(first[0]);
+    const nextWho = second ? named(second[0]) : null;
     out.push({
       kicker: `Civic election · ${muniYear() || ''} · ${m.race}`.replace(/ · {2}/, ' · '),
-      winner: who && who !== first[0] ? `${who}` : first[0],
-      party: who && who !== first[0] ? first[0] : null,
+      /* Some cities label a mayoral column "Rob Howard – Richmond Forward"
+         already; the slate is then what follows the dash. */
+      winner: who || String(first[0]).split(' – ')[0],
+      party: String(first[0]).includes(' – ') ? String(first[0]).split(' – ').slice(1).join(' – ')
+        : who && who !== first[0] ? first[0] : null,
       share: total ? first[1] / total : null, colour: partyColour(first[0]),
       lines: [
         multi ? `Most votes for ${m.race.toLowerCase()}` : `${fmtPct(total ? first[1] / total : null)} of the vote`,
